@@ -39,8 +39,8 @@ int main(void) {
     /* ---- page #03 decodes to the VIA by mask (§6.4) -------------- */
     {
         oric_t *m = machine();
-        /* Believed to answer throughout the page, registers on A3-A0
-         * (§16: medium until the schematic settles it in M3). */
+        /* It answers throughout the page, registers on A3-A0 (§6.4,
+         * §16: settled from the service manual). */
         bus_write(m, 0x030B, 0x5A);
         CHECK(bus_read(m, 0x031B) == 0x5A, "#031B mirrors the ACR");
         CHECK(bus_read(m, 0x03FB) == 0x5A, "#03FB mirrors the ACR");

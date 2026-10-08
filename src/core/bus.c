@@ -1,9 +1,8 @@
 /* bus.c — the slow path behind the page table (design.md §6.1, §6.4).
  *
- * Page #03 is I/O. The VIA is believed to answer throughout the page,
- * its registers on A3-A0, unless an expansion claims an address with
- * /I/O CONTROL (§6.4, §16: to be read off the schematic). So it is
- * decoded by mask, not equality. M14: the Microdisc takes #0310-#031F.
+ * Page #03 is I/O. The VIA answers throughout the page, its registers
+ * on A3-A0, unless an expansion claims an address with /I/O CONTROL
+ * (§6.4, §16). So it is decoded by mask, not equality. M14: the Microdisc takes #0310-#031F.
  */
 
 #include "bus.h"
