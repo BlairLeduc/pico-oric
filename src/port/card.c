@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 
@@ -76,8 +77,21 @@ static void one_rom(card_job_t *j, const FILINFO *fi) {
     const char *what = "unrecognised";
     if (id == ROM_UNKNOWN) {
         j->unknown++;
+        /* A file with an image's name and size stands for it while no
+         * file is the image itself (§10.2). */
+        for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
+            if (j->rom[i] != ROMFILE_ABSENT || len != romset_images[i].size ||
+                strcasecmp(fi->fname, romset_images[i].file) != 0)
+                continue;
+            j->rom[i] = ROMFILE_NAMED;
+            memcpy(j->path[i], path, sizeof path);
+        }
     } else {
-        j->found[id] = true;
+        /* The image itself wins over a file that only has its name. */
+        if (j->rom[id] != ROMFILE_KNOWN) {
+            j->rom[id] = ROMFILE_KNOWN;
+            memcpy(j->path[id], path, sizeof path);
+        }
         what = romset_images[id].file;
     }
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
@@ -85,8 +99,30 @@ static void one_rom(card_job_t *j, const FILINFO *fi) {
               (unsigned long)us);
 }
 
-void card_roms(card_job_t *j) {
+rom_id_t card_other_basic(rom_id_t id) {
+    return id == ROM_BASIC10 ? ROM_BASIC11 : ROM_BASIC10;
+}
+
+/* Read the file the listing found for `id` into image: false unless it
+ * is still exactly a ROM's size. */
+static bool load_rom(card_job_t *j, rom_id_t id, uint8_t image[ORIC_ROM_SIZE]) {
+    uint32_t t0 = time_us_32();
+    FIL f;
+    if (f_open(&f, j->path[id], FA_READ) != FR_OK) return false;
+    UINT got = 0;
+    FRESULT fr = f_read(&f, image, ORIC_ROM_SIZE, &got);
+    bool whole = fr == FR_OK && got == ORIC_ROM_SIZE && f_size(&f) == ORIC_ROM_SIZE;
+    f_close(&f);
+    if (!whole) return false;
+    j->loaded = id;
+    j->loaded_known = romset_identify(image, ORIC_ROM_SIZE) == id;
+    j->load_us = time_us_32() - t0;
+    return true;
+}
+
+void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
     memset(j, 0, sizeof *j);
+    j->loaded = ROM_UNKNOWN;
     if (!sd_present()) {
         j->state = CARD_NONE;
         log_core1("  card         : no card\n");
@@ -122,13 +158,30 @@ void card_roms(card_job_t *j) {
         one_rom(j, &fi);
     }
     f_closedir(&dir);
-    storage_unmount();
 
     log_core1("  card         : %s has %u files, %u unrecognised; missing:%s%s%s\n",
               ORIC_ROM_DIR, j->files, j->unknown,
-              j->found[ROM_BASIC10] ? "" : " basic10.rom",
-              j->found[ROM_BASIC11] ? "" : " basic11b.rom",
-              j->found[ROM_MICRODISC] ? "" : " microdis.rom");
+              j->rom[ROM_BASIC10] == ROMFILE_KNOWN ? "" : " basic10.rom",
+              j->rom[ROM_BASIC11] == ROMFILE_KNOWN ? "" : " basic11b.rom",
+              j->rom[ROM_MICRODISC] == ROMFILE_KNOWN ? "" : " microdis.rom");
+
+    /* The machine's ROM, or failing it the other machine's (§10.2). */
+    if (image) {
+        rom_id_t pick[2] = { want, card_other_basic(want) };
+        for (unsigned i = 0; i < 2 && j->loaded == ROM_UNKNOWN; i++) {
+            if (j->rom[pick[i]] == ROMFILE_ABSENT) continue;
+            if (!load_rom(j, pick[i], image)) {
+                log_core1("  rom          : %s: could not be read whole\n", j->path[pick[i]]);
+                continue;
+            }
+            log_core1("  rom          : %s loaded as %s%s, %lu us\n", j->path[pick[i]],
+                      romset_images[pick[i]].file,
+                      j->loaded_known ? "" : ", UNRECOGNISED: a near-miss boots and then "
+                                             "misbehaves (design.md §10.2)",
+                      (unsigned long)j->load_us);
+        }
+    }
+    storage_unmount();
 }
 
 bool card_poll(void) {

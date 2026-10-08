@@ -106,7 +106,7 @@ void via6522_rearm(via6522_t *v) {
 /* The cycles since the last sync, to T2 and the shift register as the
  * tick used to give them an instruction at a time. Nothing they do in
  * between is visible, so the flags come out on the same instruction. */
-void via6522_sync(via6522_t *v) {
+void ORIC_HOT1(via6522_sync)(via6522_t *v) {
     int32_t elapsed = v->ev_span - v->ev;
     if (!(v->acr & VIA_ACR_T2_PULSES)) {
         v->t2 -= elapsed;
@@ -212,11 +212,11 @@ void via6522_set_cb2(via6522_t *v, bool level) {
     if (level == ((mode & 2u) != 0)) v->ifr |= VIA_INT_CB2;
 }
 
-void via6522_set_pa(via6522_t *v, uint8_t pins) {
+void ORIC_HOT1(via6522_set_pa)(via6522_t *v, uint8_t pins) {
     v->in_a = pins;
 }
 
-void via6522_set_pb(via6522_t *v, uint8_t pins) {
+void ORIC_HOT1(via6522_set_pb)(via6522_t *v, uint8_t pins) {
     bool fell = (v->in_b & 0x40u) && !(pins & 0x40u);
     v->in_b = pins;
     if (!fell || !(v->acr & VIA_ACR_T2_PULSES)) return;

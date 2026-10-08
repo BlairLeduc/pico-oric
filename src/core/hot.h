@@ -9,10 +9,11 @@
  * includes a Pico header.
  *
  * Moves come in tiers, and PICO_ORIC_RAM_TIER says how many are taken.
- * The firmware's CMake defaults to tier 0. M2's bench, on one core, found
- * tier 2 within 2 % of it and tier 1 slower (design.md §3.2,
- * hardware-notes.md §9.8); M7 and M12 measure again with core 1 sharing
- * the cache. A host build leaves it at 0 and gets ordinary functions.
+ * The firmware's CMake defaults to tier 2. M2's bench, on one core, found
+ * tier 2 within 2 % of tier 0 and tier 1 slower; with core 1 presenting,
+ * M7 measured tier 2 at 1.25-1.58x tier 0 on every workload (design.md
+ * §3.2, hardware-notes.md §9.8). A host build leaves it at 0 and gets
+ * ordinary functions.
  *
  *   ORIC_HOT1(name)  what the interpreter calls out to: the bus slow path,
  *                    the VIA, the AY.

@@ -47,7 +47,7 @@ typedef struct {
     uint8_t  mode;                      /* the mode attribute's bits at field start */
     bool     blink_on;                  /* blinking cells show this field          */
     uint32_t field;
-    /* M7: the status line's bytes (tape position, disc activity). */
+    /* M10, M14: the status line's bytes (tape position, disc activity). */
 } oric_frame_t;
 
 /* One cell: everything its six pixels depend on (§7.2). Inverse and

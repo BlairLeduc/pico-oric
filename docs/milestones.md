@@ -4,6 +4,87 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M7, the Oric on the device** (`src/port/core0.*`, `core1.c`, `main.c`,
+`handoff.*`, `display.*`, `card.*`, `roms.*`, `textpage.*`;
+`src/core/status.*`; `test_status`; `tools/perf-run.sh`,
+`perf-summary.sh`, `uart-screen.sh`), built 2026-10-08 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day. Core 1 brings up the southbridge and
+the panel, then reads `/oric/roms/`, hashing every file, and loads the
+machine's ROM, found by SHA-1 whatever its name, or failing that a file
+with its name and size, marked unrecognised (design.md §10.2). Core 0
+runs `oric_run_field` paced on `time_us_64()` against an absolute
+deadline, with the keyboard's and the UART's events into `keymatrix`
+before each field, and publishes a frame to pico-ace's pool, which core 1
+presents through `ula_diff` at (40, 48) with the perf line above. Without
+the ROM, core 1 presents a page, an Oric frame drawn in the ROM's font or
+the fallback, naming what is missing; if the other machine's ROM is
+there, RETURN starts that machine. The machine is the Atmos 48K, or
+`PICO_ORIC_BOOT_ROM` and `_RAM`. **Found on the board:** the first image
+ran an undocumented `#02` at `#FFFF`. `oric_init` powers on, and the CPU
+takes its reset vector then, from the empty socket; the harness and the
+trace tool reset again after loading the ROM, and `main.c` did not. It
+now powers on after loading, and `oric.h` and CLAUDE.md say so. **The
+machine on the board equals the host's:** a scratch build logged the
+CPU's registers and cycle count at the end of each of the first 150
+fields, through the boot to Ready, and a host program running the same
+loop printed the same 150 lines. **Checked on the board:** all four
+machines boot to Ready at the ROM's own pace, within a field of M3's
+cycles from power-on: 1,078,282 (1.0 16K), 2,855,432 (1.0 48K), 898,569
+(1.1 16K) and 2,476,042 (1.1 48K); Ready 1.67, 3.45, 1.49 and 3.07 s after
+reset, each 0.60 s behind its guest time: 34 ms to start core 1, 424 ms
+in `lcd_init` (the panel's reset and sleep-out waits, hardware-notes
+§4.4), and 138 ms for the card (mount, three files hashed, one loaded,
+and the job's own log lines at 115,200 baud). The criterion "under a
+second" was amended by the owner (design.md §15.2). `PRINT 2+2` typed
+over the UART prints 4, and the screen read back with `uart-screen.sh`
+shows the Atmos's banner and 37,631 bytes free. By the owner's eye:
+BASIC typed on the PicoCalc's keyboard runs; a test card (eight papers
+with contrasting inks, inverse, double height, blink, the alternate set,
+two inks) and a HIRES drawing (red and cyan circles by an ink attribute,
+a cross, the text window) each match a render of the same program on the
+host (`out/m7/text.png` and `hires.png`, the programs beside them); with
+the card out, the page that says so; with `basic11b.rom` moved out of
+`/oric/roms/`, the page naming it and offering the Oric-1 48K, and RETURN
+on the keyboard booting it, to Ready at 2,855,432 cycles. The pages were
+rendered on the host first as well (`out/m7/nocard.png`, `offer.png`,
+and `none.png`, with neither BASIC ROM and an unrecognised EPROM).
+Real-time ratio 1.000 on every workload (0.999–1.002 a window), zero late
+fields, zero slips, zero I²C errors. **Measured** (`out/m7/summary.txt`),
+the Atmos 48K, §14's workloads and two at 60 Hz, one boot each, eight or
+nine 5 s windows, tier 0 against tier 2, as core 0's share (host cycles
+per instruction): idle 34.4 / 27.4 % (194.8 / 155.2), compute 45.4 /
+31.2 % (216.0 / 148.8), scroll 39.3 / 30.1 % (196.5 / 150.9), hires 47.5 /
+30.1 % (243.6 / 154.4), sound 44.4 / 31.3 % (212.8 / 150.3), glyphs 44.2 /
+30.9 % (214.1 / 150.2), scroll at 60 Hz 40.1 / 30.3 % (200.0 / 151.9) and
+glyphs at 60 Hz 45.5 / 31.3 % (219.6 / 151.6); 3.19–3.80 guest cycles per
+instruction. **Decided** by the owner: tier 2 is the default (design.md
+§3.2). At tier 2 GCC had inlined `oric_run` into `oric_run_field`, which
+was in flash, so the run loop called the interpreter through a veneer
+every instruction; `oric_run_field` is now marked as well
+(hardware-notes §9.8), and the tier-2 runs above include that.
+The
+I/O path that M3 added (`oric_io_changed`, `oric_via_catch_up`, `wire`,
+`via6522_sync`, `_set_pa`, `_set_pb`, `ay8912_bus`) was in flash too, and
+is now tier 1, as hot.h defines it: against tier 2 without it in the
+same sitting, whose figures repeated the runs above to 0.1 point, idle
+27.4 to 27.0 %, sound 31.3 to 30.8 % and hires 30.1 to 29.7 %, each run
+steady to 0.1 (`summary-io.txt`). Without the perf line (the control), idle, glyphs and
+scroll at 60 Hz read the same to 0.1 point. Presents: 2.9–3.0 ms with
+almost nothing to send, 3.4–3.5 ms while scrolling, 2.3–2.7 ms in hires,
+14.8–15.2 ms with the space glyph redefined every field; **no snapshot
+dropped** at 50 or 60 Hz; the one full present at boot 16.0–16.1 ms. The
+mode scan, sampled once a second: 37–38 µs a field on text, 66–71 µs with
+the 60 Hz attribute, 112–117 µs in hires (0.2–0.6 % of core 0); the
+snapshot's copy 0.20–0.31 %. `test_status` holds the perf line's text,
+and found an overflow carried over from pico-ace: a count near 2³²
+rounded to nothing (fixed here, not in pico-ace). The image is 95.5 KB of
+text and 169.6 KB of bss. **Not checked:** the build without the UART on
+the board (it builds); a card pulled or put in while the guest runs
+(logged only: card work waits for M9's park); the status line's note for
+an unrecognised ROM (none to hand); keys held to auto-repeat on the
+board; the 16K machines beyond their boot.
+
 **M6, board bring-up and the card** (`src/port/southbridge.*`, `kbd.*`,
 `log.*`, `lcd.*`, `display.*`, `sd.*`, `diskio.c`, `storage.*`,
 `card.*`, `core1.*`, `handoff.*`, `main.c`, `fatfs/ffconf.h`;

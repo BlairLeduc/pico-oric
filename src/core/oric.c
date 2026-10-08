@@ -94,7 +94,7 @@ void oric_power_on(oric_t *m) {
  * columns; PB3 reads high while a key is down in an enabled column of
  * that row. Both scans write a column mask with one zero bit (#7F, #BF,
  * ...) and take PB3 set as a key (#F506 in 1.0, #F561 in 1.1; §16). */
-static void wire(oric_t *m) {
+static void ORIC_HOT1(wire)(oric_t *m) {
     via6522_t *v = &m->via;
 
     ay_bus_t mode = (ay_bus_t)((v->cb2 ? 2u : 0u) | (v->ca2 ? 1u : 0u));
@@ -109,11 +109,11 @@ static void wire(oric_t *m) {
     m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(v));
 }
 
-void oric_io_changed(oric_t *m) {
+void ORIC_HOT1(oric_io_changed)(oric_t *m) {
     wire(m);
 }
 
-void oric_via_catch_up(oric_t *m) {
+void ORIC_HOT1(oric_via_catch_up)(oric_t *m) {
     /* The VIA runs two cycles behind the CPU: at an instruction boundary
      * it has been ticked to the start of the instruction's penultimate
      * cycle. A 6502 decides whether to take an IRQ at the end of that
@@ -227,7 +227,10 @@ uint32_t oric_field_cycles(const oric_t *m) {
     return (uint32_t)m->cfg.line_cycles * (hz50 ? m->cfg.lines_50hz : m->cfg.lines_60hz);
 }
 
-uint32_t oric_run_field(oric_t *m) {
+/* Hot like oric_run, which the compiler inlines here: otherwise tier 2
+ * leaves the run loop in flash, calling into SRAM through a veneer every
+ * instruction (hot.h). */
+uint32_t ORIC_HOT2(oric_run_field)(oric_t *m) {
     /* The field began where the last one's overshoot says (§4.2). */
     int32_t want = (int32_t)oric_field_cycles(m) + m->budget;
     uint32_t done = want > 0 ? oric_run(m, (uint32_t)want) : 0;

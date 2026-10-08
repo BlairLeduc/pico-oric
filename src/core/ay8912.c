@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#include "hot.h"
+
 /* Bits a register keeps; the rest read back as zero (General
  * Instrument AY-3-8910/8912 data manual, the register array). */
 static const uint8_t reg_mask[AY_REG_COUNT] = {
@@ -23,7 +25,7 @@ void ay8912_reset(ay8912_t *ay) {
     ay->selected = true;    /* register 0, as RESET leaves the latch */
 }
 
-void ay8912_bus(ay8912_t *ay, ay_bus_t mode, uint8_t data) {
+void ORIC_HOT1(ay8912_bus)(ay8912_t *ay, ay_bus_t mode, uint8_t data) {
     ay->mode = (uint8_t)mode;
     ay->driving = false;
     switch (mode) {

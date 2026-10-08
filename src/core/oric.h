@@ -164,7 +164,10 @@ uint8_t oric_peek(const oric_t *m, uint16_t addr);
 void oric_copy(oric_t *dst, const oric_t *src);
 
 /* Put a 16 KiB BASIC ROM in the socket at #C000 (§2.2). The image is
- * copied; false if it is not exactly ORIC_ROM_SIZE bytes. */
+ * copied; false if it is not exactly ORIC_ROM_SIZE bytes. The CPU took
+ * its reset vector when oric_init powered on, from an empty socket, so
+ * power on or reset after this: without it the first instruction is at
+ * #FFFF, the open bus's vector. */
 bool oric_load_rom(oric_t *m, const uint8_t *data, size_t len);
 
 /* Make a region plain read/write RAM. Used by the host tests, which need a

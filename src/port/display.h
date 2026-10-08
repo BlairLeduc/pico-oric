@@ -1,28 +1,47 @@
 /* display.h — what core 1 puts on the panel (design.md §7).
  *
- * Core 1 only. Owns the DMA line buffers (§4.3). There is no
- * framebuffer (§7.1): every pixel sent is generated as it goes.
+ * Core 1 only. Owns the presenter's shadow of decoded cells and the DMA
+ * line buffers (§4.3). There is no framebuffer (§7.1): every pixel sent
+ * is generated from a frame as it goes.
  *
- * M7: the presenter, the decoded-cell shadow with its dirty bands
- * (§7.3), and the perf and status lines, adapted from pico-ace's.
+ * Adapted from pico-ace's: the dirty-band presenter and the perf and
+ * status lines stay; the shadow holds the ULA's decoded cells (§7.3).
  */
 #ifndef PICO_ORIC_DISPLAY_H
 #define PICO_ORIC_DISPLAY_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
-/* The bring-up pattern (design.md §15.2 M6): a 1-px white border exactly
- * on the guest's 240x224 rectangle at (40,48), with a 16x16 block in each
- * inside corner (red top-left, green top-right, blue bottom-left, yellow
- * bottom-right), so a mirrored axis or swapped R/B shows as the wrong
- * colour in the wrong corner. A 1-px grey frame on the panel's own edge
- * shows that all 320x320 are addressed. Everything else is black. */
-void display_test_pattern(void);
+#include "config.h"
+#include "ula.h"
 
-/* The blit costs M6 measures, each the wall time of a whole operation on
- * the guest's rectangle: one colour by DMA with the read address held;
- * every row from a line buffer, as the presenter will send them; and one
- * 240-pixel row with its own window. Leaves the rectangle black. */
-void display_measure(uint32_t *fill_us, uint32_t *blit_us, uint32_t *row_us);
+typedef struct {
+    uint32_t us;        /* wall time of the present                    */
+    uint16_t bands;     /* bands sent (28 for a full redraw)           */
+    uint32_t pixels;    /* pixels on the wire                          */
+    bool     full;      /* the shadow was invalid: everything was sent */
+} display_stats_t;
+
+/* The two text lines in `font`, the standard set's 128 glyphs (font.h),
+ * which is copied; the shadow invalid. The panel is as lcd_init left it,
+ * black. */
+void display_init(const uint8_t font[ORIC_CHARSET_BYTES]);
+
+/* Present one frame: decode it against the shadow (§7.3), send each
+ * dirty band's span as one 8-row window in the guest's rectangle at
+ * (40, 48) (§7.5), and make its cells the shadow. The frame may go back
+ * to the pool as soon as this returns. */
+void display_present(const oric_frame_t *f, display_stats_t *st);
+
+/* Forget what is on the panel, so the next present sends everything. */
+void display_invalidate(void);
+
+/* The perf line at the panel's top and the status line at its foot
+ * (§7.5, §12): ORIC_TEXT_COLS characters in the emulator's font, grey on
+ * black, each drawn only when its text differs from what is there.
+ * Shorter text is padded with spaces. */
+void display_perf(const char *text);
+void display_status(const char *text);
 
 #endif /* PICO_ORIC_DISPLAY_H */

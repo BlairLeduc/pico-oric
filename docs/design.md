@@ -274,9 +274,23 @@ was within 2 % of flash either way and tier 1 was 5–9 % slower (HW §9.8).
 M7 and M12 measure it again with core 1 presenting, where it is expected to
 matter. `docs/milestones.md` has the runs.
 
+**Measured with core 1 presenting (M7, 2026-10-08).** The whole machine,
+BASIC 1.1 on 48K, on the same board at 150 MHz, paced on the timer, on
+§14's workloads plus two at 60 Hz, one boot each: at tier 0 it took
+**34.4 % (idle) to 47.5 % (hires)** of core 0, at 192–244 host cycles per
+instruction; at tier 2, **27.4–31.3 %**, at 149–155. M2's bench had the
+XIP cache to itself; here core 1's presenting and polling code shares it,
+and the interpreter in flash pays for that on every workload. The ROM's
+own code ran 3.19 (compute) to 3.80 (idle) cycles per instruction. The
+perf line cost nothing measurable. **Decided 2026-10-08 (owner): tier 2
+is the firmware's default.** M12 measures again with audio.
+
 **Core 1's budget.** A full 240×224 present is 53,760 pixels: by scaling
 HW §4.7's measured 11.48 ms for 256×192, about **12.6 ms** (estimate). The
-attribute decode and cell compare (§7.3) add an estimated 1–2 ms. A 50 Hz
+attribute decode and cell compare (§7.3) add an estimated 1–2 ms. Measured in M7: the decode and the comparison alone, with
+almost nothing to send, take **2.9–3.0 ms** a present, and a program that
+redefines the space glyph every field, changing most cells, **14.8–15.2
+ms**; no snapshot was dropped at 50 or 60 Hz on any workload. A 50 Hz
 field is 20 ms, so a full redraw every field fits. A 60 Hz field is 16.9 ms,
 and a full redraw every field plus a 4.8 ms keyboard poll (HW §6.1) does
 not: such a program drops some snapshots, counted on the heartbeat (EL §2.4).
@@ -395,8 +409,9 @@ the drop counter on the heartbeat. A snapshot is:
 | blink phase | 1 |
 | status: field number, tape position, disc activity, flags | ~16 |
 
-`oric_frame_t` in `ula.h` holds the first three and the field number; the
-rest of the status arrives with M7.
+`oric_frame_t` in `ula.h` holds the first three and the field number. The
+rest of the status arrives with what it reports: the tape's with M10, the
+disc's with M14. M7 had nothing to put there.
 
 The window holds everything the ULA can fetch in either mode: both
 character-set locations, the hires bitmap and the text screen. Copying all
@@ -632,7 +647,7 @@ next snapshot's "mode at field start" must be right even when core 1 drops a
 snapshot. So at field end, core 0 runs `ula_scan_mode()` over the window it
 just copied: the same raster walk as the decode, but looking only for bytes
 whose bits 6–3 are `0011` (mode attributes), 8,960 byte tests at most
-(estimated ≤ 1 % of core 0, to be measured in M7). This is the one piece of
+(estimated ≤ 1 % of core 0; measured in M7 at 0.2–0.6 %). This is the one piece of
 the ULA on core 0, and it holds no renderer state (EL §2.3).
 
 As built (M4), `oric_run_field` runs the scan at the field's end over the
@@ -643,7 +658,10 @@ attribute before it is walked. On the workstation (Release, M1 Pro) that
 took the scan from 4.7 to 1.1 µs on a BASIC text screen, from 28.5 to
 0.56 µs on a hires one and from 23 to 14 µs on a random screen full of mode
 attributes, its worst case (`out/m4-video-cost.txt`). The decode costs
-10–17 µs and the rows 9 µs there.
+10–17 µs and the rows 9 µs there. On the board (M7, sampled once a
+second on the snapshot), the scan took 37–38 µs a field on a BASIC text
+screen, 66–71 µs with a 60 Hz mode attribute in the status row, and
+112–117 µs in hires: 0.2–0.6 % of core 0.
 
 When a mode attribute takes effect (from the next cell, the next line, or
 the next field) and when the 50/60 Hz choice changes the field's length are
@@ -1160,7 +1178,10 @@ share of time in the ULA mode scan, the field rate (50 or 60 Hz), and from
 M14 disc track transfers. Workloads, one boot each, typed over the UART: idle
 at `Ready`, a compute loop, a scrolling `PRINT` loop, a hires drawing loop,
 an AY loop (`MUSIC` and `SOUND` with noise and an envelope), and one with
-redefined characters. Find out which is heaviest (EL §12). Each feature is
+redefined characters. Find out which is heaviest (EL §12). As found in M7
+(`tools/perf-run.sh`): idle at `Ready` is the lightest, unlike the Atom's;
+at tier 2 the rest lie within a point of each other (30.1–31.3 % of core
+0), and at tier 0 the hires loop was heaviest (47.5 %). Each feature is
 measured against a control build in the same sitting; the previous release
 too.
 
@@ -1316,8 +1337,9 @@ missing-ROM page; core 0 running `oric_run_field` paced on `time_us_64()`
 against an absolute deadline (no audio yet, EL §6.3), with the mode scan;
 core 1 presenting at (40, 48) with dirty bands; the PicoCalc keyboard into
 the matrix; the heartbeat.
-*Done when:* the device boots to `Ready` in under a second in each of the
-four machines (set by `PICO_ORIC_BOOT_*`); BASIC typed on the PicoCalc runs;
+*Done when:* the device boots to `Ready` at the ROM's own pace in each of
+the four machines (set by `PICO_ORIC_BOOT_*`): M3's cycles from power-on,
+after core 1's bring-up; BASIC typed on the PicoCalc runs;
 colour, inverse, double height, blink and a `HIRES` drawing look right on
 the panel (by the owner's eye); a missing ROM shows the page that names it;
 real-time ratio 1.000.
@@ -1325,6 +1347,10 @@ real-time ratio 1.000.
 workloads; present times; the mode scan's cost; dropped snapshots at 50 and
 60 Hz.
 *Leaves out:* sound, menu, media.
+*Amended* by the owner, 2026-10-08: the criterion was Ready "in under a
+second", but M3 measured the ROMs taking 0.89–2.85 s of guest time to
+reach it, almost all of it their RAM test, as on a real Oric. Booting
+paced is the Oric's own time; nothing runs unpaced before M10's turbo.
 
 #### M8. AY audio
 
