@@ -208,9 +208,10 @@ static uint8_t naive_scan(uint8_t mode) {
     return mode;
 }
 
+/* C11's clock: the build is strict C11, which hides clock_gettime. */
 static double now_us(void) {
     struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
+    timespec_get(&t, TIME_UTC);
     return (double)t.tv_sec * 1e6 + (double)t.tv_nsec / 1e3;
 }
 
