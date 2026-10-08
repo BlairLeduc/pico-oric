@@ -61,7 +61,10 @@ on the board, where the port does not use the ULA yet (M7); the panel's
 byte order; any rule against hardware, rather than against two emulators;
 the blink period (configuration, 32 fields); the first active line; the
 emulator's text pages, which arrive with M9; the frame's status bytes
-(M7). The owner has not yet looked at the goldens.
+(M7). The owner has not yet looked at the goldens. CI green for PR #4 on
+both jobs, `test_golden` among the passes and `test_font` skipped (no ROMs
+in CI); its first run failed on `clock_gettime`, which strict C11 hides on
+glibc, and `test_ula` now times with `timespec_get`.
 
 **M3, the Oric on the host** (`src/core/ay8912.*`, `romset.*`, `sha1.*`,
 `oric.*`, `bus.*`; `test/host/guest.*`, `test_boot`, `test_ay8912`,
