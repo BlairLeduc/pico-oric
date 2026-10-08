@@ -19,12 +19,20 @@ const rom_info_t romset_images[ROM_IMAGE_COUNT] = {
 };
 
 rom_id_t romset_identify(const uint8_t *data, size_t len) {
-    uint8_t d[SHA1_DIGEST_LEN];
-    bool hashed = false;
     for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
         if (len != romset_images[i].size) continue;
-        if (!hashed) { sha1(data, len, d); hashed = true; }
-        if (memcmp(d, romset_images[i].sha1, SHA1_DIGEST_LEN) == 0) return (rom_id_t)i;
+        uint8_t d[SHA1_DIGEST_LEN];
+        sha1(data, len, d);
+        return romset_identify_digest(d, len);
+    }
+    return ROM_UNKNOWN;
+}
+
+rom_id_t romset_identify_digest(const uint8_t digest[SHA1_DIGEST_LEN], size_t len) {
+    for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
+        if (len == romset_images[i].size &&
+            memcmp(digest, romset_images[i].sha1, SHA1_DIGEST_LEN) == 0)
+            return (rom_id_t)i;
     }
     return ROM_UNKNOWN;
 }

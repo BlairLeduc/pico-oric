@@ -53,3 +53,57 @@ reads "Public domain font.  Share and enjoy." Its glyphs for `#20–#7E` are
 converted, not redrawn: each row moves into bits 5–1 of an Oric glyph row.
 It is used only for the page that names a missing ROM when no Oric ROM is
 on the card (`docs/design.md` §7.6).
+
+## PicoCalc LCD initialisation values — ClockworkPi
+
+`src/port/lcd.c`, copied from pico-jupiter-ace, which took it from
+pico-atom, sends the panel's gamma, power, VCOM, frame-rate, inversion,
+display-function and manufacturer commands with the parameter bytes used by ClockworkPi's own driver,
+`Code/picocalc_helloworld/lcdspi/lcdspi.c` in
+<https://github.com/clockworkpi/PicoCalc> at commit
+`f91519806d4b2e0a62c4638a9f695cd5162c5479`. Only the register values were taken
+— the driver around them is this project's — and hardware-notes.md §4.4 directs
+using them because generic controller defaults may not suit this glass. The
+pixel format (`0x55`) and entry mode (`0x06`) differ from that driver's 18-bit
+setup and come from hardware-notes.md §4.4 instead.
+
+GitHub detects no licence file in that repository at that revision. The
+southbridge reply layout in `src/port/southbridge.c` was likewise checked
+against the same repository's keyboard firmware, but no code was taken from it.
+
+## FatFs — ChaN
+
+The firmware links FatFs R0.15 (with patch 1) for the SD card, as its
+siblings do; the card files were copied from pico-jupiter-ace's
+`src/port/`. It is **not in
+the tree**: CMake copies `ff.c`, `ff.h`, `ffunicode.c` and `diskio.h` out of
+the Pico SDK's `lib/tinyusb/lib/fatfs/source/` into the build directory at
+configure time. The one FatFs file in the repository is
+`src/port/fatfs/ffconf.h`, which started as the SDK's copy and records in its
+header which values were changed.
+
+> FatFs — Generic FAT Filesystem Module
+> Copyright (C) 2022, ChaN, all right reserved.
+> <http://elm-chan.org/fsw/ff/>
+
+FatFs's licence, from the header of `ff.c`, is reproduced in full:
+
+```
+Copyright (C) 2022, ChaN, all right reserved.
+
+FatFs module is an open source software. Redistribution and use of FatFs in
+source and binary forms, with or without modification, are permitted provided
+that the following condition is met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this condition and the following disclaimer.
+
+This software is provided by the copyright holder and contributors "AS IS"
+and any warranties related to this software are DISCLAIMED.
+The copyright owner or contributors be NOT LIABLE for any damages caused
+by use of this software.
+```
+
+Its one condition applies to source, and `ffconf.h` carries the notice for
+that reason. Binary redistribution has no condition in this version of the
+licence; the notice is reproduced here anyway.

@@ -158,12 +158,52 @@ else()
             VERBATIM)
     endfunction()
 
+    # FatFs is not in the tree (THIRD-PARTY.md). The SDK carries a copy for
+    # TinyUSB, and ff.h includes "ffconf.h" from its own directory, so the
+    # files are copied into the build tree beside our src/port/fatfs/ffconf.h
+    # rather than compiled in place (which would find TinyUSB's config).
+    set(PICO_ORIC_FATFS_SRC ${PICO_SDK_PATH}/lib/tinyusb/lib/fatfs/source)
+    set(PICO_ORIC_FATFS_DIR ${CMAKE_BINARY_DIR}/fatfs)
+    foreach(f ff.c ff.h ffunicode.c diskio.h)
+        if (NOT EXISTS ${PICO_ORIC_FATFS_SRC}/${f})
+            message(FATAL_ERROR "pico-oric: FatFs ${f} not found in ${PICO_ORIC_FATFS_SRC}")
+        endif()
+        configure_file(${PICO_ORIC_FATFS_SRC}/${f} ${PICO_ORIC_FATFS_DIR}/${f} COPYONLY)
+    endforeach()
+    configure_file(src/port/fatfs/ffconf.h ${PICO_ORIC_FATFS_DIR}/ffconf.h COPYONLY)
+
+    add_library(pico_oric_fatfs STATIC
+        ${PICO_ORIC_FATFS_DIR}/ff.c
+        ${PICO_ORIC_FATFS_DIR}/ffunicode.c
+    )
+    target_include_directories(pico_oric_fatfs PUBLIC ${PICO_ORIC_FATFS_DIR})
+    # Third-party code: built as it comes, without our -Werror.
+
+    # M6's firmware: bring-up, with no guest yet (design.md §15.2 M6).
     add_executable(pico-oric
         src/port/board.c
+        src/port/card.c
+        src/port/core1.c
+        src/port/diskio.c
+        src/port/display.c
+        src/port/handoff.c
+        src/port/kbd.c
+        src/port/lcd.c
+        src/port/log.c
         src/port/main.c
+        src/port/sd.c
+        src/port/southbridge.c
+        src/port/storage.c
     )
     pico_oric_firmware(pico-oric)
-    target_link_libraries(pico-oric pico_status_led)
+    target_link_libraries(pico-oric
+        pico_oric_fatfs
+        hardware_dma
+        hardware_i2c
+        hardware_spi
+        hardware_sync
+        pico_multicore
+    )
 
     # M2's bench: the 6502 alone, timed on the basic program and on
     # Dormann's test when tools/fetch-test-suites.sh has fetched it

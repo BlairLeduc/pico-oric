@@ -613,6 +613,13 @@ polled-DMA ping-pong of §4.6 in one window, eight runs each:
 
 That is the floor any renderer adds its own cost to.
 
+The same holds for a 240×224 rectangle (Plus 2 W, 2026-10-08, 75 MHz, one
+run each, at boot): **12.58 ms** row by row from two line buffers and
+12.55 ms as one colour with the DMA's read address held, against 11.47 ms
+of wire math, 9.7 % over. One 240-pixel row in a window of its own took
+**64 µs** against 51 µs on the wire: the window's three commands cost
+about 13 µs.
+
 Frame ceilings, if you present serially on one core:
 
 | Strategy | Present cost | Ceiling |
@@ -1025,7 +1032,19 @@ Backspace is `0x08` and Enter is `0x0a`. Alt `0xa1`, both Shift keys
 `F6` arrives as `0x86`, the MCU's Shift+`F1` (checked on a Pico 2 W and
 a Plus 2 W, October 2026). A function key
 pressed with Alt still held arrives as itself, so match it whatever the Alt
-state.
+state. Esc is `0xb1`, the arrows `0xb4`–`0xb7` (left, up, down, right), Del
+`0xd4`, and **Caps Lock is an event too**, `0xc1` pressed and released,
+while the MCU also applies it to the letters it sends (a Plus 2 W,
+2026-10-08: after it, letters arrived as capitals with no Shift). A host
+that does not bind it must still accept it.
+
+**A release can arrive with no press before it.** In the same capture,
+Alt pressed and released, then a release of Space with no press of Space
+before it. The operator did not mean to press Space with Alt held. One
+reading is a rolled press: Space went down a moment before Alt came up, the
+MCU took it as Alt+Space, which it consumes (§6.3), and the release came
+after Alt's. A press lost some other way would look the same. It was seen
+once and is not explained. Ignore a release for a key that is not down.
 
 ### 6.3 The keymap decides which chords exist
 
@@ -1102,6 +1121,11 @@ travel, and the mount attempted then failed with FatFs's `FR_NOT_READY`
 before the card was really in. Debounce card detect, and treat a failed
 mount after an insertion as a state to retry on the next change rather than
 an error, since nothing about it hangs.
+
+**Measured** on a Plus 2 W, 2026-10-08, the same driver: opening a 16 KiB
+file, reading it in 512-byte pieces and hashing it with SHA-1 took
+20.2–20.6 ms (two files), and an 8 KiB file 11.7 ms. A cold mount took
+231–238 ms and a warm one 14.6 ms, as before.
 
 Three more things from the same driver on the same board:
 

@@ -72,6 +72,19 @@ int main(void) {
     CHECK(romset_identify(buf, sizeof buf) == ROM_UNKNOWN, "a made-up 16 KiB is unknown");
     CHECK(romset_identify(buf, 8192) == ROM_UNKNOWN, "a made-up 8 KiB is unknown");
 
+    /* ---- identify by digest, as the card's files are hashed ----------- */
+    for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
+        uint8_t d[SHA1_DIGEST_LEN];
+        memcpy(d, romset_images[i].sha1, SHA1_DIGEST_LEN);
+        CHECK(romset_identify_digest(d, romset_images[i].size) == (rom_id_t)i,
+              "%s's own digest not identified", romset_images[i].file);
+        CHECK(romset_identify_digest(d, romset_images[i].size + 1u) == ROM_UNKNOWN,
+              "%s's digest at the wrong size passed", romset_images[i].file);
+        d[SHA1_DIGEST_LEN - 1] ^= 0x01u;
+        CHECK(romset_identify_digest(d, romset_images[i].size) == ROM_UNKNOWN,
+              "%s's digest with a bit changed passed", romset_images[i].file);
+    }
+
     const char *dir;
     guest_find_roms(&dir);
     int found = 0;
@@ -88,6 +101,15 @@ int main(void) {
               romset_images[i].file);
         CHECK(romset_identify(img, ORIC_ROM_SIZE - 1) == ROM_UNKNOWN, "%s one byte short passed",
               romset_images[i].file);
+        /* Hashed a sector at a time, as the firmware reads the card. */
+        sha1_t s;
+        uint8_t d[SHA1_DIGEST_LEN];
+        sha1_init(&s);
+        for (unsigned off = 0; off < ORIC_ROM_SIZE; off += ORIC_CARD_CHUNK)
+            sha1_update(&s, img + off, ORIC_CARD_CHUNK);
+        sha1_final(&s, d);
+        CHECK(romset_identify_digest(d, ORIC_ROM_SIZE) == (rom_id_t)i,
+              "%s hashed in pieces not identified", romset_images[i].file);
     }
     if (found < 2) printf("note: %d of 2 BASIC ROMs in %s; identifying them not checked\n", found, dir);
 

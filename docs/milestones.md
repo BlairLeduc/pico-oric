@@ -4,6 +4,53 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M6, board bring-up and the card** (`src/port/southbridge.*`, `kbd.*`,
+`log.*`, `lcd.*`, `display.*`, `sd.*`, `diskio.c`, `storage.*`,
+`card.*`, `core1.*`, `handoff.*`, `main.c`, `fatfs/ffconf.h`;
+`romset_identify_digest`; `tools/uart-type.sh`), built 2026-10-08
+(Pico SDK 2.3.1, arm-none-eabi-gcc 15.2) and run on the Plus 2 W
+`7458DC82A89AAC12` (RP2350B, chip rev 2) the same day. pico-ace's
+southbridge, keyboard ring, log ring, LCD, SD and FatFs layers copied and
+renamed; its display reduced to the test pattern and a timing pass, and
+its card job to listing `/oric/roms/` and hashing each file a sector at a
+time. Core 1 brings up in HW §10's order and then polls the keyboard at
+30 Hz, watches the slot and drains the log, with `busy_wait_us_32` only;
+core 0 has no guest yet, and logs every key event with the cell §9.2's map
+gives it, from the keyboard and from UART bytes alike. **Checked on the
+board:** the test pattern, by the owner's eye: the white border on the
+guest's 240×224 at (40, 48), red, green, blue and yellow in their corners,
+and the grey frame on all four panel edges. Every key pressed by the
+owner, twice over, logged with its code and cell: 261 events, each
+counted by core 1 and each logged by core 0, presses and releases paired
+but one (below), none lost to the ring. UART bytes typed with
+`uart-type.sh` (`a`, `A`, `!`, CR, Ctrl-A, F1) arrive as the keyboard's
+own events, Shift and Ctrl around the key as the PicoCalc sends them. The
+card with no `/oric/roms` says so; pulled, given the three ROMs on the
+Mac, and put back without a reset, it was seen out and in, mounted and
+listed, and each file was recognised by SHA-1 as its own image. A
+655 s run (`out/m6-soak.log`): 19,633 keyboard polls and **zero** I²C
+errors, through the key presses and the card swap. **Found:** Caps Lock
+sends `0xC1` as an event, which the map leaves unbound, as it does `` `
+``, which has no Oric key; and once, Alt pressed and released, then a release of
+Space with no press. The owner did not mean to chord them: a rolled
+Alt+Space, which the MCU consumes, would give this, but so would a lost
+press, and the cause is not established. `keymatrix` ignores a release
+for a key it does not hold, so neither needs a change; both are in
+hardware-notes §6.2. **Measured** (one run each unless given): an I²C
+register read 4.86 ms, the longest keyboard poll 9.75 ms (two FIFO
+entries); at 75 MHz, a 240×224 rectangle 12.58 ms row by row and 12.55 ms
+as one colour, one 240-pixel row 64 µs; a 16 KiB file opened, read and
+hashed 20.2–20.6 ms, the 8 KiB EPROM 11.7 ms; a cold mount 231–238 ms, a
+warm one 14.6 ms. The image is 52,620 bytes of text and 8,068 of bss with
+the UART, 49,824 and 5,996 without. `test_romset` gained the digest
+lookup, a table entry's own digest at its size, at the wrong size and
+with a bit changed, and each real ROM hashed in 512-byte pieces. **Not
+checked:** F6–F10 and held events (no key was held long enough); a card
+pulled during a job; card writes, which nothing does yet; the build
+without the UART on the board (it builds); the presenter, the perf and
+status lines (M7). The firmware that ran was built from the working tree
+before its commit (`87c5c43-dirty`).
+
 **M5, the keyboard on the host** (`src/core/keymatrix.*`,
 `keymap_picocalc.c`; `test_keyboard`, `test_keymap`; `test/host/guest.*`),
 built 2026-10-08 on the workstation (macOS, Apple clang, Debug), with the
