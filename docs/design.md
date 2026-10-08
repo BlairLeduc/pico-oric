@@ -1,0 +1,1450 @@
+# Oric-1 and Oric Atmos for the PicoCalc: design
+
+The design of an emulator of the **Tangerine Oric-1** (1983) and **Oric
+Atmos** (1984) for the **ClockworkPi PicoCalc**, in C against the Raspberry Pi
+Pico SDK. This is the authority on the guest machine and on how the code is
+built. It covers the hardware model, architecture, memory and CPU budgets,
+testing, milestones and what is deliberately left out.
+
+**Companion documents.**
+
+| Reference | Document | Authority on |
+|---|---|---|
+| **HW §N** | `hardware-notes.md` | the host: PicoCalc wiring, protocols, timing, measured costs |
+| **EL §N** | `emulator-lessons.md` | what the two earlier emulators taught: architecture, accuracy, testing, process |
+| plain **§N** | this document | the Oric, and the shape of this project's code |
+| **pico-atom** | `../pico-atom` (its `docs/design.md` §N) | the Acorn Atom emulator: the **6502 and the 6522 VIA** this project reuses, ROMs loaded from the card, a disc controller behind a DOS ROM |
+| **pico-ace** | `../pico-jupiter-ace` (its `docs/design.md` §N) | the Jupiter Ace emulator: the newer, split port layer, the family menu, screenshots, the release build |
+| **pico-logo** | `../pico-logo` (its `docs/sound-design.md`) | a software PSG on this output stage: mixing headroom, volume ladders, noise, and a host test that hears the engine (§8) |
+
+This document applies the lessons. It does not repeat them. Where a decision
+just follows a lesson, it cites the lesson and moves on, and the space goes
+to what is different about the Oric.
+
+**Status, 2026-10-07.** Design only; no code yet. Every number about the
+Oric below comes from secondary knowledge until §16's table says otherwise.
+Every performance figure is an **estimate**, labelled as one (EL §14.4),
+until a milestone measures it on the board.
+
+**Notation.** Guest addresses and values use the Oric world's `#XXXX` (Oric
+BASIC's own hex prefix), and host values use `0x` (EL §14.1). A *cycle* is a
+6502 cycle, one guest clock at 1 MHz. A *line* is one 64-cycle ULA scan
+line. A *field* is one ULA frame (§11.1).
+
+**Contents**
+
+1. [Goals](#1-goals) ·
+2. [The guest](#2-the-guest) ·
+3. [Host target and budgets](#3-host-target-and-budgets) ·
+4. [Architecture](#4-architecture) ·
+5. [The 6502](#5-the-6502) ·
+6. [Bus and memory](#6-bus-and-memory) ·
+7. [Video](#7-video) ·
+8. [Audio](#8-audio) ·
+9. [Keyboard](#9-keyboard) ·
+10. [Media and settings](#10-media-and-settings) ·
+11. [Timing](#11-timing) ·
+12. [User interface](#12-user-interface) ·
+13. [Testing](#13-testing) ·
+14. [Measuring](#14-measuring) ·
+15. [Milestones](#15-milestones) ·
+16. [Unverified constants](#16-unverified-constants) ·
+17. [Dropped and deferred](#17-dropped-and-deferred) ·
+18. [Decisions](#18-decisions) ·
+19. [Sources](#19-sources)
+
+---
+
+## 1. Goals
+
+**The product.** Turn the PicoCalc on and get the Oric's `Ready` prompt
+within a second, on the panel, in colour, at real speed, with sound. Type
+BASIC on the PicoCalc keyboard. Load and save programs as `.tap` files on
+the SD card. Run the Oric's tape archive unmodified, and, from the last
+milestones, Sedoric discs through an emulated Microdisc.
+
+**Two machines, two switches.** The Machine page (§12) offers the **ROM**
+(1.0, the Oric-1's BASIC, or 1.1, the Atmos's) and the **RAM** (16K or 48K)
+as independent rows, so all four combinations exist: Oric-1 16K, Oric-1
+48K, Atmos 48K, and an Oric-1 16K fitted with the Atmos ROM, a real
+upgrade owners made. The power-on default is **Atmos 48K** (§18 item 3).
+
+**Accuracy target.** Cycle-correct at instruction granularity (EL §3.1):
+every 6502 instruction takes its documented cycles, the VIA's timers and
+interrupt are timed in guest cycles, the AY-3-8912 is synthesised from its
+registers against the same clock, and the ULA's picture is a function of RAM
+at a defined point in the field (§7).
+
+**Non-goals for the first release**, each argued in §17: RP2040 boards, the
+300 MHz host clock, Jasmin and Telestrat, the printer, joystick interfaces,
+the vertical-sync modification, mid-frame raster effects, scaling,
+monochrome, `.wav` tapes.
+
+**What makes the Oric a good fit.** Its CPU and its timer chip are parts
+pico-atom already emulates and measured on this board: a 1 MHz 6502 and a
+6522 VIA. Its 240×224 picture fits the 320×320 panel 1:1 with room for a
+status and a perf line. The new work is in two places: **the ULA's serial
+attributes** (§7), which make the image depend on everything to the left of
+each cell, and **the AY-3-8912** (§8), the first sound chip in the family,
+reached only through the VIA, which also scans the keyboard.
+
+---
+
+## 2. The guest
+
+What we believe the Oric is. Every constant here is listed in §16 with its
+source and confidence. It becomes a `#define` only once settled (EL §14.2).
+
+### 2.1 Overview
+
+| Part | Oric | Confidence |
+|---|---|---|
+| CPU | 6502A at **1 MHz** (12 MHz crystal ÷ 12, generated by the ULA) | high |
+| ROM | **16 KiB** at `#C000–#FFFF`: BASIC 1.0 (Oric-1) or 1.1 (Atmos), the character set source, tape routines | high |
+| RAM | **16 KiB** (Oric-1 16K, 4116s) or **48 KiB** usable of 64 KiB fitted (4164s); the top 16 KiB lies under the ROM ("overlay RAM") | medium-high |
+| I/O | page `#03xx`: the VIA at `#0300–#030F`; the rest of the page is for expansions, which take it over with `/I/O CONTROL` | medium |
+| ULA | HCS10017: clocks, DRAM multiplexing and refresh, video, address decode | high |
+| Display | 240×224, 8 colours; text 40×28 cells of 6×8 pixels, or hires 240×200 above 3 text rows; **serial attributes** | high |
+| VIA | 6522: the timer interrupt, keyboard row and sense, AY bus, tape in and out, printer | high |
+| Sound | **AY-3-8912** at 1 MHz: 3 tone channels, noise, envelope, mono mix; its I/O port A drives the keyboard columns | high |
+| Keyboard | 8×8 matrix: row from VIA PB0–PB2, columns from AY port A, one sense bit on VIA PB3 | medium |
+| Interrupt | IRQ from the VIA (the ROM runs T1 free at 100 Hz); **no video interrupt**; the reset button is **NMI** | medium-high |
+| Tape | in on VIA CB1, out on VIA PB7 (T1's output), motor relay on PB6 | medium |
+| Field | 50 Hz: 312 lines × 64 cycles = 19,968; 60 Hz: 264 lines = 16,896; chosen **by a video attribute** | medium |
+| Disc (option) | Microdisc: WD1793 at `#0310`, control at `#0314`, an 8 KiB EPROM, and `/ROMDIS` to swap BASIC for overlay RAM (§10.5) | medium |
+
+**Oric-1 and Atmos differ in the ROM**, as far as the emulator is
+concerned. The Atmos added a FUNCT key on a matrix cell the Oric-1 leaves
+empty, a different case and keyboard, and a tape relay output the Oric-1
+also has. M3 and M5 settle by execution whether anything else differs that
+software can see (§16).
+
+### 2.2 Memory map
+
+| Range | Contents | Notes |
+|---|---|---|
+| `#0000–#02FF` | RAM | zero page, stack, BASIC's workspace |
+| `#0300–#030F` | VIA | mirrored to `#03FF` unless an expansion claims the page (§6.4) |
+| `#0310–#031F` | Microdisc, when fitted | WD1793 `#0310–#0313`, control/status `#0314`, DRQ `#0318` |
+| `#0400–#97FF` | RAM | BASIC program and variables |
+| `#9800–#9FFF` | RAM; in hires mode, the standard and alternate character sets | |
+| `#A000–#BF3F` | RAM; in hires mode, the bitmap, 200 lines of 40 bytes | |
+| `#B400–#BB7F` | RAM; in text mode, the standard (`#B400`) and alternate (`#B800`) character sets | |
+| `#BB80–#BFDF` | RAM; the text screen, 28 rows of 40 bytes. In hires mode its last three rows (`#BF68–#BFDF`) are the text window | |
+| `#C000–#FFFF` | ROM, or overlay RAM when `/ROMDIS` is asserted; with the Microdisc's EPROM enabled, the EPROM at `#E000–#FFFF` | 48K only |
+
+**On a 16K machine** the RAM is believed to repeat through the 48 KiB below
+the ROM, so the ULA's fixed fetch addresses (`#BB80`, `#A000`) land on
+`#3B80` and `#2000`, where the ROM puts its screen. That is how a 16K Oric
+displays anything, and it is to be settled from the schematic and by the ROM
+booting (§16).
+
+### 2.3 The VIA's wiring
+
+| VIA line | Oric | Notes |
+|---|---|---|
+| PA0–PA7 | AY data/address bus; printer data | |
+| CA1 | printer ACK | |
+| CA2 | AY BC1 | which of CA2/CB2 is BC1 and which BDIR is to be settled (§16) |
+| CB1 | tape input | an edge interrupt the ROM's reader uses |
+| CB2 | AY BDIR | |
+| PB0–PB2 | keyboard row select | through a 1-of-8 decoder |
+| PB3 | keyboard sense (input) | a key down in the selected row, in a column AY port A enables |
+| PB4 | printer strobe | |
+| PB5 | not connected (believed) | |
+| PB6 | tape motor relay | the status line's deck cue (§10.4) |
+| PB7 | tape output | T1 drives it with ACR bit 7 when saving |
+| IRQ | 6502 IRQ | wired-OR with the expansion bus |
+
+So **every AY register access is a VIA sequence**: the ROM writes the
+register number to PA, pulses BC1/BDIR through CA2/CB2 into "latch address",
+writes the value to PA, and pulses "write". And **every keyboard scan is an
+AY write**: the column mask goes to AY register 14 (port A), then the row to
+PB0–PB2, then the ROM reads PB3. The AY is modelled as the generic part
+wired to the VIA's port and control outputs (EL §4.2), not as a device on
+the CPU's bus.
+
+### 2.4 Keyboard matrix
+
+Eight rows of eight. Letters, digits, punctuation, `ESC`, `DEL`, `RETURN`,
+`CTRL`, **two SHIFT keys on separate cells**, `SPACE`, the four arrows, and on
+the Atmos `FUNCT`. The cells are **settled by executing both ROMs** (EL
+§7.2), not transcribed: M5 presses every cell at the prompt, with and
+without each SHIFT and CTRL, and reads what the ROM writes to the screen.
+This section is then replaced by that sweep's table.
+
+### 2.5 Video in one paragraph
+
+The ULA reads 40 bytes per line. A byte with bits 6 and 5 both clear is a
+**serial attribute**: it sets ink (`#00–#07`), character set, double height
+and blink (`#08–#0F`), paper (`#10–#17`) or the video mode (`#18–#1F`: hires
+or text, 50 or 60 Hz), takes effect from that cell onwards, and shows as a
+cell of paper. Ink, paper and the text attributes reset at the start of
+every line; the **mode does not**, and lasts until another mode attribute
+changes it. Any other byte is a character (text) or six pixels (hires).
+Bit 7 of any byte inverts its cell. Colours are three bits, R, G and B. §7
+has the consequences.
+
+### 2.6 What the Oric does not have
+
+No video interrupt and no vertical-sync flag a program can read (a common
+owner's modification wires one to CB1; §17). No sound beyond the AY. No
+disc without an add-on. No wait states: the ULA and the CPU are believed to
+take alternate halves of each cycle (§6.5).
+
+---
+
+## 3. Host target and budgets
+
+### 3.1 Boards and clocks
+
+**RP2350 only**: Pico 2, Pico 2 W and Pimoroni Pico Plus 2 W (HW §2.1). One
+`pico2` image runs on all three, and logs the physical board separately
+from the build target (HW §2.1, §8.1). RP2040 is dropped for memory (§3.3,
+§17).
+
+**Host clock 150 MHz**, keeping the LCD's SPI at 75 MHz (HW §3, EL §1). The
+300 MHz option is deferred (§17), and pico-atom's clock code stays ready for
+it.
+
+### 3.2 CPU budget, and the gate on it
+
+The 6502 interpreter is pico-atom's, measured on this board. So, unlike the
+Ace, the CPU's cost is known before the first line is written, and the new
+costs are the AY and the ULA's mode scan. Estimates, to be replaced
+(EL §14.4):
+
+| Quantity | Estimate | Basis |
+|---|---|---|
+| Host cycles per 6502 instruction, interpreter in SRAM | 158–218 | pico-atom, measured (EL §1); its tier gave 1.12–1.19× |
+| Guest instructions per second | ~250–290 k | 1 MHz at a mean 3.5–4 cycles per instruction |
+| 6502 alone | 26–42 % of core 0 | the two lines above |
+| VIA (countdown ticks, EL §3.4) | 1–3 % | pico-atom's VIA after its countdown rewrite |
+| AY synthesis (§8) | 1–4 % | work per edge, not per sample; ultrasonic tones averaged |
+| ULA mode scan (§7.4) | ≤ 1 % | 8,960 byte tests a field |
+| Field snapshot copy, 10 KiB | < 0.2 % | one `memcpy` at field end |
+| **Whole machine** | **~35–50 % of core 0** | pico-atom's whole machine at 1 MHz measured 35–46 % |
+
+**The gate (M2)** is the same as the Ace's: projected core 0 share at most
+~85 %, the figure at which pico-atom ran a 2 MHz guest with zero underruns.
+It is expected to pass with margin. It is still run (EL §14.3), because the
+copied interpreter must be re-measured in this tree's build, and because a
+BASIC-shaped workload's instruction mix is not the Atom's.
+
+**Core 1's budget.** A full 240×224 present is 53,760 pixels: by scaling
+HW §4.7's measured 11.48 ms for 256×192, about **12.6 ms** (estimate). The
+attribute decode and cell compare (§7.3) add an estimated 1–2 ms. A 50 Hz
+field is 20 ms, so a full redraw every field fits. A 60 Hz field is 16.9 ms,
+and a full redraw every field plus a 4.8 ms keyboard poll (HW §6.1) does
+not: such a program drops some snapshots, counted on the heartbeat (EL §2.4).
+Simulation timing is never sacrificed to presentation.
+
+### 3.3 SRAM budget
+
+All estimates, against 520 KiB. Every fixed capacity lives in
+`src/core/config.h`, and `arm-none-eabi-size` prints on every build (EL §2.1).
+
+| Item | Bytes (est.) | Notes |
+|---|---:|---|
+| Guest RAM, 64 KiB (48 K + 16 K overlay) | 64 K | statically sized for the largest machine |
+| ROM, the one in use | 16 K | loaded from the card at power-on (§10.2) |
+| Microdisc EPROM | 8 K | only from M14 |
+| Tape image buffer | 64 K | decompressed `.tap`, and the recorder's output |
+| Frame snapshots, 3 × (`#9800–#BFFF` + status) | 31 K | §4.4 |
+| Presenter shadow: decoded cells, 224 × 40 × 2 B | 17.5 K | §7.3 |
+| Two RGB565 line buffers, 240 px | 1 K | |
+| Disc track buffer, one raw track | 6.5 K | §10.5, from M14 |
+| Audio ring (aligned) + PCM queue | 6 K | HW §5.3, EL §6.2 |
+| Interpreter and hot paths in SRAM | 25–35 K | a measured tier (EL §3.4) |
+| FatFs, sector buffers, settings text | 8 K | |
+| Stacks, both cores; log ring | 12 K | measure high water |
+| **Total** | **~260–275 K** | **~50–53 %** |
+
+This is pico-atom's size, not the Ace's. SRAM is comfortable on an RP2350,
+and impossible on an RP2040's 264 KB (§17). The two big buffers trade
+against each other: if SRAM gets tight, the tape buffer shrinks first (the
+archive's largest `.tap` sets its floor, found in M10).
+
+---
+
+## 4. Architecture
+
+### 4.1 Core and port
+
+As EL §2.1: a portable **core** (6502, VIA, AY, ULA decoder, Oric machine,
+keymap data, media formats, snapshot, settings parser, frame pool) with no
+SDK header and no allocation, and a **port** (LCD, audio, southbridge, SD,
+menus, the two cores' loops). Both build under `-Wall -Wextra -Werror`, the
+core under CTest on the workstation and everything under `arm-none-eabi-gcc`,
+in CI on every push.
+
+The layout, build options and names follow the siblings so code moves
+between them with a rename (§4.6): `PICO_ACE_` becomes `PICO_ORIC_`, and
+`ace_` becomes `oric_`.
+
+```
+src/core/    config.h  hot.h  m6502.c  via6522.c  ay8912.c  ula.c  oric.c
+             snappool.c  keymatrix.c  keymap_picocalc.c  keylayout.c
+             tap.c  tape.c  cassette.c  wd1793.c  microdisc.c  mfmdisk.c
+             snapshot.c  settings.c  status.c  romset.c  sha1.c  shot.c
+src/port/    main.c  core0.c  core1.c  park.c  handoff.c  menu.c  board.c
+             lcd.c  display.c  southbridge.c  kbd.c  audio.c  log.c  sd.c
+             diskio.c  storage.c  card.c  roms.c  tapeio.c  discio.c  snapio.c
+             settingsio.c  keymapio.c  shotio.c  textpage.c
+src/bench/   bench.c (M2)
+test/host/   one binary per area; test_util.h (CHECK, TEST_DONE); guest.c; golden/
+test/asm/    6502_decimal_test.s (Clark), oric_test_rom.s (§13.3)
+tools/       build.sh  flash.sh  uart-log.sh  uart-type.sh  perf-run.sh
+             perf-summary.sh  soak.sh  soak-check.py  swd-counters.py
+             fetch-test-suites.sh  trace/
+cmake/       pico_sdk_import.cmake  version.cmake
+```
+
+Build options: `-DPICO_ORIC_HOST=ON` for the host build,
+`-DPICO_ORIC_UART=OFF` for the build that ships, `PICO_ORIC_RAM_TIER`, and
+`PICO_ORIC_BOOT_*` (`BOOT_TAPE`, `BOOT_DISC`, `BOOT_ROM`, `BOOT_RAM`).
+
+### 4.2 The core API
+
+EL §2.2's seam, with the Oric's video inputs:
+
+```c
+void     oric_init(oric_t *m, const oric_config_t *cfg);  /* ROM 1.0/1.1, RAM 16/48, Microdisc */
+void     oric_power_on(oric_t *m);                        /* RAM zeroed, every chip reset */
+void     oric_reset(oric_t *m);                           /* the RESET line, RAM kept */
+void     oric_nmi(oric_t *m);                             /* the reset button under the case */
+uint32_t oric_run(oric_t *m, uint32_t cycles);            /* whole instructions; returns cycles run */
+uint32_t oric_run_field(oric_t *m);                       /* one field, ending at the first active line (§11.1) */
+void     oric_key_set(oric_t *m, int row, int col, bool down);
+size_t   oric_audio_drain(oric_t *m, int16_t *dst, size_t max);
+void     oric_video_take(const oric_t *m, oric_frame_t *f); /* window + mode at field start + blink (§4.4) */
+void     oric_copy(oric_t *dst, const oric_t *src);       /* never '=': the page table points into the struct */
+```
+
+`oric_run` follows the debt-carry rule. There is no "exactly N" variant.
+The field's length is not a constant: it is the ULA's current 50 or 60 Hz
+choice (§11.1), so `oric_run_field` returns what it ran and the caller never
+assumes 19,968.
+
+### 4.3 Which core owns what
+
+EL §2.3 unchanged. **Core 0**: the 6502, the VIA, the AY and its synthesis,
+the ULA's mode scan, the audio DMA IRQ, pacing. **Core 1**: attribute decode
+and LCD presenting, southbridge I²C, SD card, menus, moving log bytes to the
+UART. Core 1 never reads guest RAM while the guest runs, and never calls
+`sleep_us`. Core 0 never calls `printf` once the guest runs.
+
+The ULA's **decode** (attributes to coloured cells) belongs to core 1, with
+the renderer (EL §2.3, "keep renderer state off core 0"). Only the **mode
+scan**, which core 0 needs to know the next field's length, runs on core 0
+(§7.4).
+
+### 4.4 Frame handoff
+
+The three-buffer, four-state pool of EL §2.4, under one SIO spinlock, with
+the drop counter on the heartbeat. A snapshot is:
+
+| Field | Bytes |
+|---|---:|
+| RAM `#9800–#BFFF`, as the ULA addresses it (through the mirror on a 16K machine) | 10,240 |
+| mode at field start: hires/text, 50/60 Hz | 1 |
+| blink phase | 1 |
+| status: field number, tape position, disc activity, flags | ~16 |
+
+The window holds everything the ULA can fetch in either mode: both
+character-set locations, the hires bitmap and the text screen. Copying all
+of it, rather than what the current mode uses, keeps a mid-field mode change
+correct for the price of a 10 KiB copy (estimated under 30 µs).
+
+### 4.5 Parking
+
+All card work, the menu, pause and restart go through EL §2.5's park: core 0
+stops at a field boundary, feeds the audio queue silence at the drain rate,
+and hands the machine to core 1. Guest time does not pass while parked.
+Tape traps (§10.3) and disc track requests (§10.5) use the same park.
+
+### 4.6 What comes from the siblings
+
+Both siblings are GPL-3.0 by the same author, as this project is (§18 item
+4), so reuse is a copy. The rules are EL §14.6's: read the sibling, never
+edit it; copy, rename, re-verify; bring the tests; bring the attribution.
+
+**Copy, rename, re-verify.** Take the **port layer from pico-ace**, the
+newer and already-split one, and the **6502 and VIA from pico-atom**:
+
+| From | File | What it gives |
+|---|---|---|
+| pico-atom | `core/m6502.*`, `test/asm/6502_decimal_test.s`, its CPU tests | the 6502: Dormann, Clark with every flag, the cycle table by execution, undocumented opcodes trapped and counted |
+| pico-atom | `core/via6522.*`, `test_via6522` | the whole part (pico-atom §7.4): ports, latches, both timers as countdowns, the shift register, CA/CB lines. Here CA2/CB2 and CB1 are finally wired to something |
+| pico-ace | `port/board.*` | 150/300 MHz with the rail and flash timing; board identity; die temperature |
+| pico-ace | `port/lcd.*` | panel init (with its THIRD-PARTY entry), windows, polled-DMA blit |
+| pico-ace | `port/southbridge.*`, `port/kbd.*` | register layer with timeouts; FIFO drain into an SPSC ring |
+| pico-ace | `port/audio.*` | PWM slice, chained DMA, PCM queue, pacing, both counters, the exact rational rate |
+| pico-ace | `port/log.*`, `core0.c`, `core1.c`, `park.c`, `handoff.c` | the log ring; both loops; the park; the frame handoff |
+| pico-ace | `port/sd.*`, `diskio.c`, `storage.*`, `card.c`, `fatfs/ffconf.h` | SD and FatFs, mounted per job |
+| pico-ace | `port/settingsio.*`, `core/settings.*` | the settings file and its in-place rewriter (EL §8.7). Only the keys change |
+| pico-ace | `core/snappool.*` | the pool and its 100,000-step test. Only the snapshot struct changes |
+| pico-ace | `core/status.*`, `core/shot.*`, `port/shotio.*` | perf/status lines; F6 screenshots as BMP |
+| pico-ace | `core/hot.h`, `core/sha1.*` | SRAM tiers by section name; SHA-1, now used in firmware for ROMs |
+| pico-ace | `tools/*`, `cmake/*`, `.github/workflows/ci.yml` | build, flash, UART capture, typing, perf, soak, SWD counters; version from `git describe` |
+
+**Adapt.** The structure carries over and the guest parts change:
+
+| From | File | Change |
+|---|---|---|
+| pico-ace | `core/beeper.*` | becomes the AY's output stage: the box filter over a sum of three levels, the rational sample period and the DC blocker stay (§8) |
+| pico-ace | `core/keymatrix.*`, `keymap_picocalc.c`, `keylayout.c`, `port/keymapio.*` | held set, canonicalisation, binding fixed at press, paced replay, the Alt layer, `.map` parser stay. The matrix becomes 8×8, the lines left SHIFT, right SHIFT, CTRL and FUNCT, and the cells come from §9.3's sweep |
+| pico-ace | `core/render.*` → `core/ula.*`; `port/display.*` | the dirty-band presenter, status and perf lines and the test pattern stay. The row generator and the shadow are new (§7.3) |
+| pico-ace | `port/textpage.*` | a 40×28 page in the Oric's own character set (§7.6) |
+| pico-ace | `core/tape.*`, `core/cassette.*`, `port/tapeio.*` | the stall at a trapped handler, deck cues, recorder shape. The Oric's routines, for **two ROMs**, and its `.tap` replace the Ace's |
+| pico-ace | `core/snapshot.*`, `port/snapio.*` | header, CRC, ROM hashes, version, two passes. The fields are the 6502's, the VIA's, the AY's and the ULA's |
+| pico-atom | `core/romset.*`, `port/roms.*` | ROMs off the card by SHA-1, and the page naming what is missing (§10.2) |
+| pico-atom | `core/i8271.*`, `port/discio.*` | the shape only: geometry in the model, a track at a time from the host with the guest parked, READY and head unload. The chip becomes a WD1793 (§10.5) |
+| both | `test/host/guest.*`, `test_util.h` | the harness: finds the ROMs by SHA-1 in a gitignored `roms/`, types through the southbridge event path, dumps the screen as text |
+| pico-ace | `port/menu.c` | the family menu (§12), with Discs live from M14 |
+
+**Not used:** `z80`, `mc6847` and its font, `i8255`, `uef`, `inflate`
+(`.tap` archives are not gzipped; revisit if they are), `snap_ace`,
+`romfont` (the Oric's font comes from its ROM, §7.6), `portb` (the Oric's
+VIA port B is internal, not a user port).
+
+Copied code keeps its tests. A module counts as reused only once its tests
+pass here under the new names.
+
+---
+
+## 5. The 6502
+
+### 5.1 Accuracy
+
+pico-atom's core as it stands (pico-atom §6.1): every documented opcode with
+exact cycles, page-crossing and branch penalties, NMOS decimal mode with
+every flag, `JMP (xxFF)`, the B flag, the read-modify-write double write.
+**Undocumented opcodes are trapped and counted** on the heartbeat (EL §3.1).
+
+Oric software, unlike the Atom's ROMs, is known to include titles that use
+the stable undocumented opcodes. **Evidence decides** (EL §4.2): M12 runs the
+archive's tapes on the host and counts undocumented opcodes per title. If
+any title the user cares about executes one, the stable NMOS subset (`LAX`,
+`SAX`, `DCP`, `ISC`, `SLO`, `RLA`, `SRE`, `RRA`, `ANC`, `ALR`, `ARR`, `SBX`,
+the multi-byte `NOP`s) is implemented then, each checked against an
+independent per-opcode suite (§5.4).
+
+### 5.2 Implementation
+
+Unchanged from pico-atom (pico-atom §6.2): a `switch` interpreter, IRQ as a
+bitmask of sources (here the VIA and, from M14, the Microdisc), NMI
+edge-triggered and latched (the reset button). The bus advances devices; the
+CPU knows none.
+
+### 5.3 The run loop
+
+`oric_run` stops a slice at the VIA's next event (EL §4.3) and at the
+field's end. Nothing else is checked per instruction. The AY, the tape input
+and the disc controller are brought up to date when accessed and at the
+field boundary. Tape and disc traps use pico-ace's second run loop with a
+256-entry table on the PC's low byte, live only while a trap is set (EL
+§3.2), with one table per ROM.
+
+### 5.4 Test suites
+
+Fetched by `tools/fetch-test-suites.sh` into the gitignored `test/suites/`,
+never committed (EL §3.3): **Klaus Dormann's functional test**, run to
+completion; **Bruce Clark's decimal test**, with every flag checked,
+assembled from the source in `test/asm/` with `ca65`/`ld65`; and, if §5.1's
+evidence calls for undocumented opcodes, **Tom Harte's `65x02`
+SingleStepTests** for the NMOS 6502, which check each opcode's registers,
+memory and per-cycle bus activity. A missing suite reports **skipped**
+(CTest 77), and a skipped functional test is an unverified CPU.
+
+---
+
+## 6. Bus and memory
+
+### 6.1 Page table
+
+EL §4.1's two-pointer page table over a flat 64 KiB RAM plus the ROM, with
+flags in a separate byte array. RAM and ROM are one indexed load. **Page
+`#03` is I/O** and takes the slow path, where the VIA, the Microdisc and
+the open page are split by address mask.
+
+### 6.2 Configurations
+
+| Machine | `#0000–#BFFF` | `#C000–#FFFF` |
+|---|---|---|
+| 16K | `#0000–#3FFF` mirrored ×3 (believed, §16) | ROM |
+| 48K | RAM | ROM; overlay RAM under `/ROMDIS` |
+| 48K + Microdisc | RAM | ROM, overlay RAM, or the EPROM at `#E000` (§10.5) |
+
+Mirrors cost nothing (EL §4.1). The ROM row is the chosen BASIC; the
+configuration is applied only by a power-on (§12).
+
+### 6.3 Power-on state
+
+**Zero-filled RAM** (EL §9.2), and every chip reset with the CPU (EL §3.2):
+the VIA and the AY are on the reset line on the real machine (to be read off
+the schematic, §16). Look for a random seed the ROM takes from RAM (EL
+§9.2): BASIC's `RND` keeps a seed, and whether zeroed RAM leaves it stuck is
+settled by executing both ROMs in M3.
+
+### 6.4 I/O decode
+
+The VIA is believed to answer at every `#03x0–#03xF` mirror unless an
+expansion asserts `/I/O CONTROL`, as the Microdisc does for its own
+addresses. Decode by mask, not equality (EL §4.1). Read the exact decode off
+the schematic (§16). **Every decoded access has its side effect** (EL §4.2):
+a read of ORA or ORB clears the VIA's CA/CB flags, and a write to PA is what
+the AY's bus sees.
+
+### 6.5 No wait states
+
+The ULA and the 6502 are believed to share the DRAM on alternate half-cycles,
+so the CPU never waits and the picture shows no snow. If the schematic or
+the ULA's documentation says otherwise, EL §4.5 is the method. Recorded in
+§16 either way.
+
+---
+
+## 7. Video
+
+### 7.1 No framebuffer, but not a byte-for-byte diff either
+
+The Oric's image is a pure function of the 10 KiB window, the mode at field
+start and the blink phase (§4.4), so EL §5.1 applies: no framebuffer.
+
+What does not carry over is **diffing VRAM bytes** (EL §5.3). A serial
+attribute changes every cell to its right on its line without changing their
+bytes; a mode attribute changes every line below it; a character-set write
+changes every cell showing that glyph; double height pairs lines; blink
+changes the image with no write at all. Tracking each of those as its own
+rule is the "list of every input" that EL §5.3 warns is easy to get one
+short.
+
+### 7.2 The decode
+
+The ULA's work is split into a decode and a row generator, both in
+`src/core/ula.c`:
+
+- **Decode** walks the 224 lines in raster order, as the ULA does: it starts
+  each line with ink 7, paper 0, standard set, single height, no blink, and
+  the mode carried from the line before; computes the line's fetch address
+  from the mode (text row `#BB80 + 40·(line/8)`, or hires `#A000 + 40·line`
+  for lines 0–199 and text rows 25–27 below); and for each of the 40 bytes
+  applies an attribute or fetches a pattern. The pattern is a glyph row from
+  the character set the mode and the alternate-set attribute choose (the
+  glyph row is `line % 8`, or the half-row pair under double height), or the
+  byte's own six bits in hires. Inverse (bit 7) and blink are folded in.
+  The result is one **cell** per byte: `ink:3, paper:3, pattern:6`, in a
+  `uint16_t`, which is everything its six pixels depend on.
+- **Row generation** turns one line of 40 cells into 240 RGB565 pixels: per
+  cell, six pixels each chosen from `palette[ink]` or `palette[paper]` by a
+  pattern bit, unrolled (EL §5.2). The palette is a pointer to 8 entries.
+
+### 7.3 Dirty bands from decoded cells
+
+**The presenter's shadow holds decoded cells, not VRAM bytes**: 224 × 40
+cells, 17.5 KiB. Per presented snapshot, core 1 decodes the snapshot into a
+line of cells at a time, compares it with the shadow's line, widens that
+line's 8-line band to the span of differing cells, and writes the new cells
+into the shadow. Each dirty band then goes out as one LCD window (EL §5.3).
+
+This keeps EL §5.3's principle, everything the image depends on belongs in
+the shadow, by putting the **image's own description** there. Attributes,
+mode changes, character-set edits, double height and blink are all caught
+by one comparison, and none of them needs a rule of its own. It costs a
+decode of every cell every present (estimated 1–2 ms on core 1, §3.2), which
+is cheap next to the 12.6 ms a full present costs on the wire.
+
+Tested as EL §5.3 says: a simulated panel brought up to date from the bands
+alone, over a few hundred random edits that include attribute bytes, mode
+attributes, character-set rows and blink phase changes, must match a full
+render after each. **The control** is the same run with a VRAM-byte diff,
+which must leave stale pixels.
+
+### 7.4 The mode scan on core 0
+
+Core 0 needs to know the ULA's mode at the end of each field, for two
+reasons: the 50/60 Hz bit sets the **next field's length** (§11.1), and the
+next snapshot's "mode at field start" must be right even when core 1 drops a
+snapshot. So at field end, core 0 runs `ula_scan_mode()` over the window it
+just copied: the same raster walk as the decode, but looking only for bytes
+whose bits 6–3 are `0011` (mode attributes), 8,960 byte tests at most
+(estimated ≤ 1 % of core 0, to be measured in M7). This is the one piece of
+the ULA on core 0, and it reads the snapshot, not guest RAM, so it holds no
+renderer state (EL §2.3).
+
+When a mode attribute takes effect (from the next cell, the next line, or
+the next field) and when the 50/60 Hz choice changes the field's length are
+unverified (§16) and are runtime configuration in the decoder until settled.
+
+### 7.5 Geometry
+
+**1:1, centred**: 240×224 at **(40, 48)**. The 48 rows above and below
+carry the perf line at the panel's top and the status line at its foot,
+each drawn only when its text changes and each hidden by a setting (EL
+§5.4). The Oric's border is black and never changes, so it is drawn once
+after a full clear.
+
+### 7.6 The character set, and the emulator's font
+
+The Oric's character set lives in RAM, copied there from the ROM at
+power-on, and programs redefine it freely. The picture uses the RAM copy, so
+the decode reads it from the snapshot.
+
+The **emulator's own pages** (menu, About, missing-ROM) use the Oric's font
+**read from the ROM's table**, not from RAM, so a program that redefines a
+glyph cannot corrupt the menu (EL §5.8). A host test requires the expansion
+to equal what each ROM writes into `#B400` at power-on. Pages are 40×28 text
+in the Oric's own style.
+
+The one page that cannot use the ROM's font is the **missing-ROM page when
+no Oric ROM is on the card**. It uses whichever ROM is present; with none, a
+public-domain 6×8 font kept in the tree for that page alone, with its
+attribution (EL §5.5: never fabricate one).
+
+### 7.7 Golden images
+
+EL §5.7: rendered from fixed RAM and committed **after being looked at**.
+Text and hires; each colour as ink and paper; inverse; both character sets;
+double height on even and odd rows; blink in both phases; a mode change
+mid-screen; the hires text window; the 16K mirror. **Checked against an
+independent renderer**: the same RAM rendered by the reference emulator
+(§13.4) and compared pixel for pixel, so the goldens are not only our own
+opinion.
+
+---
+
+## 8. Audio
+
+### 8.1 What the Oric produces
+
+All sound comes from the AY-3-8912: three square-wave tone channels with
+12-bit periods, one noise generator with a 5-bit period and a 17-bit LFSR,
+one envelope generator with a 16-bit period and ten shapes, a mixer that
+gates tone and noise per channel, and a 4-bit volume per channel or the
+envelope in its place. The Oric mixes the three channels to one speaker.
+The ROM's `PING`, `SHOOT`, `EXPLODE`, `ZAP`, `SOUND`, `MUSIC` and `PLAY`
+are register writes.
+
+### 8.2 The box filter, generalised
+
+EL §6.1's speaker integrator generalises directly: the AY's output is a sum
+of three channels, each a two-level signal (a gated square wave or noise
+bit) times an amplitude, and that sum changes only at **events**: a tone
+edge, a noise step, an envelope step, or a register write. So:
+
+```
+at each event (in guest cycles, brought up to date lazily):
+    acc += level_sum * (now - last); last = now; recompute level_sum
+at each sample boundary:
+    acc += level_sum * (boundary - last); sample = acc / cycles_per_sample
+```
+
+The rational sample period, the wrapping cycle counter taken by difference,
+stamping a register write at the start of its instruction, the one-pole DC
+blocker (the AY's output is unipolar), and fixed point throughout all carry
+over from `beeper.c` (EL §6.1).
+
+**The AY is brought up to date lazily** (EL §4.3): at each register write
+through the VIA, at each sample boundary, and at the field's end, it
+advances through the events since it was last run. Its cost is per event,
+not per cycle.
+
+**Ultrasonic tones are averaged, not stepped.** A tone period shorter than
+a sample (`8·TP` cycles below about 27, the 36.6 kHz sample period in
+1 MHz cycles) toggles faster than the box filter can show, and stepping it
+would cost up to 125,000 events a second per channel. Such a channel
+contributes its mean level instead. Programs that play samples set exactly
+this (a tone period of 0 or 1, volume written as a DAC), and its mean is
+what the speaker hears. The threshold and its error are measured in M8.
+
+**The envelope steps at its own rate**, never once per output block.
+pico-logo's engine advanced envelopes per 3.5 ms refill, and its B99 shows
+what that does to short notes (pico-logo `sound-design.md` §6). On the AY,
+a fast envelope is itself a waveform (the "buzzer" timbre games use), so
+every step is an event.
+
+### 8.3 Volume and mixing
+
+The AY's volume is logarithmic, about 3 dB a step at the top and flattening
+at the bottom. Use a **measured table** for the AY-3-8910/8912 from a cited
+source, not a formula (EL §5.2's rule for luminance applies to loudness).
+pico-logo's lessons apply as stated there: fix headroom by construction
+(three full-scale channels summed cannot wrap), and keep the volume
+setting a multiply after the mix. The Oric is mono; both ears get the same
+sample.
+
+### 8.4 Plumbing and pacing
+
+pico-ace's `audio.c` as it is (EL §6.2, §6.3): chained DMA, the PCM queue,
+pacing core 0 on the queue, PCM underruns and late refills counted
+separately, muted still consumes. The samples per field follow the field's
+length, 50 or 60 Hz, through the rational period, with no special case.
+
+### 8.5 Tests
+
+- **An independent model**: the test computes the AY's ideal output from the
+  register writes the guest made, by stepping every internal counter cycle by
+  cycle, and box-filters it; the core's event-driven output must match every
+  sample to 1 LSB, except where the averaged ultrasonic path is in use,
+  where the bound is measured and stated (EL §6.1).
+- **Pitch from the ROM**: `PING` and a `MUSIC` note in both ROMs, measured
+  off the output, against the datasheet's `f = 1 MHz / (16·TP)`.
+- **Envelope shapes**: all ten, against the datasheet's drawings.
+- **The keyboard scan must stay silent**: it writes AY register 14, an I/O
+  port, which must not move the output.
+- **A host test that hears the engine** (pico-logo's lesson): it compiles
+  the port's refill path on the host and reads the ring the DMA would play.
+
+---
+
+## 9. Keyboard
+
+### 9.1 The path
+
+EL §7.1 unchanged: southbridge events, held set, canonical codes, binding
+fixed at press, paced replay into the 8×8 matrix with a minimum hold and a
+gap settled by executing the ROM. **The matrix is read at the VIA**: a read
+of ORB computes PB3 from the row on PB0–PB2, the column mask in AY register
+14, and the held matrix (EL §4.3, brought up to date on read).
+
+### 9.2 The standard map
+
+By meaning, settled by §9.3's sweep. The table is data (EL §7.2):
+
+| PicoCalc | Oric | Notes |
+|---|---|---|
+| letters, digits | the same | the ROM's caps lock (`CTRL-T`) does case |
+| shifted punctuation | SHIFT + the cell that types it | by what the keycaps show, settled by the sweep; where the Oric's character set differs from ASCII, by position or meaning, said which |
+| `Enter` | `RETURN` | |
+| `Backspace`, `Del` | `DEL` | |
+| `Esc` | `ESC` | |
+| `Ctrl` | `CTRL` | Ctrl chords reach the host unchanged (HW §6.3), so every Oric CTRL key works |
+| left `Shift`, right `Shift` | left `SHIFT`, right `SHIFT` | separate cells on both machines; games read them apart. Asserted whatever else is held (EL §7.2) |
+| arrows | the Oric's arrows | plain keys on the Oric, so the swallowed Shift+arrow chords (HW §6.3) cost nothing |
+| `Space` | `SPACE` | |
+| `Tab` | `FUNCT` (proposed) | a held modifier on the Atmos, so a plain key, not an Alt chord (EL §7.2). Settled in M5 |
+| `Alt`+`M` `P` `H` `K` | menu, pause, keys page, the reset button (NMI) | the Alt layer; nothing on the Oric uses Alt |
+| `F1`–`F5`, `F6`, `F10` | menu pages, screenshot, About | §12 |
+
+### 9.3 Settling the matrix by execution
+
+EL §7.2: press every cell at the prompt in **both ROMs**, alone, with each
+SHIFT, and with CTRL, read the screen, and keep the sweep as a regression
+test that types every table entry through each real ROM. The minimum hold
+and gap come from the ROM's scan, run in the 100 Hz interrupt, with a
+control that types too fast and must lose keys. The Oric ROM has
+type-ahead of one key at most (to be settled), which sets how fast UART
+typing can go (EL §13.1).
+
+### 9.4 Game layouts
+
+pico-ace's layouts as they are (EL §7.3): overlays, built-ins named by
+shape, card files in `/oric/keymaps/` naming the tapes and discs they go
+with, a whole-file reject on a bad line, never in snapshots. The Oric's own
+arrows and space already make many games playable on the standard map; the
+built-ins are chosen in M15 by what the archive's games read (QAOP and
+space, and Z X with the arrows' up and down, are the likely shapes).
+
+---
+
+## 10. Media and settings
+
+### 10.1 The card
+
+```
+/oric/
+  pico-oric.cfg         settings (§10.7)
+  roms/                 basic10.rom  basic11b.rom  microdis.rom (§10.2)
+  tapes/*.tap           tape images; the recorder writes here too
+  discs/*.dsk           Microdisc images (§10.5)
+  states/slotN.sav      our own save states, four slots (§10.6)
+  keymaps/*.map         game layouts (§9.4)
+  shots/SHOTnnnn.bmp    screenshots, F6 (§12)
+```
+
+The same shape as `/atom/` and `/ace/`, so the three can share a card.
+
+### 10.2 ROMs
+
+**Read from the card, identified by SHA-1** (§18 item 1), as pico-atom
+does. No ROM ships in the repository or the firmware.
+
+| File | Machine | Size | CRC32 | SHA-1 |
+|---|---|---:|---|---|
+| `basic10.rom` | ROM 1.0, Oric-1 | 16,384 | `f18710b4` | `333116e6884d85aaa4dfc7578a91cceeea66d016` |
+| `basic11b.rom` | ROM 1.1, Atmos | 16,384 | `c3a92bef` | `9451a1a09d8f75944dbd6f91193fc360f1de80ac` |
+| `microdis.rom` | Microdisc EPROM | 8,192 | `a9664a9c` | `0d2ef6e67322f48f4b7e08d8bbe68827e2074561` |
+
+Each equals MAME's `ROM_LOAD` (`src/mame/tangerine/oric.cpp`, sets
+`oric1` BIOS `ver10` and `orica` BIOS `ver11`;
+`src/devices/bus/oricext/microdisc.cpp`), read 2026-10-07, and the owner's
+copies in `roms/` hash to them. MAME also lists near-misses that boot
+and differ: `basic10uk.rom` (Basic 1.0 UK, `d6006a01`), localised 1.1s
+(`bas11_uk`, `_fr`, `_de`, `_es`, `_se`) and Pascal Leclerc's 1.2x
+rewrites. Those are *unrecognised* here (below), not refused: the user
+may choose one, but the tape traps stand aside for it (§10.3).
+
+- **Know the alternate dumps and packagings** (EL §8.1): a near-miss dump
+  boots and then misbehaves. A file with an unknown hash is loaded and
+  marked *unrecognised* on the About page, as pico-atom does.
+- **A missing ROM shows a page naming the missing file**, never a blank
+  screen. If the chosen ROM is missing and the other is present, the page
+  says so and offers the other machine.
+- `roms/` in the repository is a gitignored staging area for the host tests,
+  with a README, as pico-atom's.
+- **CI without ROMs.** Tests that need a real ROM skip in CI, and a skip is
+  not a pass. So CI also runs **a test ROM of our own** (§13.3), which
+  exercises the machine's wiring without Oric code. Whether CI may fetch the
+  real ROMs from a third-party repository at test time is open (§18 O1).
+
+### 10.3 Tape, phase 1: trapping the ROM
+
+EL §8.2, with one difference from the siblings: **two ROMs, two sets of
+routines**. Each trap is a table entry per ROM, checked against that ROM's
+first bytes at the handler, and stands aside for any other ROM.
+
+- **Trap the handlers**, not `CLOAD`'s entry: the routines that find a
+  file's sync and header, and that read or write the data. Their addresses
+  come from reading each ROM (§16), not from an emulator's source.
+- **Stall the CPU; let the ROM finish** its own epilogue where it can (EL
+  §8.2), so what `CLOAD` leaves (the header in its system variables, the
+  autorun flag, `CLOAD`'s messages, the BASIC re-link) is the ROM's own work.
+- **Fast and slow**: the ROM saves at 2400 baud, or 300 with `,S`. The trap
+  serves both, since it deals in bytes.
+- **Find the file the user meant** (EL §8.2): an empty name loads the next
+  file, as the ROM does; a name no file has plays the first `.tap` whose
+  first header carries it; the end of a tape rewinds once.
+- A **`.tap` holds several files**; the deck keeps a position and plays on
+  from it, as a recorder would.
+- **Tested** by running the ROM's own routine with only the byte-level
+  cassette routines hooked, requiring the trapped call to leave the same
+  machine in every byte below the ROM, in both ROMs.
+
+### 10.4 Tape, phase 2: the signal
+
+EL §8.3: decode the `.tap` into half-cycles in guest cycles, presented on
+CB1 and brought up to date when the VIA is read or its CB1 edge is due (the
+CB1 edge sets an interrupt flag, so the next edge is a VIA event that stops
+the run slice, §5.3). It works with any loader, protected or turbo.
+
+- **The writer times bits with VIA T1**, a hardware timer, not its own
+  loops. So the player's half-cycles are the T1 periods the ROM's save
+  routine programs, read off the routine and counted, and a test requires
+  the player's edges to equal a recording of the ROM's own `CSAVE` (from
+  PB7's T1 output), edge for edge, at both speeds (EL §8.3).
+- **The motor relay on PB6** is the deck's cue (EL §8.3): the ROM switches it
+  on to load or save and off after.
+- **Recording** decodes PB7 into bytes appended to the `.tap`, keeping only
+  whole files. A recording made on the device loads in the reference
+  emulator (§13.4).
+- **Turbo** while the tape plays (EL §9.3).
+
+### 10.5 Disc: the Microdisc (M14)
+
+The Microdisc is the Oric's common disc interface and Sedoric its common
+DOS. It is the most complicated device in the plan, so it comes last,
+after the soak (§15), and only on a 48K machine.
+
+| Part | Behaviour |
+|---|---|
+| WD1793 at `#0310–#0313` | command/status, track, sector, data. Type I–IV commands; INTRQ and DRQ |
+| Control `#0314` (write) | drive select, side, density, `/ROMDIS`, EPROM enable, INTRQ-to-IRQ enable (bit assignment §16) |
+| Status `#0314` / `#0318` (read) | INTRQ and DRQ, active low |
+| EPROM, 8 KiB at `#E000` | boots the DOS from disc; then Sedoric runs from **overlay RAM** with BASIC switched out |
+| `/I/O CONTROL` | the Microdisc's addresses are taken from the VIA's mirror |
+
+The lessons from pico-atom's 8271 carry over (EL §8.4): **the model knows
+the geometry and asks the host only for bytes**, a track at a time with the
+guest parked, so the card's latency is invisible; a write collects the
+track and posts it; a read-only file is a write-protected disc; refuse a
+snapshot while a command runs. **Read the register use off the EPROM and
+Sedoric**, not from secondary documents.
+
+**Images: Oricutron's `MFM_DISK` format**, the archive's common one: a
+header (sides, tracks, geometry) then raw MFM tracks of about 6,400 bytes,
+which the WD1793 model walks for ID and data marks as the chip would. One
+track in SRAM at a time (6.5 KiB, §3.3). The older sector-only `ORICDISK`
+format is converted on a computer, not supported (§17).
+
+**The Discs page** (`F2`) lists `/oric/discs/` with the drive each image is
+in and a `P` for write-protected, as pico-atom's does.
+
+### 10.6 Snapshots
+
+EL §8.5 as pico-ace built it: explicit little-endian fields, zero as reset,
+a header with magic, version, lengths and CRC, ROM hashes not ROM bytes, the
+machine configuration (ROM, RAM, Microdisc) and refuse another, the ULA's
+mode and the field's length recorded, two-pass load, every key released and
+audio restarted after. The fields: the 6502, the VIA (pico-atom's snapshot
+fields), the AY's registers and every internal counter, the ULA's mode and
+blink counter, all 64 KiB of RAM, and from M14 the WD1793 and Microdisc
+latches with the drive's head position.
+
+**No community snapshot format is imported**: the Oric archive is tapes and
+discs (§17).
+
+### 10.7 Settings
+
+pico-ace's `settings.c` and rewriter with the Oric's keys: `rom` (`1.0`,
+`1.1`), `ram` (`16`, `48`), `microdisc` (`off`, `on`), `volume`, `perf`,
+`status`, `backlight`, `layout`, `fast_tape`, `boot_tape`, `boot_disc`.
+EL §8.7's rules unchanged; build-time `PICO_ORIC_BOOT_*` win.
+
+---
+
+## 11. Timing
+
+### 11.1 The field
+
+The ULA generates a 64 µs line. A field is **312 lines (19,968 cycles) at
+50 Hz or 264 (16,896) at 60 Hz**, chosen by the mode attribute's frequency
+bit (§2.5). The ROM selects 50 Hz; some programs switch.
+
+`oric_run_field` ends each field **at the first active line**, where the
+snapshot is taken (EL §5.6): the ULA is then about to draw the frame from
+the top, and the snapshot is what it will draw. There is no vertical-sync
+flag or interrupt to split the field at (§2.6), so the field is one run,
+sliced only at VIA events (§5.3).
+
+Which line is the first active one, the number of active lines (224), and
+when a frequency change alters the field's length are unverified (§16).
+Until settled they are runtime configuration (EL §14.2), and the
+50/60 Hz length is applied from the next field.
+
+### 11.2 Turbo
+
+While a tape plays at signal level (§10.4) or a disc track is in progress
+with fast disc off, run unpaced and top the audio queue up with silence (EL
+§9.3). No faster guest clock: no common modification to support (§17).
+
+### 11.3 The host clock
+
+150 MHz only (§3.1). The 300 MHz path stays pico-atom's code, unused.
+
+---
+
+## 12. User interface
+
+**The menu is the family's** (EL §10): pico-atom's items, rows and keys,
+less nothing, since the Oric has every page the Atom has. A user moving
+between the three emulators finds everything where it was.
+
+- **Boot straight to `Ready`.** No splash.
+- **Alt+M** opens the menu and pauses the guest. Its items, in pico-atom's
+  order: Tapes (eject, play/stop, rewind, new tape, the files), Discs (from
+  M14; until then the page says it is not in this firmware yet), Snapshots
+  (slot, save, load, delete), Setup (status line, perf line, backlight,
+  volume, keys, fast tape), Machine (**ROM** 1.0/1.1, **RAM** 16K/48K,
+  **Microdisc** off/on from M14, all staged and applied by *Apply and
+  restart*, with a warning that the program is lost), Reset, Save settings,
+  About.
+- **F1** Tapes, **F2** Discs, **F3** Snapshots, **F4** Setup, **F5**
+  Machine, **F6** screenshot, **F10** About, **Alt+H** the keys page,
+  **Alt+P** pause. A page opened by a function key returns to the guest when
+  closed.
+- **Alt+K presses the Oric's reset button**, which is NMI: the ROM's warm
+  start, program kept. The menu's *Reset* is the RESET line, as pico-atom's
+  is. Power-on is *Apply and restart* on the Machine page.
+- **The Machine page refuses** a ROM whose file is missing or unrecognised,
+  naming it, before touching the machine; refuses a 16K machine with the
+  Microdisc on; refuses while a recording is unsaved (EL §10).
+- **The menu is a 40×28 text page** in the Oric's own font (§7.6), through
+  the ordinary renderer, with the status and key rows last. Closing it
+  invalidates the shadow, and the next snapshot is presented whole.
+- **Pause** dims the backlight (read first, restored after) and says so on
+  the status line; any key resumes and is not passed on.
+- **About**: firmware version from `git describe`, the board, chip, clocks,
+  southbridge version, die temperature, the machine (ROM, RAM, Microdisc),
+  each ROM's file and first eight SHA-1 digits with recognised or not, and
+  the settings file's state. The battery's charge on every page's title row.
+- **Status row** names the first problem. **Firmware names no titles.**
+
+---
+
+## 13. Testing
+
+EL §11 applied.
+
+### 13.1 Shape
+
+No framework; `CHECK` and `TEST_DONE`; one binary per area under CTest;
+exit 77 is a skip. Each test has a control that must fail, and each
+milestone plants bugs to prove its tests bite (EL §11.1).
+
+### 13.2 Host tests by area
+
+| Area | Tests |
+|---|---|
+| 6502 | Dormann, Clark (every flag), cycle table by execution (pico-atom's); later Harte's per-opcode suite (§5.4) |
+| VIA | pico-atom's `test_via6522`; plus CA2/CB2 driving the AY's bus and CB1 taking the tape |
+| AY | registers through the VIA's handshake; tone, noise and envelope against the independent model; port A to the keyboard; silence on a scan (§8.5) |
+| ULA | decode against goldens; dirty bands against a full render with a VRAM-diff control; the mode scan against the decode; the 16K mirror (§7) |
+| Bus | page table, mirrors, I/O decode by mask, `/ROMDIS`, each register's side effect and no other (EL §4.1–4.2) |
+| Field | lengths at 50 and 60 Hz; the switch between them; the snapshot point |
+| Keyboard | the sweep, every table entry through both ROMs, hold and gap with a too-fast control |
+| Media | tape trap and signal in both ROMs; recorder; snapshot round trip; Microdisc against an in-memory disc |
+| Port logic in the core | snapshot pool, status text, settings rewriter, keymap parser, BMP encoder |
+
+### 13.3 The real ROMs, and our own
+
+The harness (pico-atom's `guest.c`, adapted) finds `basic10.rom` and
+`basic11b.rom` by SHA-1 in the gitignored `roms/`, boots each in every RAM
+size, types through the southbridge event path, and reads the screen as
+text through the Oric's character codes. Tests that need a ROM that is
+absent skip.
+
+Because CI has no ROMs (§10.2), **`test/asm/oric_test_rom.s`** is a small
+16 KiB ROM of our own, assembled with `ca65` like Clark's test, that CI
+always runs: it sets up T1's interrupt, writes AY registers through the
+VIA's handshake, scans the keyboard through AY port A and PB3, toggles PB7
+under T1, and writes text, hires and attribute patterns to the screen. It
+proves the **wiring** on every push; the real ROMs prove the **contracts**
+on the workstation.
+
+### 13.4 Trace diff
+
+**Oricutron**, built from its own checkout at a pinned commit by a script,
+with a trace hook added by `sed` at the top of its 6502 step and a headless
+`main` replacing its SDL front end (EL §11.4). `PC A X Y S P cycles` and the
+opcode bytes per instruction. Built in **M3** and kept in use (EL §11.4:
+get it early).
+
+- **Resync or keep the same time**: Oricutron's VIA and ULA are
+  cycle-based, so the two should keep the same time from reset; a
+  divergence after a read of the VIA's timers is expected only if the
+  emulators disagree on timer timing, which is then the finding.
+- **The reference has bugs**; check the datasheet before believing either,
+  and carry its known errata in the tool, by name.
+- **A second reference** for what the first cannot settle: MAME's `oric`
+  driver, run headless with a Lua dump, and Clock Signal's source read for
+  the ULA and the Microdisc.
+- **Video**: Oricutron's rendering of the same RAM is the independent check
+  of the goldens (§7.7).
+
+### 13.5 Soak
+
+EL §11.5: 30 minutes on battery with a BASIC program exercising the
+display (text and hires, attributes), sound (the AY's three channels and
+noise) and the keyboard read through the matrix, every failure counter
+zero, the workload seen running in screen dumps, and the release build
+soaked with counters read over SWD.
+
+---
+
+## 14. Measuring
+
+EL §12, with the Oric's heartbeat additions: the AY's events per second, the
+share of time in the ULA mode scan, the field rate (50 or 60 Hz), and from
+M14 disc track transfers. Workloads, one boot each, typed over the UART: idle
+at `Ready`, a compute loop, a scrolling `PRINT` loop, a hires drawing loop,
+an AY loop (`MUSIC` and `SOUND` with noise and an envelope), and one with
+redefined characters. Find out which is heaviest (EL §12). Each feature is
+measured against a control build in the same sitting; the previous release
+too.
+
+---
+
+## 15. Milestones
+
+Sixteen milestones, M0–M15, each small enough to finish and check in a few
+sittings. Each one ends with something that runs and something measured,
+records date, board and what was *not* verified (EL §14.3), has done-when
+criteria checkable by a test or on the panel, and lists what it leaves out.
+The record of each, as built, goes in `docs/milestones.md`, started at M0.
+
+### 15.1 The order
+
+```
+ host only                              device
+ ─────────                              ──────
+ M0 skeleton ─────────────────────────────────────────────┐
+  │                                                       │
+ M1 6502 + VIA on host ──────► M2 6502 on board (GATE) ─┐ │
+  │                                                     │ │
+ M3 Oric on host                    M6 bring-up + card ◄┼─┘
+  │   │                                    │            │
+ M4 video   M5 keyboard                    │            │
+  │          │                             │            │
+  └──────────┴───────────────► M7 ORIC BOOTS ON DEVICE ◄┘
+                                           │
+                 M8 AY audio ──► M9 menu & settings ──► M10 tape trap
+                                                           │
+                                     M11 snapshots ◄───────┘
+                                           │
+               M12 perf, corpus & soak ──► M13 signal tape
+                                                │
+                              M14 Microdisc ──► M15 finish
+```
+
+M3–M5 need no board and run alongside M2 and M6. **M7 is the one that
+matters.** Against the Ace's order, the card moves forward into M6–M7,
+because the ROMs are on it; and disc is added as M14, after the soak, so
+the emulator is complete and soaked without it.
+
+### 15.2 The milestones
+
+#### M0. Skeleton
+
+*Depends on:* nothing.
+*Build:* the layout of §4.1; CMake with the host and `pico2` builds;
+`config.h`; `test_util.h`; CI building both under `-Wall -Wextra -Werror`
+and running CTest; `arm-none-eabi-size` printed; the version header from
+`git describe` at build time; firmware that prints a banner (version,
+physical board, chip revision, clock) over UART1 and blinks the LED;
+`CLAUDE.md`; `docs/milestones.md`; `THIRD-PARTY.md`. Copied from pico-ace
+and renamed (§4.6).
+*Done when:* a push builds both targets green; an SDK `#include` in
+`src/core/` fails the host build; the banner appears in a UART capture from
+a board.
+*Measured:* image size.
+*Leaves out:* any emulation.
+
+#### M1. The 6502 and the VIA on the host
+
+*Depends on:* M0.
+*Build:* pico-atom's `m6502` and `via6522` copied with their tests;
+`fetch-test-suites.sh`; Clark's test assembled with `ca65` in CI.
+*Done when:* Dormann runs to completion, Clark passes with every flag, the
+cycle table passes by execution, `test_via6522` passes under the new names,
+a missing suite reports skipped, and one planted bug in each is caught.
+*Measured:* Dormann's wall time on the workstation (a regression marker).
+*Leaves out:* the Oric, the AY, undocumented opcodes.
+
+#### M2. The 6502 on the board: the gate
+
+*Depends on:* M1.
+*Build:* a bench image (pico-ace's `src/bench/` shape) with the 6502 on a
+flat bus: a slice of Dormann and a BASIC-shaped loop (a `CHRGET`-style
+character fetch and a floating-point add, in 6502 assembly), each checked
+first on the host for its cycle and instruction counts.
+*Done when:* host cycles per instruction and mean cycles per instruction
+are recorded at 150 MHz, flash and the SRAM tier, the board's counts equal
+the host's, and §3.2's gate decision is written (projected core 0 ≤ ~85 %).
+*Measured:* those numbers, replacing §3.2's estimates.
+*Leaves out:* LCD, keyboard, audio.
+
+#### M3. The Oric on the host
+
+*Depends on:* M1. Needs `basic10.rom` and `basic11b.rom` staged locally.
+*Build:* `oric.c`: the page table, the four machine configurations, page
+`#03`'s decode, the VIA wired (PA and CA2/CB2 to an AY **register
+interface**, no sound yet; PB3 from the matrix; CB1 and PB7 to nothing yet),
+NMI and RESET, `oric_run`/`oric_run_field` with debt carry and the field
+length as configuration; `romset` with SHA-1 identification; the harness
+and a text dump of the screen; `oric_test_rom.s` and its test; **Oricutron
+built from its own checkout** with the trace tool (§13.4).
+*Done when:* both ROMs boot to `Ready` in both RAM sizes and the dump shows
+it; `PRINT 2+2` typed into the matrix reads back `4`; the trace diff of
+boot to `Ready` against Oricutron is clean or its divergences explained;
+the test ROM's checks pass in CI; **§16 is updated** with what the ROMs
+settle (the 16K mirror, T1's period, IRQ use, RND's seed, the ROM's AY and
+keyboard routines, tape routine addresses), each with how.
+*Measured:* cycles from power-on to `Ready` per machine.
+*Leaves out:* pixels, sound, real key timing.
+
+#### M4. Video on the host
+
+*Depends on:* M3.
+*Build:* `ula.c`'s decode, mode scan and row generator; the decoded-cell
+shadow and dirty bands; the frame pool with the Oric's snapshot; the ROM
+font expansion for the emulator's pages; the fallback font for the
+missing-ROM page; PPM output.
+*Done when:* §7.7's goldens are committed **after being looked at** and
+agree with Oricutron's rendering of the same RAM; the dirty-band test passes
+and its VRAM-diff control fails; the pool survives 100,000 random
+transitions; the mode scan agrees with the decode over random screens; the
+ROM-font expansion equals what each ROM writes to `#B400`; §16's attribute,
+blink and mode-timing rows are settled or bounded.
+*Measured:* decode and row-generation cost on the workstation (a ratio for
+M7 to check).
+*Leaves out:* the LCD.
+
+#### M5. The keyboard on the host
+
+*Depends on:* M3.
+*Build:* the matrix sweep (§9.3) through both ROMs; `keymatrix`,
+`keymap_picocalc` adapted from pico-ace, the map as data; paced replay.
+*Done when:* the sweep replaces §2.4 and stays as a regression test; every
+PicoCalc table entry types its character through both ROMs; the static
+table checks pass; the hold and gap are settled in §16 with a too-fast
+control that loses keys; FUNCT's binding is decided.
+*Measured:* fields per key each ROM needs.
+*Leaves out:* the southbridge, game layouts.
+
+#### M6. Board bring-up and the card
+
+*Depends on:* M0. Runs alongside M3–M5.
+*Build:* pico-ace's drivers copied and renamed, brought up in HW §10's
+order: southbridge, LCD with the corner-coded pattern, the DMA blit, `kbd`,
+the log ring, core 1's loop with `busy_wait_us_32`, UART keys, and **SD with
+FatFs**, which the siblings brought up later.
+*Done when:* the pattern shows correct orientation, colour order and four
+corners; every key's press and release is logged with its code; a UART key
+arrives as the same event; a file in `/oric/roms/` is listed and hashed; a
+10-minute run has zero I²C errors.
+*Measured:* a full 240×224 blit and a 240-pixel row; I²C transaction time;
+a 16 KiB card read.
+*Leaves out:* the guest.
+
+#### M7. The Oric on the device
+
+*Depends on:* M2, M4, M5, M6.
+*Build:* ROMs loaded from the card by SHA-1 at power-on, with the
+missing-ROM page; core 0 running `oric_run_field` paced on `time_us_64()`
+against an absolute deadline (no audio yet, EL §6.3), with the mode scan;
+core 1 presenting at (40, 48) with dirty bands; the PicoCalc keyboard into
+the matrix; the heartbeat.
+*Done when:* the device boots to `Ready` in under a second in each of the
+four machines (set by `PICO_ORIC_BOOT_*`); BASIC typed on the PicoCalc runs;
+colour, inverse, double height, blink and a `HIRES` drawing look right on
+the panel (by the owner's eye); a missing ROM shows the page that names it;
+real-time ratio 1.000.
+*Measured:* core 0 share and host cycles per instruction on §14's
+workloads; present times; the mode scan's cost; dropped snapshots at 50 and
+60 Hz.
+*Leaves out:* sound, menu, media.
+
+#### M8. AY audio
+
+*Depends on:* M7.
+*Build:* `ay8912.c`: tone, noise, envelope, mixer, the event-driven box
+filter with the ultrasonic average (§8.2), the measured volume table; audio
+plumbing from pico-ace; pacing moved from the timer to the audio queue.
+*Done when:* §8.5's tests pass, each with its control; `PING`, `ZAP`,
+`SHOOT`, `EXPLODE` and a `MUSIC` scale sound right on the device; the
+measured pitch matches the computed one; a 10-minute run has zero underruns
+and late refills; the late path is forced once (EL §6.4).
+*Measured:* the AY's cost on the AY workload against a control build with
+synthesis stubbed; the averaged path's error; samples per second (the
+control quantity) at 50 and 60 Hz.
+*Leaves out:* volume as a menu row (it comes with M9).
+
+#### M9. Menu and settings
+
+*Depends on:* M8.
+*Build:* the family menu (§12): main page, Setup, Machine (ROM, RAM, staged
+restart), About, the keys page, pause, Reset and the Alt+K NMI, Save
+settings, the settings file read before power-on; F6 screenshots.
+*Done when:* every page and key works on the device, by the owner's check;
+switching among all four machines works and refuses a missing ROM by name;
+saved settings survive a reboot and the file is edited in place; a
+screenshot opens on a computer.
+*Measured:* menu open-to-drawn time; the screenshot's write time.
+*Leaves out:* Tapes, Snapshots and Discs pages' contents.
+
+#### M10. Tape by trap
+
+*Depends on:* M9.
+*Build:* `tap.c`, `tape.c` with each ROM's trap table; the Tapes page and
+New tape; `boot_tape`.
+*Done when:* `CLOAD` and `CSAVE` work through the trap in both ROMs, fast
+and slow, with an empty name, a name, and a multi-file `.tap`; the trapped
+calls leave the machine as the ROM's own routine does in every byte below
+the ROM; an archive game loads and runs on the device; a `CSAVE`d program
+loads in Oricutron.
+*Measured:* the trap's cost against a control build.
+*Leaves out:* the signal, recording by signal.
+
+#### M11. Snapshots
+
+*Depends on:* M10.
+*Build:* `snapshot.c` with the Oric's fields; the Snapshots page; four slots.
+*Done when:* save mid-program, restore into a machine doing something else,
+run 150 fields, and every byte of state matches (a one-cycle debt error
+must not); a state from another machine, ROM or field rate is refused by
+name; a torn file leaves the running machine untouched.
+*Measured:* save and load times.
+*Leaves out:* disc state (M14).
+
+#### M12. Performance, corpus and soak
+
+*Depends on:* M11.
+*Build:* §14's workloads scripted; SRAM tiers measured; a **corpus run** on
+the host: every `.tap` in a downloaded archive set loaded and run for a fixed
+number of fields, counting undocumented opcodes per title and logging any
+that fail to load; the soak program.
+*Done when:* each optimisation kept is justified against a control in one
+sitting; the corpus report exists and **the undocumented-opcode decision is
+written into §5.1** (implement the stable subset with Harte's suite, or
+not); the 30-minute battery soak passes with every counter zero and the
+workload seen running.
+*Measured:* every workload's core 0 share at the shipped tier.
+*Leaves out:* the signal.
+
+#### M13. Signal-level tape
+
+*Depends on:* M12.
+*Build:* `cassette.c`: the player on CB1 at the counts the ROM's T1 writer
+programs, the recorder off PB7, the motor relay as the cue, turbo,
+`fast_tape = off`.
+*Done when:* the player's edges equal a recording of each ROM's `CSAVE`,
+edge for edge, at both speeds; `CLOAD` reads the signal in both ROMs with
+the trap off; a turbo-loading game from the archive loads; a recording made
+on the device loads in Oricutron; the recorder keeps only whole files.
+*Measured:* turbo's speed-up; core 0 while a tape plays.
+*Leaves out:* `.wav` (§17).
+
+#### M14. The Microdisc
+
+*Depends on:* M13. Needs `microdis.rom` and a Sedoric `.dsk` staged locally.
+*Build:* overlay RAM and `/ROMDIS`; `wd1793.c`, `microdisc.c`, `mfmdisk.c`;
+the Discs page and F2; `discio.c` serving a track at a time with the guest
+parked; the Microdisc's state in snapshots; `boot_disc`.
+*Done when:* Sedoric boots from a disc image in the 48K machine with both
+ROMs it supports; `DIR`, `LOAD`, `SAVE` and `DEL` work; a saved file reads
+back in Oricutron; a disc swapped with the guest paused is seen by the
+DOS; a write-protected image refuses writes; the WD1793's commands pass a
+host test against an in-memory disc with a control; a snapshot taken
+mid-command is refused.
+*Measured:* a track read on the card; time to boot Sedoric; core 0 during
+disc transfers.
+*Leaves out:* Jasmin, `ORICDISK` images, formatting new discs (decided here
+by whether Sedoric's `INIT` works on a blank image).
+
+#### M15. Finish
+
+*Depends on:* M14.
+*Build:* built-in game layouts and `/oric/keymaps/`; status and perf lines
+complete; the release build with no UART and SWD counters; `README.md` with
+the ROM names, hashes and sources; the release soak.
+*Done when:* every page, key and setting checked on the panel by the owner;
+the release soak passes on battery with counters read over SWD; CI green on
+both builds; the build runs on a second board (Pico 2 W).
+*Measured:* the release build's core 0 share and image size.
+*Leaves out:* §17.
+
+---
+
+## 16. Unverified constants
+
+Every guest fact the code depends on, its best primary source, and its
+confidence. Each is transcribed from its source, or settled by executing a
+ROM, before it becomes a `#define`. Record how each was settled, and the
+date, in this table when it changes.
+
+| Constant | Believed | Primary source | Confidence |
+|---|---|---|---|
+| CPU clock | 1 MHz (12 MHz ÷ 12) | schematic; ULA documentation | high |
+| ROM hashes | §10.2 | MAME's `ROM_LOAD` | **settled** 2026-10-07: the owner's `basic10.rom`, `basic11b.rom` and `microdis.rom` match MAME's CRC32 and SHA-1. Reset vectors `#F42D` (1.0) and `#F88F` (1.1) |
+| 16K RAM mirroring | `#0000–#3FFF` repeats to `#BFFF` | schematic; the ROM booting in 16K | medium-low |
+| Overlay RAM under the ROM, `/ROMDIS` | 48K machines only | schematic; Microdisc schematic | medium |
+| VIA decode | `#0300–#030F`, mirrored through `#03FF` unless `/I/O CONTROL` | schematic | medium |
+| CA2 / CB2 to BC1 / BDIR | CA2 = BC1, CB2 = BDIR | schematic; the ROM's AY routine, executed | medium (sources disagree) |
+| AY port A to keyboard columns; PB3 sense polarity | as §2.3 | schematic; ROM's scan, executed | medium |
+| Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | low until swept |
+| FUNCT's cell; does ROM 1.0 see it | | ROMs, executed | low |
+| Key minimum hold and gap, type-ahead | | ROMs, executed | low |
+| T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | medium |
+| VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | medium-high |
+| Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium |
+| First active line; active lines | ?; 224 | ULA documentation | low |
+| When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | low |
+| When a 50/60 Hz change alters the field | the next field | ULA documentation | low |
+| Attribute groups | §2.5 | Oric Advanced User Guide; ULA documentation; executed | medium-high |
+| Hires: bytes `#20–#3F` and `#A0–#BF` | pixels from bits 0–5 | ULA documentation; golden vs Oricutron | low |
+| Inverse | each colour XOR 7 | ULA documentation; photographs | medium |
+| Double height | glyph row `(line/2)%8` from the top or bottom half by text row parity | ULA documentation; executed | medium |
+| Blink rate and duty | about 1.5 Hz (a field counter's bit) | ULA documentation | low |
+| Attribute cells show | paper (after the attribute applies) | ULA documentation | medium |
+| Palette | 8 RGB primaries at full level | photographs; ULA output stage | medium |
+| Wait states | none | schematic; ULA documentation | medium-high |
+| AY clock | 1 MHz | schematic | high |
+| AY volume table | measured, ~3 dB steps | a cited measurement of the 8910/8912 | medium |
+| Oric's AY mix and output filter | three channels summed, mono | schematic | medium |
+| RND seed from zeroed RAM | | ROMs, executed | unknown |
+| Tape routines (each ROM) | | ROMs, read and executed | to find in M10 |
+| `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | medium-high |
+| Tape bit timings, fast and slow | | ROM's T1 writer, counted and executed | to find in M13 |
+| Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | medium |
+| Microdisc control/status bits | | Microdisc schematic; EPROM and Sedoric, read | low |
+| `MFM_DISK` layout | header, raw tracks of ~6,400 bytes | Oricutron's loader; archive images | medium |
+
+---
+
+## 17. Dropped and deferred
+
+Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
+
+| Feature | Decision | Why |
+|---|---|---|
+| RP2040 boards | dropped | ~265 KiB estimated SRAM (§3.3) against 264 KB |
+| 300 MHz host clock | deferred | the 6502 at 1 MHz needs about a third of core 0 at 150 MHz (§3.2). pico-atom's clock code is ready if a measurement ever needs it |
+| Jasmin disc interface | dropped | a smaller user base than the Microdisc, and a second DOS and controller wiring |
+| Telestrat, Pravetz 8D | dropped | different machines, not configurations of these two |
+| Printer (Centronics on PA) | dropped | no known software dependency; PA and PB4 are modelled as the VIA's pins, unconnected |
+| Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the M12 corpus shows titles that read only a joystick |
+| The vertical-sync modification (sync to CB1) | deferred | an owner's modification some demos use; cheap to add as a setting once the first active line is settled |
+| Mid-field raster effects | deferred | the snapshot is one point in the field (§7). A per-line record is the path if a known title needs it |
+| Undocumented 6502 opcodes | decided by M12's corpus | EL §4.2: evidence first |
+| Scaled display | dropped | 240×224 fits 1:1 (EL §5.4) |
+| Monochrome or colour themes | dropped | the Oric is a colour machine; the palette is a pointer if ever wanted |
+| Hardware vertical scroll | dropped | scrolling is memory moves the cell diff catches (EL §5.4) |
+| `.wav` and `.tzx` tapes | dropped | the archive is `.tap`; convert on a computer |
+| `ORICDISK` sector images | dropped | convert to `MFM_DISK` on a computer |
+| Community snapshot import | dropped | the archive is tapes and discs |
+| Faster guest clock | dropped | no common modification |
+
+---
+
+## 18. Decisions
+
+The owner's decisions, each with its date.
+
+1. **ROMs from the SD card, identified by SHA-1.** *Decided 2026-10-07.*
+   No distribution permission comparable to the Ace's was found. The
+   repository and firmware ship no ROM; the README names the files and
+   their hashes; a missing ROM shows a page naming it (§10.2).
+2. **The Microdisc is in scope, as a late milestone.** *Decided
+   2026-10-07.* M14, after the soak, so the emulator is complete without it
+   (§10.5, §15).
+3. **ROM and RAM are independent Machine-page rows: four machines.**
+   *Decided 2026-10-07.* ROM 1.0/1.1 × RAM 16K/48K, power-on default
+   **Atmos 48K** (ROM 1.1, 48K).
+4. **Licence GPL-3.0** (`LICENSE`), as both siblings, so §4.6's reuse is a
+   copy.
+5. **One design document**, `docs/design.md`, with the milestones in §15
+   and the record in `docs/milestones.md` from M0. *Decided 2026-10-07.*
+
+**Proposed, following the siblings; the owner to confirm:**
+
+- P1. Host clock 150 MHz only, 300 MHz deferred (§3.1).
+- P2. The menu is the family's, item for item and key for key (§12).
+- P3. Oricutron is the trace-diff reference, MAME the second (§13.4).
+- P4. Alt+K is the Oric's reset button (NMI), and the menu's Reset is RESET.
+
+**Open:**
+
+- O1. May CI fetch the real ROMs from a third-party repository (Oricutron
+  ships them) at test time, so the ROM-dependent tests run on every push?
+  Without it, CI runs the test ROM only (§13.3).
+
+---
+
+## 19. Sources
+
+To obtain and record (with revision or date) before transcribing constants:
+
+- **Oric-1 and Atmos schematics**: clocks, decode, mirrors, VIA and AY
+  wiring, reset, keyboard. Get them early (EL §14.2).
+- **The ULA (HCS10017)**: the community's reverse-engineering of its
+  timing, attribute handling, blink and mode changes, and Oricutron's and
+  MAME's implementations as second opinions. Read them, copy nothing.
+- **Oric Advanced User Guide** (Leycester Whewell, 1983) and the **Oric
+  Atmos manual**: memory map, attributes, sound commands, keyboard.
+- **A commented ROM disassembly** of BASIC 1.0 and 1.1 (*L'Oric à nu*, and
+  others), and **the ROMs themselves, executed on the host harness**: the
+  best source for the matrix, tape routines, key timing and system
+  variables (EL §14.2).
+- **GI AY-3-8910/8912 data manual**: registers, periods, envelope shapes;
+  and a measured volume table.
+- **MOS/Rockwell 6522 datasheet**: as pico-atom used.
+- **Microdisc schematic**, **WD1793 datasheet**, the **Microdisc EPROM** and
+  **Sedoric**, read for register use.
+- **Oricutron** (pinned commit): the trace reference, and the `.tap` and
+  `MFM_DISK` loaders as format descriptions. **MAME `oric`**: ROM hashes and
+  a second opinion. **Clock Signal**: a third, read only.
+- **Klaus Dormann's 6502 tests**, **Bruce Clark's decimal test**, and if
+  needed **Tom Harte's SingleStepTests**: fetched, not committed (§5.4).
+- **An Oric software archive** (tapes and discs): the M12 corpus and the
+  evidence for §17's deferrals.

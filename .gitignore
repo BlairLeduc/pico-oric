@@ -1,0 +1,9 @@
+.DS_Store
+
+# Build trees, UART captures and fetched test suites (design.md §5.4).
+build/
+out/
+test/suites/
+
+reference/
+roms/
