@@ -63,13 +63,24 @@ extern bringup_t g_bringup;
 
 /* The boot's ROM (design.md §10.2). main() names the one it wants before
  * core 1 starts; core 1 reads the card and leaves the image here before
- * g_c1.ready, and core 0 reads it only after, so it needs no lock. */
+ * g_c1.ready.
+ *
+ * While the missing-ROM page is up the guest has not started, so a card
+ * that goes in or out is read again (core1.c), and job and image change
+ * under core 0. Two flags keep them apart, each with a barrier between
+ * its store and the other's load: core 1 sets `busy`, then runs a job
+ * only if `claimed` is clear; core 0 sets `claimed`, then waits for
+ * `busy` to clear, and from then on job and image are its own.
+ * `generation` counts the jobs, so core 0 knows to look again. */
 typedef struct {
     rom_id_t   want;         /* the machine's ROM: main()'s               */
     oric_ram_t ram;          /* and its RAM, for the missing-ROM page     */
     card_job_t job;          /* what the card had, and which was loaded   */
     uint8_t    image[ORIC_ROM_SIZE];   /* job.loaded's bytes              */
     uint32_t   ready_us;     /* core 1's bring-up done, since boot        */
+    volatile bool     busy;        /* core 1: a job is running          */
+    volatile bool     claimed;     /* core 0: job and image are mine    */
+    volatile uint32_t generation;  /* jobs finished                     */
 } boot_report_t;
 
 extern boot_report_t g_boot;

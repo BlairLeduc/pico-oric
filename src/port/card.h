@@ -7,8 +7,9 @@
  * (hardware-notes.md §7.1).
  *
  * The slot's card detect is polled from core 1's loop, and a change is
- * logged and counted. Once the guest runs, card work comes from a park
- * (M9), so until then a card that goes in is only logged.
+ * logged and counted. Before the guest starts, while the missing-ROM page
+ * is up, a change runs the ROM job again (core1.c); once it runs, card
+ * work comes from a park (M9), so until then a change is only logged.
  */
 #ifndef PICO_ORIC_CARD_H
 #define PICO_ORIC_CARD_H

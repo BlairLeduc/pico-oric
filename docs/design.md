@@ -910,7 +910,9 @@ may choose one, but the tape traps stand aside for it (§10.3).
   marked *unrecognised* on the About page, as pico-atom does.
 - **A missing ROM shows a page naming the missing file**, never a blank
   screen. If the chosen ROM is missing and the other is present, the page
-  says so and offers the other machine.
+  says so and offers the other machine. The guest has not started while
+  the page is up, so a card put in or taken out is read again at once,
+  and the machine starts when its ROM is there (M7).
 - `roms/` in the repository is a gitignored staging area for the host tests,
   with a README, as pico-atom's.
 - **CI without ROMs.** Tests that need a real ROM skip in CI, and a skip is

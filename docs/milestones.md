@@ -84,6 +84,18 @@ the board (it builds); a card pulled or put in while the guest runs
 (logged only: card work waits for M9's park); the status line's note for
 an unrecognised ROM (none to hand); keys held to auto-repeat on the
 board; the 16K machines beyond their boot.
+**Found by the owner** on a Pico 2 W, with the build that ships
+(`-DPICO_ORIC_UART=OFF`), 2026-10-08: typed BASIC programs run, the Ctrl
+keys work, and keys auto-repeat; started with the card out, the page
+said so, but a card put in left it there until a power cycle, because
+the boot read the card once and card work waited for M9's park. The
+guest has not started while the page is up, so nothing needs parking:
+core 1 now runs the ROM job again on each card change, and core 0 takes
+the image only after claiming it, with a barrier each side, so that a job
+cannot rewrite it under the copy (`handoff.h`). On the Plus 2 W the same
+day, with the card put in at the page: the job ran, and the Atmos 48K
+reached Ready at 2,476,042 cycles, without a reset. The page now says
+the machine starts when the card goes in.
 
 **M6, board bring-up and the card** (`src/port/southbridge.*`, `kbd.*`,
 `log.*`, `lcd.*`, `display.*`, `sd.*`, `diskio.c`, `storage.*`,

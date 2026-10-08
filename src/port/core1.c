@@ -53,6 +53,7 @@ static void draw_perf(uint32_t present_max_us, uint32_t dropped) {
  * every card job will be (§4.5); then the emulator's font, and the page
  * if the machine cannot start. */
 static void boot_rom(void) {
+    display_status("");
     card_roms(&g_boot.job, g_boot.want, g_boot.image);
 
     uint8_t font[ORIC_CHARSET_BYTES];
@@ -61,6 +62,7 @@ static void boot_rom(void) {
 
     if (g_boot.job.loaded != g_boot.want) {
         roms_page(&g_boot.job, g_boot.want, g_boot.ram, font, &s_page);
+        display_invalidate();
         display_present(&s_page, NULL);
     } else if (!g_boot.job.loaded_known) {
         /* The status row names the first problem (§12). */
@@ -69,6 +71,21 @@ static void boot_rom(void) {
                  romset_images[g_boot.job.loaded].file);
         display_status(text);
     }
+}
+
+/* The card went in or out with the missing-ROM page up: the guest has
+ * not started, so there is nothing to park, and the job runs again
+ * unless core 0 has claimed what the last one found (handoff.h). */
+static void boot_rom_again(void) {
+    g_boot.busy = true;
+    __dmb();
+    if (!g_boot.claimed) {
+        boot_rom();
+        __dmb();
+        g_boot.generation++;
+    }
+    __dmb();
+    g_boot.busy = false;
 }
 
 void core1_main(void) {
@@ -119,9 +136,12 @@ void core1_main(void) {
 
         log_pump();
 
-        /* The guest is running, so a card that goes in is only noted:
-         * card work waits for the park (M9, card.h). */
-        if (card_poll()) log_core1("  card         : %s\n", card_present() ? "in" : "out");
+        /* Once the guest runs, a card that goes in is only noted: card
+         * work waits for the park (M9, card.h). */
+        if (card_poll()) {
+            log_core1("  card         : %s\n", card_present() ? "in" : "out");
+            if (!g_boot.claimed) boot_rom_again();
+        }
 
         now = time_us_32();
         if (now - sec_start >= 1000000u) {

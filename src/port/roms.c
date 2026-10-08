@@ -69,7 +69,7 @@ void roms_page(const card_job_t *job, rom_id_t want, oric_ram_t ram,
                                                          : "The SD card did not mount.", false);
         row++;
         textpage_put(f, row++, 1, "On a FAT card, put the ROMs in", false);
-        textpage_put(f, row++, 1, "/oric/roms/, then reset.", false);
+        textpage_put(f, row++, 1, "/oric/roms/, then put the card in.", false);
     } else {
         snprintf(s, sizeof s, "The %s needs %s,", roms_machine_name(want, ram),
                  rom_title(want));
@@ -88,7 +88,8 @@ void roms_page(const card_job_t *job, rom_id_t want, oric_ram_t ram,
             snprintf(s, sizeof s, "to start the %s instead.", roms_machine_name(other, ram));
             textpage_put(f, row++, 1, s, false);
         } else {
-            textpage_put(f, row++, 1, "Put it on the card, then reset.", false);
+            textpage_put(f, row++, 1, "Put it on the card, and the card", false);
+            textpage_put(f, row++, 1, "back in: the machine starts.", false);
         }
     }
 

@@ -6,8 +6,9 @@
  * §18 item 3, or PICO_ORIC_BOOT_ROM and _RAM), starts core 1 and waits
  * while it brings up the panel and loads that machine's ROM off the card
  * (§10.2), then powers the machine on and becomes core 0's loop. Without
- * the ROM, core 1 shows the page that says why; with the other machine's
- * ROM there, RETURN starts that machine instead.
+ * the ROM, core 1 shows the page that says why, and reads the card again
+ * when one goes in; with the other machine's ROM there, RETURN starts
+ * that machine instead.
  */
 
 #include <stdbool.h>
@@ -48,25 +49,48 @@ static void boot_config(oric_config_t *cfg) {
 #endif
 }
 
-/* The missing-ROM page is up (core 1's). Wait for RETURN, from the
- * keyboard or the UART, if the page offers the other machine; otherwise
- * for ever, until a reset with the ROM on the card. Returns the ROM to
- * start. */
-static rom_id_t wait_for_other(void) {
-    rom_id_t other = card_other_basic(g_boot.want);
-    bool offered = g_boot.job.loaded == other;
-    log_printf("  guest        : not started: no %s for the %s%s\n",
-               romset_images[g_boot.want].file, roms_machine_name(g_boot.want, g_boot.ram),
-               offered ? "; RETURN starts the other machine" : "");
-    for (;;) {
-        uint8_t state, code;
-        while (kbd_pop(&state, &code)) {
-            if (offered && state == KEY_EV_PRESSED && code == PICOCALC_KEY_ENTER) return other;
-        }
+/* Whether RETURN came, from the keyboard or the UART. */
+static bool return_pressed(void) {
+    bool hit = false;
+    uint8_t state, code;
+    while (kbd_pop(&state, &code))
+        if (state == KEY_EV_PRESSED && code == PICOCALC_KEY_ENTER) hit = true;
 #if PICO_ORIC_UART
-        int c = getchar_timeout_us(0);
-        if (offered && (c == '\r' || c == '\n')) return other;
+    int c = getchar_timeout_us(0);
+    if (c == '\r' || c == '\n') hit = true;
 #endif
+    return hit;
+}
+
+/* Wait for the machine's ROM: at once if the card had it, else, with the
+ * missing-ROM page up (core 1's), until a card put in has it, or, while the page offers the other machine,
+ * for RETURN; then claim the image from core 1 (handoff.h). Returns the
+ * ROM to start. */
+static rom_id_t wait_for_rom(void) {
+    rom_id_t want = g_boot.want, other = card_other_basic(want);
+    uint32_t seen = g_boot.generation - 1u;
+    for (;;) {
+        uint32_t gen = g_boot.generation;
+        __dmb();
+        rom_id_t loaded = g_boot.job.loaded;
+        if (gen != seen && loaded != want) {
+            seen = gen;
+            log_printf("  guest        : not started: no %s for the %s%s\n",
+                       romset_images[want].file, roms_machine_name(want, g_boot.ram),
+                       loaded == other ? "; RETURN starts the other machine" : "");
+        }
+        bool enter = return_pressed();
+        rom_id_t pick = loaded == want ? want : (enter && loaded == other) ? other : ROM_UNKNOWN;
+        if (pick != ROM_UNKNOWN) {
+            g_boot.claimed = true;
+            __dmb();
+            while (g_boot.busy) tight_loop_contents();
+            __dmb();
+            /* A job may have finished between the look and the claim. */
+            if (g_boot.job.loaded == pick) return pick;
+            g_boot.claimed = false;
+            __dmb();
+        }
         sleep_ms(10);
     }
 }
@@ -113,11 +137,13 @@ int main(void) {
                (unsigned long)(g_boot.ready_us / 1000u), (unsigned long)(g_boot.ready_us % 1000u),
                (unsigned long)g_bringup.lcd_us, (unsigned long)g_bringup.card_us);
 
-    if (g_boot.job.loaded != cfg.rom) {
-        cfg.rom = wait_for_other();
-        log_printf("  guest        : RETURN: the %s instead\n",
-                   roms_machine_name(cfg.rom, cfg.ram));
-        /* RETURN's release is the page's, not the guest's. */
+    /* Returns at once when the ROM is already here. */
+    bool page = g_boot.job.loaded != cfg.rom;
+    cfg.rom = wait_for_rom();
+    if (page) {
+        log_printf("  guest        : %s\n", cfg.rom == g_boot.want
+                   ? "its ROM is on the card now" : "RETURN: the other machine instead");
+        /* The page's keys are not the guest's. */
         keymatrix_init(&g_keys);
     }
 
