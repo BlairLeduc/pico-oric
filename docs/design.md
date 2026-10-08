@@ -117,7 +117,8 @@ source and confidence. It becomes a `#define` only once settled (EL §14.2).
 concerned. The Atmos added a FUNCT key on a matrix cell the Oric-1 leaves
 empty, a different case and keyboard, and a tape relay output the Oric-1
 also has. M3 and M5 settle by execution whether anything else differs that
-software can see (§16).
+software can see (§16): M5 found the two ROMs' keyboards identical, cell
+for cell, and FUNCT read by neither (§2.4).
 
 ### 2.2 Memory map
 
@@ -166,12 +167,45 @@ the CPU's bus.
 
 ### 2.4 Keyboard matrix
 
-Eight rows of eight. Letters, digits, punctuation, `ESC`, `DEL`, `RETURN`,
-`CTRL`, **two SHIFT keys on separate cells**, `SPACE`, the four arrows, and on
-the Atmos `FUNCT`. The cells are **settled by executing both ROMs** (EL
-§7.2), not transcribed: M5 presses every cell at the prompt, with and
-without each SHIFT and CTRL, and reads what the ROM writes to the screen.
-This section is then replaced by that sweep's table.
+Eight rows of eight, **settled by executing both ROMs** (EL §7.2): M5's
+sweep pressed every cell at the prompt alone, with each SHIFT, with CTRL
+and with FUNCT, and read what the ROM's decoder returned (2026-10-08,
+`test_keyboard`, which keeps the sweep as its regression). The two ROMs
+agree in every cell. Rows are PB0–PB2, columns the bit of AY port A that
+enables them; a second character is what SHIFT gives, and `–` is a cell
+with no key.
+
+| row \ col | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| 0 | `7 &` | `N` | `5 %` | `V` | – | `1 !` | `X` | `3 #` |
+| 1 | `J` | `T` | `R` | `F` | – | ESC | `Q` | `D` |
+| 2 | `M` | `6 ^` | `B` | `4 $` | CTRL | `Z` | `2 @` | `C` |
+| 3 | `K` | `9 (` | `; :` | `- _` | – | – | `\ \|` | `' "` |
+| 4 | SPACE | `, <` | `. >` | ↑ | left SHIFT | ← | ↓ | → |
+| 5 | `U` | `I` | `O` | `P` | FUNCT | DEL | `] }` | `[ {` |
+| 6 | `Y` | `H` | `G` | `E` | – | `A` | `S` | `W` |
+| 7 | `8 *` | `L` | `0 )` | `/ ?` | right SHIFT | RETURN | – | `= +` |
+
+- **Codes.** ESC is `#1B`, DEL `#7F`, RETURN `#0D`; the arrows are ←
+  `#08`, → `#09`, ↓ `#0A`, ↑ `#0B`, with or without SHIFT. Letters are
+  capitals with or without SHIFT while CAPS is on, as it is after a reset;
+  CTRL-T turns it off, and then unshifted letters are lower case. `_` is
+  `#5F` and `^` `#5E`, which the Oric's font draws as `£` and an up arrow.
+  No key types `` ` `` or `~`.
+- **CTRL** with a cell whose character is `#40` or above gives that code
+  AND `#1F` (CTRL-A `#01` … CTRL-Z `#1A`, CTRL-`[` `#1B`, and DEL becomes
+  `#1F`); below `#40` it changes nothing. **FUNCT** changes nothing in
+  either ROM: their decoders test `#A4`, `#A7` and `#A2` only.
+- **Column 4 holds the modifiers**, and the scan keeps one key a column,
+  the first it finds walking down from row 7. So right SHIFT hides FUNCT,
+  FUNCT hides left SHIFT, and either SHIFT hides CTRL: SHIFT and CTRL
+  together give the shifted character, and FUNCT with left SHIFT the
+  unshifted one. Which SHIFT is left is Oricutron's word (§16).
+- **The scan** (`#F4C8` in 1.0, `#F523` in 1.1) runs every third T1
+  interrupt, 30 ms, walks the columns from 7 down and keeps the last
+  non-modifier key it finds, so one key at a time reaches BASIC; a key is
+  taken on the first scan that sees it. While that key stays down only its
+  own cell is checked, and it repeats after 32 scans, then every 4.
 
 ### 2.5 Video in one paragraph
 
@@ -761,32 +795,49 @@ of ORB computes PB3 from the row on PB0–PB2, the column mask in AY register
 
 ### 9.2 The standard map
 
-By meaning, settled by §9.3's sweep. The table is data (EL §7.2):
+By meaning, settled by §9.3's sweep. The table is data (EL §7.2), in
+`keymap_picocalc.c`:
 
 | PicoCalc | Oric | Notes |
 |---|---|---|
-| letters, digits | the same | the ROM's caps lock (`CTRL-T`) does case |
-| shifted punctuation | SHIFT + the cell that types it | by what the keycaps show, settled by the sweep; where the Oric's character set differs from ASCII, by position or meaning, said which |
+| letters, digits | the same | the ROM's CAPS (`CTRL-T`) does case: on, as after a reset, both give capitals; off, the PicoCalc's Shift gives them, as the Oric's does |
+| shifted punctuation | SHIFT + the cell that types it | the Oric pairs characters on keys as a US keyboard does, so every PicoCalc character is its own key's cell, by code (§2.4). `_` and `^` are `#5F` and `#5E`, drawn `£` and ↑. `` ` `` and `~` have no Oric key and type nothing |
 | `Enter` | `RETURN` | |
-| `Backspace`, `Del` | `DEL` | |
+| `Backspace`, `Del` | `DEL` | which deletes to the left |
 | `Esc` | `ESC` | |
-| `Ctrl` | `CTRL` | Ctrl chords reach the host unchanged (HW §6.3), so every Oric CTRL key works |
-| left `Shift`, right `Shift` | left `SHIFT`, right `SHIFT` | separate cells on both machines; games read them apart. Asserted whatever else is held (EL §7.2) |
+| `Ctrl` | `CTRL` | Ctrl chords reach the host unchanged (HW §6.3), so every Oric CTRL key works. With Shift held, the Oric's SHIFT hides CTRL (§2.4) |
+| left `Shift`, right `Shift` | left `SHIFT`, right `SHIFT` | separate cells on both machines; games read them apart. Asserted whatever else is held (EL §7.2). A character the PicoCalc types with Shift also asserts the left SHIFT, which goes down a field ahead of its cell |
+| `Shift`+`Enter`, `Esc`, `Del`, `Up`, `Down`, `Tab` | SHIFT + `RETURN`, `ESC`, `DEL`, ↑, ↓, `FUNCT` | the MCU sends these as Insert, Break, End, PgUp, PgDn and Home (HW §6.3), each needing an entry of its own; SHIFT changes none of the Oric's codes (§2.4). Alt+I is Insert too, and types nothing |
 | arrows | the Oric's arrows | plain keys on the Oric, so the swallowed Shift+arrow chords (HW §6.3) cost nothing |
 | `Space` | `SPACE` | |
-| `Tab` | `FUNCT` (proposed) | a held modifier on the Atmos, so a plain key, not an Alt chord (EL §7.2). Settled in M5 |
+| `Tab` | `FUNCT` | **settled** in M5: a held modifier on the Atmos, so a plain key, not an Alt chord (EL §7.2). Neither ROM reads it (§2.4); programs may, and while it is down it hides the left SHIFT from the ROM |
 | `Alt`+`M` `P` `H` `K` | menu, pause, keys page, the reset button (NMI) | the Alt layer; nothing on the Oric uses Alt |
 | `F1`–`F5`, `F6`, `F10` | menu pages, screenshot, About | §12 |
 
 ### 9.3 Settling the matrix by execution
 
 EL §7.2: press every cell at the prompt in **both ROMs**, alone, with each
-SHIFT, and with CTRL, read the screen, and keep the sweep as a regression
-test that types every table entry through each real ROM. The minimum hold
-and gap come from the ROM's scan, run in the 100 Hz interrupt, with a
-control that types too fast and must lose keys. The Oric ROM has
-type-ahead of one key at most (to be settled), which sets how fast UART
-typing can go (EL §13.1).
+SHIFT, with CTRL and with FUNCT, read what the ROM decodes, and keep the
+sweep as a regression test that types every table entry through each real
+ROM (`test_keyboard`, M5). Its table is §2.4's.
+
+**The hold and the gap**, settled 2026-10-08 by execution, from six
+starting phases against the scan: both ROMs need a key **down 2 fields and
+up 2**. Down 1, a scan can miss it; up 1, a key typed twice can be taken
+for one held, since a held key is not typed again until it repeats, 48
+fields on. The replay holds 3 and gaps 3 (`ORIC_KEY_MIN_FIELDS`,
+`ORIC_KEY_GAP_FIELDS`), about 8 keys a second, and a key pressed with a
+modifier waits a field behind it (EL §7.1). The margin is measured: 60
+program lines typed at the bare 2 and 2 leave 29 stored in 1.0, which
+loses keys that come while it stores a line and scrolls; at 3 and 3 both
+ROMs store all 60. 1.1 stores all 60 even at 2 and 2.
+
+**Type-ahead is one key**, `#02DF`, bit 7 its flag. While a program runs,
+each key overwrites the last; `KEY$` takes the last one, and the way back
+to `Ready` throws it away, so nothing typed during a run reaches the
+prompt. UART typing (EL §13.1) must therefore wait for `Ready` after a
+command that runs a program, as a typist would; lines typed at the prompt
+need no wait at the replay's rate.
 
 ### 9.4 Game layouts
 
@@ -1404,9 +1455,10 @@ date, in this table when it changes.
 | VIA access timing and the IRQ poll | | datasheets; trace vs Oricutron | **settled** 2026-10-08 by trace (§5.3, §13.4): the VIA is brought to the cycle of an access part-way into an instruction, and runs two cycles behind the CPU at boundaries. With both, boot and typing agree with Oricutron (its two errata corrected) on all four machines |
 | CA2 / CB2 to BC1 / BDIR | CA2 = BC1, CB2 = BDIR | schematic; the ROM's AY routine, executed | **settled** 2026-10-08, and confirmed by BN0130 the same day (the AY wiring row): both ROMs' register write (`#F535` in 1.0, `#F590` in 1.1) sets the PCR to `#EE` (both high: latch) then `#EC` (CA2 low, CB2 high: write); executed by `test_ay8912`, whose swapped-wiring control fails, and by typing through both ROMs |
 | AY port A to keyboard columns; PB3 sense polarity | as §2.3 | schematic; ROM's scan, executed | **settled** 2026-10-08: both scans (`#F4C8`/`#F506` in 1.0, `#F523`/`#F561` in 1.1) write port A with one zero bit per column (`#7F`, `#BF`, …), the row to PB0–PB2 with ORB = row \| `#B8`, and take PB3 **high** as a key down; reg 7 bit 6 makes port A an output. Executed: `PRINT 2+2` typed through the matrix prints 4 on all four machines, and an inverted PB3 fails it |
-| Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | low until swept. Read 2026-10-08: both decoders index a 128-byte table, column × 8 + row, unshifted then shifted (`#FF70` in 1.0, `#FF78` in 1.1; the two are identical); `#A4` and `#A7` (column 4, rows 4 and 7) are the SHIFTs, `#A2` CTRL. ROM 1.0 takes a key on its first scan, so a SHIFT pressed in the same instant may be missed: the harness holds SHIFT a field first. The keyboard drawing BN0138 agrees with the table in the three columns checked against it (2, 4 and 5): rows come from a 4051B multiplexer addressed by PB0–PB2, whose common line is the sense (PL3 13), and columns are AY port A (PL3 1–5, 9, 11, 12). The full sweep is still M5's |
-| FUNCT's cell; does ROM 1.0 see it | column 4, row 5 | ROMs, executed | cell **settled** 2026-10-08 from the keyboard drawing BN0138 (issue 2, 9-11-83): FUNCT shares column 4 with both SHIFTs (rows 4, 7) and CTRL (row 2), so it scans as `#A5`. Neither ROM's key decoder tests `#A5` (they test `#A4`, `#A7`, `#A2` only), so BASIC is believed to ignore it in both; M5 confirms by pressing it |
-| Key minimum hold and gap, type-ahead | | ROMs, executed | low |
+| Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | **settled** 2026-10-08 by M5's sweep (`test_keyboard`): every one of the 64 cells pressed at the prompt in both ROMs, alone, with each SHIFT, with CTRL and with FUNCT, and the decoder's result caught where the interrupt handler stores it (`STX #02DF`, `#FC64` in 1.0, `#EE68` in 1.1) and read back from the screen. The ROMs agree in every cell, and with their 128-byte tables (column × 8 + row, unshifted then shifted, `#FF70` in 1.0, `#FF78` in 1.1). The keyboard drawing BN0138 agrees in the three columns checked against it (2, 4 and 5): rows from a 4051B addressed by PB0–PB2, whose common line is the sense (PL3 13), columns from AY port A (PL3 1–5, 9, 11, 12). A planted swap of two cells fails the sweep |
+| FUNCT's cell; does ROM 1.0 see it | column 4, row 5 | ROMs, executed | **settled** 2026-10-08. The cell from the keyboard drawing BN0138 (issue 2, 9-11-83): FUNCT shares column 4 with both SHIFTs (rows 4, 7) and CTRL (row 2), so it scans as `#A5`. M5 pressed it: neither ROM decodes anything different with it held, so BASIC ignores it in both. It is not inert, though: the scan keeps one key a column, from row 7 down, so FUNCT hides the left SHIFT (and CTRL) from the ROM, and the right SHIFT hides FUNCT (§2.4) |
+| Which SHIFT is left | left row 4, right row 7 | the keyboard drawing BN0138 | medium. Oricutron's matrix has left Shift at row 4 and right at row 7 (`qwktab` in `8912.c`); not yet checked against BN0138, which names the keys. The ROMs treat the two alike, so only a program reading them apart can tell |
+| Key minimum hold and gap, type-ahead | | ROMs, executed | **settled** 2026-10-08 by execution (`test_keyboard`, §9.3). Both ROMs scan every third T1 interrupt (the handler's timer 0, reloaded with 3: `#ED39` in 1.0, `#EE52` in 1.1), 30 ms, and take a key on the first scan that sees it. From six phases against the scan, both need a key down 2 fields and up 2; 1 down or 1 up loses keys (the controls). A key held 48 fields types once, 50 twice: 32 scans to the repeat (`#20`, in 1.1 from `#024E`), then every 4. Type-ahead is one key at `#02DF`: keys typed during a run overwrite it, `KEY$` reads the last, and the return to `Ready` clears it. The replay's 3 and 3 store all 60 lines of a typed program in both ROMs where 2 and 2 lose half in 1.0 |
 | T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | **settled** 2026-10-08: both ROMs load T1's latch with `#2710` in free-run mode and enable T1 alone (`IER` = `#40`), so the period is 10,002 cycles (latch + 2), 99.98 Hz; `test_boot` counts 99–100 handler entries a second, and the service manual's waveform for the VIA's IRQ (pin 21, measured on an Atmos) shows a pulse every 10 ms, low for 25–30 µs. The IRQ vector points at page 2 (`#0244` in 1.1, `#0228` in 1.0) |
 | VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | **settled** 2026-10-08 from BN0130: the AY's RESET (pin 16) and the VIA's RST (pin 34) are on the 6502's RST line (pin 40), with the expansion's `RESET` (PL2 4); SW1, marked RESET, pulls the 6502's NMI (pin 6) to 0 V against R6. Executed the same day: NMI warm-starts both ROMs (screen cleared, program kept), RESET cold-starts them |
 | Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium. 50 Hz: Brown measured 64 µs lines and the counter resets at 312; Oricutron agrees. **60 Hz disputed**: Brown resets at 260 lines (16,640 cycles), Oricutron runs 264 ("260 + 4 VSync"). Configuration until measured (`oric_config_t`) |

@@ -6,11 +6,11 @@
  * staging directory, and recognises images by SHA-1 whatever they are
  * called (romset.h).
  *
- * Keys go straight into the matrix (oric_key_set). The cell for each
- * character is looked up in the ROM's own key table, which both ROMs
- * index column x 8 + row, unshifted then shifted (§2.4). That is the
- * ROM's map, not a transcription; M5's sweep settles it and brings the
- * southbridge's event path.
+ * Typing goes the firmware's way: PicoCalc events into keymatrix,
+ * replayed once a field into the matrix (§9.1). A test that wants the
+ * ROM's own map, before ours, sets cells with oric_key_set and runs
+ * oric_run_field itself, since guest_fields hands the matrix to the held
+ * set.
  */
 #ifndef PICO_ORIC_TEST_GUEST_H
 #define PICO_ORIC_TEST_GUEST_H
@@ -19,12 +19,14 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "keymatrix.h"
 #include "oric.h"
 #include "romset.h"
 
 typedef struct {
-    oric_t   m;
-    rom_id_t rom;
+    oric_t      m;
+    keymatrix_t k;
+    rom_id_t    rom;
     /* Guest cycles from power-on until "Ready" first showed on the
      * screen, to within GUEST_READY_STEP; 0 if it never did (§15.2 M3). */
     uint64_t ready_cycles;
@@ -46,14 +48,21 @@ bool guest_boot(guest_t *g, rom_id_t rom, oric_ram_t ram);
 /* The same, on a machine the caller has already built and loaded. */
 bool guest_boot_machine(guest_t *g);
 
+/* n fields, each after keymatrix_field: the held set owns the matrix. */
 void guest_fields(guest_t *g, int n);
 
-/* The matrix cell the ROM's table gives a character, and whether it
- * needs SHIFT. False if the ROM has no key for it. '\n' is RETURN. */
-bool guest_key_for(const guest_t *g, char c, int *row, int *col, bool *shift);
+/* Run fields until the held set is idle, or max_fields; then the gap, so
+ * the next key is not held over. True if it went idle. */
+bool guest_settle(guest_t *g, int max_fields);
 
-/* Type a string, a key at a time, held and released at a pace the ROM
- * keeps up with, then run a few fields for it to act on the last one. */
+/* One PicoCalc key, pressed and released in one poll, inside Shift if
+ * the PicoCalc types its code with Shift and inside Alt if `alt`; then
+ * settle. */
+void guest_press(guest_t *g, uint8_t code, bool alt);
+
+/* Type a string as PicoCalc events, a character at a time
+ * (keymap_picocalc_text), settling after each, then run a few fields
+ * for the ROM to act on the last one. */
 void guest_type(guest_t *g, const char *s);
 
 /* The text on one of the 28 screen rows at #BB80, as ASCII: attribute

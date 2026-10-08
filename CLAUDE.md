@@ -10,13 +10,15 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M4 are done** (`docs/design.md` §15): the skeleton, its
+**Status: M0–M5 are done** (`docs/design.md` §15): the skeleton, its
 banner checked on a Plus 2 W; pico-atom's 6502 and VIA passing their tests
 here, with Dormann's and Clark's suites; the gate, the 6502 at ~30 % of
 core 0 on the board (§3.2: 150 MHz is enough; the SRAM tier is still
 open); the Oric on the host, both ROMs booting on 16K and 48K, typed
-into, and agreeing with Oricutron line for line (§13.4); and video on the
-host, the goldens drawn identically by Oricutron's ULA (§7.7). The record of each milestone
+into, and agreeing with Oricutron line for line (§13.4); video on the
+host, the goldens drawn identically by Oricutron's ULA (§7.7); and the
+keyboard on the host, the matrix settled by sweeping both ROMs (§2.4) and
+the replay's pacing by executing them (§9.3). The record of each milestone
 (what was verified, on which board, on what date, and what was not checked)
 is in `docs/milestones.md`. Add to it there.
 
@@ -112,8 +114,10 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   runs a test ROM of our own instead (design.md §13.3). A skip is not a pass.
 - **Our own test ROM** (`test/asm/oric_test_rom.s`) is assembled by CMake
   when ca65 is on the path at configure time; it is what proves the wiring
-  in CI. `test/host/guest.c` types through the ROM's own key table, SHIFT
-  a field before its key (design.md §16).
+  in CI. `test/host/guest.c` types as the firmware will, PicoCalc
+  events through `keymatrix`'s held set (design.md §9.1); a test that wants
+  the ROM's own map sets cells with `oric_key_set` and runs
+  `oric_run_field` itself.
 - **Test suites are fetched, not committed** (design.md §5.4). A missing
   suite makes its test exit 77, reported as skipped. **A skipped functional
   test is an unverified CPU.**

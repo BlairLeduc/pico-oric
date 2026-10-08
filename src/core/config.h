@@ -37,6 +37,20 @@
 #define ORIC_KEY_ROWS           8u
 #define ORIC_KEY_COLS           8u
 
+/* The PicoCalc's events, replayed into the matrix (design.md §9.1). */
+#define ORIC_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
+#define ORIC_KEY_HELD_MAX       8u  /* keys down at once                   */
+#define ORIC_KEY_TEXT_EVENTS    4u  /* one ASCII byte: a modifier around a key */
+
+/* Both ROMs scan every third T1 interrupt, 30 ms, take a key on the
+ * first scan that sees it, and see a key typed twice only after a scan
+ * with it up, so it needs 2 fields down and 2 up; they repeat a key held
+ * 48 fields (executed 2026-10-08, §16). The replay holds and gaps one
+ * field longer: at 2 and 2, BASIC 1.0 loses keys that come while it
+ * stores a line and scrolls (test_keyboard). */
+#define ORIC_KEY_MIN_FIELDS     3u
+#define ORIC_KEY_GAP_FIELDS     3u
+
 /* ---- Video (design.md §2.5, §7) --------------------------------------- */
 
 /* 240x224: 40 cells of 6 pixels a line, 28 text rows of 8 lines, the

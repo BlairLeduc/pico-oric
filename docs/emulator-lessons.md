@@ -873,8 +873,21 @@ test typing at 2 held and 0 up, which loses keys, is the control.
 poll still reaches a game that reads SHIFT alone. **Modifier presses go a
 field ahead of their key.** A scan that walks the matrix column by column
 can pass the modifier's column before both arrive and then find the key
-alone. The Oric's 1.0 ROM takes a key on the first scan that sees it, so a
+alone. The Oric's ROMs take a key on the first scan that sees it, so a
 Shift and a `9` pressed in the same instant typed `9`, not `(`.
+
+**The scan's minimum is not the replay's.** What reads the key matters
+too: with one key of type-ahead, a key that arrives while the guest is
+busy is lost. The Oric's scan needs a key 2 fields down and 2 up, but at
+that rate BASIC 1.0 stored 29 of 60 typed program lines, losing keys
+while it stored a line and scrolled; a field more of each stored all 60.
+So measure the margin by typing a long program through the replay and
+counting the lines the guest stored, not only a short line at the prompt.
+
+**Sweep modifiers in pairs as well as alone.** Where several modifiers
+share one matrix line, a scan may keep one key a line and hide the rest:
+on the Oric, right SHIFT hides FUNCT, FUNCT hides left SHIFT, and either
+SHIFT hides CTRL, so Shift with Ctrl types the shifted character.
 
 ### 7.2 The mapping table
 
@@ -917,6 +930,10 @@ Constraints from the MCU that bind the table:
 - Several keys exist only as shifted alternates (Home, End, PgUp/PgDn, Break,
   Insert). Insert is both Shift+Enter and Alt+I, so decide which physical
   key it is when its event arrives, by whether Alt is down (HW §6.2).
+  **Each needs a binding of its own.** Canonicalisation pairs its press
+  with its release but binds nothing: the Oric's first table had no
+  entries for them, so Shift+Enter typed nothing until a review caught it.
+  Give the table test a list of them to check.
 - `F1`–`F5` arrive as `0x81`–`0x85` and `F10` as `0x90` (the MCU's
   Shift+`F5`). A guest without function keys leaves them free for the
   emulator's own pages.

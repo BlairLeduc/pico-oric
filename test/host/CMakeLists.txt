@@ -5,6 +5,7 @@ set(PICO_ORIC_HOST_TESTS
     test_ay8912
     test_bus
     test_field
+    test_keymap
     test_m6502_behaviour
     test_m6502_cycles
     test_m6502_decimal
@@ -56,7 +57,7 @@ target_compile_options(pico_oric_guest PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(pico_oric_guest PRIVATE
     PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
 
-foreach(t test_boot test_font test_romset)
+foreach(t test_boot test_font test_keyboard test_romset)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_oric_guest)
     target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
