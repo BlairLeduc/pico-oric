@@ -25,7 +25,6 @@
  * (design.md §6.3).
  */
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,34 +42,6 @@
 #include "ula.h"
 
 #include "keyscript.h"
-
-/* ---- what Oricutron's main.c would have defined ----------------------- */
-
-SDL_bool need_sdl_quit = SDL_FALSE;
-SDL_bool fullscreen;
-Uint32 frametimeave;
-
-void error_printf(char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-    fputc('\n', stderr);
-}
-const char *get_fileprefix(void) { return ""; }
-SDL_bool read_config_string(char *buf, char *token, char *dest, Sint32 maxlen) {
-    (void)buf; (void)token; (void)dest; (void)maxlen; return SDL_FALSE;
-}
-SDL_bool read_config_bool(char *buf, char *token, SDL_bool *dest) {
-    (void)buf; (void)token; (void)dest; return SDL_FALSE;
-}
-SDL_bool read_config_option(char *buf, char *token, Sint32 *dest, char **options) {
-    (void)buf; (void)token; (void)dest; (void)options; return SDL_FALSE;
-}
-SDL_bool read_config_int(char *buf, char *token, int *dest, int min, int max) {
-    (void)buf; (void)token; (void)dest; (void)min; (void)max; return SDL_FALSE;
-}
-void shut(struct machine *oric) { (void)oric; }
 
 extern char atmosromfile[1024], oric1romfile[1024];
 

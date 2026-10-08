@@ -293,7 +293,8 @@ between them with a rename (§4.6): `PICO_ACE_` becomes `PICO_ORIC_`, and
 
 ```
 src/core/    config.h  hot.h  m6502.c  via6522.c  ay8912.c  ula.c  oric.c
-             snappool.c  keymatrix.c  keymap_picocalc.c  keylayout.c
+             font.c  font_fallback.c  snappool.c
+             keymatrix.c  keymap_picocalc.c  keylayout.c
              tap.c  tape.c  cassette.c  wd1793.c  microdisc.c  mfmdisk.c
              snapshot.c  settings.c  status.c  romset.c  sha1.c  shot.c
 src/port/    main.c  core0.c  core1.c  park.c  handoff.c  menu.c  board.c
@@ -305,7 +306,7 @@ test/host/   one binary per area; test_util.h (CHECK, TEST_DONE); guest.c; golde
 test/asm/    6502_decimal_test.s (Clark), oric_test_rom.s (§13.3)
 tools/       build.sh  flash.sh  uart-log.sh  uart-type.sh  perf-run.sh
              perf-summary.sh  soak.sh  soak-check.py  swd-counters.py
-             fetch-test-suites.sh  trace/
+             fetch-test-suites.sh  mkfont.py  render-diff.sh  trace/
 cmake/       pico_sdk_import.cmake  version.cmake
 ```
 
@@ -359,6 +360,9 @@ the drop counter on the heartbeat. A snapshot is:
 | mode at field start: hires/text, 50/60 Hz | 1 |
 | blink phase | 1 |
 | status: field number, tape position, disc activity, flags | ~16 |
+
+`oric_frame_t` in `ula.h` holds the first three and the field number; the
+rest of the status arrives with M7.
 
 The window holds everything the ULA can fetch in either mode: both
 character-set locations, the hires bitmap and the text screen. Copying all
@@ -595,8 +599,17 @@ snapshot. So at field end, core 0 runs `ula_scan_mode()` over the window it
 just copied: the same raster walk as the decode, but looking only for bytes
 whose bits 6–3 are `0011` (mode attributes), 8,960 byte tests at most
 (estimated ≤ 1 % of core 0, to be measured in M7). This is the one piece of
-the ULA on core 0, and it reads the snapshot, not guest RAM, so it holds no
-renderer state (EL §2.3).
+the ULA on core 0, and it holds no renderer state (EL §2.3).
+
+As built (M4), `oric_run_field` runs the scan at the field's end over the
+window in guest RAM, which holds the same bytes `oric_video_take` copies
+next, since nothing runs between them. A text row's eight lines are
+scanned once, and a line is tested eight bytes at a time for a mode
+attribute before it is walked. On the workstation (Release, M1 Pro) that
+took the scan from 4.7 to 1.1 µs on a BASIC text screen, from 28.5 to
+0.56 µs on a hires one and from 23 to 14 µs on a random screen full of mode
+attributes, its worst case (`out/m4-video-cost.txt`). The decode costs
+10–17 µs and the rows 9 µs there.
 
 When a mode attribute takes effect (from the next cell, the next line, or
 the next field) and when the 50/60 Hz choice changes the field's length are
@@ -627,6 +640,12 @@ no Oric ROM is on the card**. It uses whichever ROM is present; with none, a
 public-domain 6×8 font kept in the tree for that page alone, with its
 attribution (EL §5.5: never fabricate one).
 
+As built (M4): `font_from_rom` copies each ROM's table (§16), and
+`test_font` holds it to what the ROM writes into `#B500–#B7FF`. The
+fallback is X.Org's misc-fixed 5×8, whose own copyright property puts it
+in the public domain, converted by `tools/mkfont.py` into bits 5–1 of
+each row, as the Oric's glyphs sit, and kept in `font_fallback.c`.
+
 ### 7.7 Golden images
 
 EL §5.7: rendered from fixed RAM and committed **after being looked at**.
@@ -636,6 +655,13 @@ mid-screen; the hires text window; the 16K mirror. **Checked against an
 independent renderer**: the same RAM rendered by the reference emulator
 (§13.4) and compared pixel for pixel, so the goldens are not only our own
 opinion.
+
+As built (M4): `test_golden` draws nine scenes with `ula.c` into
+`test/host/golden/`, with the fallback font (§7.6) and a mosaic set of our
+own as the character sets, so no image holds anything of a ROM and CI runs
+them all. `tools/render-diff.sh` hands the same frames to
+`oricutron-render`, Oricutron's `ula_doraster` behind a headless driver,
+and compares the pictures.
 
 ---
 
@@ -1063,7 +1089,8 @@ trace.
   driver, run headless with a Lua dump, and Clock Signal's source read for
   the ULA and the Microdisc.
 - **Video**: Oricutron's rendering of the same RAM is the independent check
-  of the goldens (§7.7).
+  of the goldens (§7.7): `oricutron-render`, built by the same script, and
+  `tools/render-diff.sh`.
 
 ### 13.5 Soak
 
@@ -1384,15 +1411,16 @@ date, in this table when it changes.
 | VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | **settled** 2026-10-08 from BN0130: the AY's RESET (pin 16) and the VIA's RST (pin 34) are on the 6502's RST line (pin 40), with the expansion's `RESET` (PL2 4); SW1, marked RESET, pulls the 6502's NMI (pin 6) to 0 V against R6. Executed the same day: NMI warm-starts both ROMs (screen cleared, program kept), RESET cold-starts them |
 | Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium. 50 Hz: Brown measured 64 µs lines and the counter resets at 312; Oricutron agrees. **60 Hz disputed**: Brown resets at 260 lines (16,640 cycles), Oricutron runs 264 ("260 + 4 VSync"). Configuration until measured (`oric_config_t`) |
 | First active line; active lines | ?; 224 | ULA documentation | low-medium. Brown: the picture is lines 0–223 of the counter, with blanking and sync after (sync 4 lines long); Oricutron centres the picture instead (from line 44 at 50 Hz). Software cannot see the counter; it matters for the vertical-sync modification and T1-timed raster tricks |
-| When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | low |
-| When a 50/60 Hz change alters the field | the next field | ULA documentation | low |
-| Attribute groups | §2.5 | Oric Advanced User Guide; ULA documentation; executed | medium-high |
-| Hires: bytes `#20–#3F` and `#A0–#BF` | pixels from bits 0–5 | ULA documentation; golden vs Oricutron | low. Brown's decoder takes any byte with bit 6 clear as an attribute, which cannot be right in text mode (space is `#20`); Oricutron tests bits 6 and 5. Brown also: hires ends at line 200 whatever the attributes, and the whole screen takes its character set from `#9800` in hires mode |
-| Inverse | each colour XOR 7 | ULA documentation; photographs | medium |
-| Double height | glyph row `(line/2)%8` from the top or bottom half by text row parity | ULA documentation; executed | medium |
-| Blink rate and duty | about 1.5 Hz (a field counter's bit) | ULA documentation | low. **Disputed**: Brown toggles every 32 fields (0.78 Hz at 50 Hz); Oricutron every 16 (`frames & 0x10`, 1.56 Hz). Both 50 % duty |
-| Attribute cells show | paper (after the attribute applies) | ULA documentation | medium. Brown: paper, **never inverted** (bit 7 of an attribute byte is ignored), and the attribute is decoded within its own cell's cycle. §2.5 says bit 7 of any byte inverts; M4 to settle with a golden |
-| Palette | 8 RGB primaries at full level | photographs; ULA output stage | medium |
+| When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | **bounded** 2026-10-08 (M4): Oricutron's `ula.c` and MAME's `oric.cpp` (`screen_update_oric`, read at `e4c1c2b`) agree: the attribute's own cell shows paper, the fetch moves to the new mode's line from the next cell, and the mode lasts across lines and into the next field. `ula.c` does the same, and the `mode_split` golden equals Oricutron's drawing of it. Two emulators, not hardware: medium |
+| When a 50/60 Hz change alters the field | the next field | ULA documentation | low. Oricutron applies the frequency bit at its raster's wrap, so a change drawn in one frame lengthens the next; `oric_run_field` scans each frame at the field's end and applies what it finds to the next field (`test_field`, M4). Nothing settles which line the wrap is on |
+| Attribute groups | §2.5 | Oric Advanced User Guide; ULA documentation; executed | medium-high. Oricutron and MAME decode the four groups by bits 4–3 alike, and both ROMs start each line with `#17 #00` (paper white, ink black), executed in M4 |
+| Hires: bytes `#20–#3F` and `#A0–#BF` | pixels from bits 0–5 | ULA documentation; golden vs Oricutron | medium, 2026-10-08 (M4). Brown's decoder takes any byte with bit 6 clear as an attribute, which cannot be right in text mode (space is `#20`); Oricutron and MAME both test bits 6 and 5 in either mode, and `ula.c` does. All three agree that hires ends at line 200 whatever the attributes, and that the whole screen, the text window included, takes its character set from `#9800` in hires mode; the `hires` golden equals Oricutron's |
+| Inverse | each colour XOR 7 | ULA documentation; photographs | medium. Oricutron and MAME both invert ink and paper; so does `ula.c` (the `inverse` golden equals Oricutron's) |
+| Double height | glyph row `(line/2)%8` from the top or bottom half by text row parity | ULA documentation; executed | medium. Oricutron and MAME both take `(line >> 1) & 7`, which is the top half on an even text row and the bottom on an odd one; the `double` golden, with each half alone, equals Oricutron's (M4) |
+| Blink rate and duty | about 1.5 Hz (a field counter's bit) | ULA documentation | low. **Disputed**: Brown toggles every 32 fields (0.78 Hz at 50 Hz), and so does MAME (`m_blink_counter & 0x20`); Oricutron every 16 (`frames & 0x10`, 1.56 Hz). All 50 % duty. Configuration until measured: `oric_config_t.blink_fields`, 32, shown first (M4). A hidden cell shows its paper, inverted if bit 7 is set, in both emulators |
+| Attribute cells show | paper (after the attribute applies), inverted by bit 7 | ULA documentation | medium, 2026-10-08 (M4). Brown: paper, **never inverted** (bit 7 of an attribute byte is ignored), and the attribute is decoded within its own cell's cycle. Oricutron and MAME both draw the attribute's cell as the new paper, inverted when bit 7 is set, and `ula.c` follows them: Brown's rule, planted, moves 1,056 pixels of the `inverse` golden away from Oricutron's. One piece of evidence from the ROMs: 1.0 shows its cursor at the start of a line by setting bit 7 of the `#17` in column 0 (`#97`, executed), which Brown's rule would leave invisible. Hardware has not been checked |
+| Palette | 8 RGB primaries at full level | photographs; ULA output stage | medium. Oricutron's `oricpalette` is the same, R G B from bit 0 at full level |
+| ROM character set | the ROM copies a table into `#B400` | ROMs, read and executed | **settled** 2026-10-08 (M4, `test_font`): 96 glyphs from space, at `#FC70` in 1.0 and `#FC78` in 1.1, each ending where the key table begins, and identical in the two ROMs; both copy them to `#B500–#B7FF` and do not write `#B400–#B4FF` (the attribute codes), which holds `#55` after boot. The alternate set at `#B800` is built by code, differently: 1.0 writes rows such as `#F0`/`#0F`, 1.1 `#38`/`#07`. `font_from_rom` expands the table |
 | Wait states | none | schematic; ULA documentation | medium-high. Brown: the CPU and the ULA take the two halves of each 1 µs cycle (the CPU's share as of a 1.5 MHz clock, hence a 2 MHz 6502A); BN0130 shows RDY tied high; the service manual's waveform shows the ULA's 1 MHz output (pin 14) high for 33 % of each microsecond |
 | AY clock | 1 MHz | schematic | high |
 | AY volume table | measured, ~3 dB steps | a cited measurement of the 8910/8912 | medium |

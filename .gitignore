@@ -11,3 +11,6 @@ reference/
 # roms/ is a staging area, and only its README is in git.
 roms/*
 !roms/README.md
+
+# test_golden writes these beside itself on a mismatch
+*.actual.ppm

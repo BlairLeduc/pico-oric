@@ -9,6 +9,8 @@ set(PICO_ORIC_HOST_TESTS
     test_m6502_cycles
     test_m6502_decimal
     test_skeleton
+    test_snappool
+    test_ula
     test_via6522
 )
 
@@ -54,7 +56,7 @@ target_compile_options(pico_oric_guest PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(pico_oric_guest PRIVATE
     PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
 
-foreach(t test_boot test_romset)
+foreach(t test_boot test_font test_romset)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_oric_guest)
     target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
@@ -90,3 +92,13 @@ target_compile_options(test_test_rom PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(test_test_rom PRIVATE PICO_ORIC_TEST_ROM="${PICO_ORIC_TEST_ROM}")
 add_test(NAME test_test_rom COMMAND test_test_rom)
 set_tests_properties(test_test_rom PROPERTIES SKIP_RETURN_CODE 77)
+
+# The golden images (design.md §7.7), drawn with the fallback font so CI
+# runs them with no ROM.
+add_executable(test_golden test_golden.c)
+target_link_libraries(test_golden PRIVATE pico_oric_core)
+target_include_directories(test_golden PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_golden PRIVATE ${PICO_ORIC_WARNINGS})
+target_compile_definitions(test_golden PRIVATE
+    PICO_ORIC_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
+add_test(NAME test_golden COMMAND test_golden)

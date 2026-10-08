@@ -4,6 +4,65 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M4, video on the host** (`src/core/ula.*`, `snappool.*`, `font.*`,
+`font_fallback.c`, `oric.*`; `test_ula`, `test_snappool`, `test_font`,
+`test_golden`, `test_field`; `test/host/golden/`; `tools/mkfont.py`,
+`tools/render-diff.sh`, `tools/trace/oricutron-render.c`), built
+2026-10-08 on the workstation (macOS, Apple clang, Debug and Release). The
+decode turns the window `#9800–#BFFF`, the mode at the field's start and
+the blink phase into a cell per byte (ink, paper, six pattern bits); the
+row generator draws cells as RGB565; the presenter's shadow holds decoded
+cells. `oric_run_field` runs the mode scan at each field's end and takes the
+next field's length from it; `oric_video_take` fills a frame for the pool,
+which is pico-ace's, renamed. The rules follow Oricutron's `ula.c`, and
+MAME's `oric.cpp` read at `e4c1c2b` agrees with it in everything but the
+blink period (§16). **Checked:** `test_ula` decodes a window built for
+each rule (colour and text attributes from their own cell, the line reset,
+inverse on attribute cells too, both sets, double height on even and odd
+rows, blink in both phases, hires pixels including `#20–#3F`, the text
+window's `#9800` set, a mode attribute moving the fetch from the next
+cell and lasting into the next field); the scan agrees with the decode on
+2,000 random screens, where a scan of the text screen alone, the control,
+is wrong on 31; 400 random edits (bytes, attributes, mode attributes,
+character-set rows, the blink phase, the start mode) presented from the
+dirty bands alone match a full render after each, and the VRAM-byte diff,
+the control, leaves stale pixels. `test_snappool`: pico-ace's 100,000
+random transitions, and frames taken on 48K and on 16K through the mirror.
+`test_font`: each ROM's expanded table equals what it wrote to
+`#B500–#B7FF`, on both fits, and fails one glyph out of place (the two
+ROMs' fonts are identical, so the other ROM's could not be the control).
+`test_field`: a 60 Hz mode attribute written to the screen leaves its own
+field at 19,968 cycles and makes the next 16,896. **The goldens:** nine
+scenes (colours, inverse, both sets, double height, blink in both phases,
+hires with its text window, a mode change at row 10, col 20, and the 16K
+mirror against the colours image), drawn with the fallback font so that
+CI runs them and no image holds a ROM's glyphs. Each was viewed, as a PNG
+at 3×, before it was committed; the first `mode_split` was wrong (its
+drawing overwrote the text character set at `#B400`, which is the
+bitmap's lines 128–175) and was redrawn. `oricutron-render`, Oricutron's
+own `ula_doraster` behind a headless driver, draws all nine frames
+identically to the goldens, pixel for pixel (`tools/render-diff.sh`).
+**Planted bugs**, each caught and removed: attribute cells never inverted
+(Brown's rule; `test_ula`, `test_golden`, and 1,056 pixels of `inverse`
+against Oricutron); double height's halves swapped; a mode attribute
+moving the fetch only from the next line; a band's span taken from its
+first line only (`test_ula`); the scan's skip not reset after a walked
+line; the scan's word test checking 32 of 40 bytes, and matching text
+attributes in place of mode ones; blink hidden in the shown phase. A word
+test that matched a superset of mode attributes was not caught, rightly:
+it only walks more lines. **The trace diff** still agrees to the end on
+all four machines, with M3's counts. **Measured** (`out/m4-video-cost.txt`,
+M1 Pro, per frame): Release, decode 10–17 µs, rows 9 µs, the mode scan
+1.1 µs on a BASIC text screen, 0.56 µs on hires and 14 µs on a random
+screen of mode attributes; Debug, decode 44–64 µs, rows 68–204 µs. The
+scan's word test was kept against a control build in the same sitting:
+without it the scan took 4.7, 28.5 and 23 µs. **Not checked:** anything
+on the board, where the port does not use the ULA yet (M7); the panel's
+byte order; any rule against hardware, rather than against two emulators;
+the blink period (configuration, 32 fields); the first active line; the
+emulator's text pages, which arrive with M9; the frame's status bytes
+(M7). The owner has not yet looked at the goldens.
+
 **M3, the Oric on the host** (`src/core/ay8912.*`, `romset.*`, `sha1.*`,
 `oric.*`, `bus.*`; `test/host/guest.*`, `test_boot`, `test_ay8912`,
 `test_field`, `test_romset`, `test_test_rom`; `test/asm/oric_test_rom.s`;
