@@ -29,8 +29,9 @@ from pico-atom's tests:** the MOS's printer checks (an Atom matter); the VIA
 surviving a snapshot, which returns with `snapshot.c` in M11; the "VIA not
 fitted" case, as every Oric has one. **For M3 to decide:** the VIA is
 ticked per instruction, as pico-atom measured it (a countdown, §3.2),
-where §5.3 speaks of stopping a slice at the VIA's next event. **Not
-checked:** CI on GitHub, including cc65 from Ubuntu's packages.
+where §5.3 speaks of stopping a slice at the VIA's next event. CI green
+for PR #1, where `test_m6502_functional` ran and passed (cc65 from
+Ubuntu's packages).
 
 **M0, skeleton**, built 2026-10-07 on the workstation (macOS, Apple clang;
 Pico SDK 2.3.1, arm-none-eabi-gcc 15.2). The layout of design.md §4.1 with
@@ -46,5 +47,9 @@ banner and a heartbeat over UART1 and blinks GP25. **Checked:** both builds
 green; `test_skeleton` passes; an `#include "pico/stdlib.h"` planted in
 `config.h` fails the host build (`'pico/stdlib.h' file not found`), and was
 removed. **Measured:** the image, 22,764 bytes text and 860 bss with the
-UART; 20,932 and 844 without. **Not checked:** the banner in a UART capture
-from a board (no Debug Probe attached); CI on GitHub.
+UART; 20,932 and 844 without. **On the board**, a Plus 2 W (id `7458DC82A89AAC12`,
+RP2350B, chip rev 2), 2026-10-07: flashed over SWD with `tools/flash.sh`
+and captured with `tools/uart-log.sh` (`out/m0.log`), the banner showed
+build target `pico2`, clk_sys and clk_peri at 150 MHz, core rail ~1100 mV,
+firmware `e3472e4`, then heartbeats a second apart at die 20 °C. A pico2
+image cannot light the LED on a W board. CI green on both jobs for PR #1.
