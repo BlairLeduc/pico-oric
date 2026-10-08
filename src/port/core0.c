@@ -162,6 +162,8 @@ static void window_start(window_t *w, const oric_t *m, uint32_t late) {
 
 void core0_run(oric_t *m, keymatrix_t *k) {
     const uint32_t clk_mhz = clock_get_hz(clk_sys) / 1000000u;
+    /* main() powered the guest on just before this (main.c). */
+    const uint32_t power_on_us = time_us_32();
     uint32_t late = 0, slips = 0;
 
     /* The schedule: the field that starts after `sched_cycles` guest
@@ -217,10 +219,12 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         if (!ready && ready_shown(m)) {
             ready = true;
             uint32_t at = time_us_32();
-            log_printf("  boot         : Ready at field %lu, %llu cycles after power-on, "
-                       "%lu.%03lu ms after reset; core 1 ready at %lu.%03lu ms "
-                       "(card %s, mount %lu us, ROM read %lu us)\n",
+            uint32_t guest_us = at - power_on_us;
+            log_printf("  boot         : Ready at field %lu, %llu cycles and %lu.%03lu ms after "
+                       "the guest's power-on, %lu.%03lu ms after the board's reset; core 1 "
+                       "ready at %lu.%03lu ms (card %s, mount %lu us, ROM read %lu us)\n",
                        (unsigned long)m->fields, (unsigned long long)m->cpu.cycles,
+                       (unsigned long)(guest_us / 1000u), (unsigned long)(guest_us % 1000u),
                        (unsigned long)(at / 1000u), (unsigned long)(at % 1000u),
                        (unsigned long)(g_boot.ready_us / 1000u),
                        (unsigned long)(g_boot.ready_us % 1000u),
