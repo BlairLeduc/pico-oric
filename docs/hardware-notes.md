@@ -1424,6 +1424,16 @@ not, because the benchmark had the XIP cache to itself:
   cycles per guest instruction rather than time in audio code, and 0.4–0.8
   with it in SRAM.
 
+A 6502 interpreter's benchmark agreed (2026-10-07, Plus 2 W at 150 MHz,
+gcc 15.2 `-O3`, one core, the cache to itself). From flash it took 142.3
+host cycles per instruction on a BASIC-shaped loop and 140.9 on Dormann's
+functional test. **Moving only the small callees** (bus slow path, device
+tick, ADC/SBC, 1.8 KB) **made it slower**, 154.7 and 147.6: the interpreter
+stayed in flash and now called those functions through veneers. **Moving the
+interpreter as well** (24 KB) gave 144.7 and 138.8, within 2 % of flash
+either way. Each figure held to 0.02 % over seven to nine runs. So a tier of
+callees alone is not a step on the way. Measure it, or skip it.
+
 A fourth build trap: **CMake caches options in the build directory.** When a
 project changes an option's default (here the SRAM tier), a directory
 configured earlier keeps its cached value until the option is passed once.

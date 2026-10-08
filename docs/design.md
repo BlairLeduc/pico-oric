@@ -211,25 +211,34 @@ it.
 
 The 6502 interpreter is pico-atom's, measured on this board. So, unlike the
 Ace, the CPU's cost is known before the first line is written, and the new
-costs are the AY and the ULA's mode scan. Estimates, to be replaced
-(EL §14.4):
+costs are the AY and the ULA's mode scan. Estimates, with M2's
+measurements beside them where it made one (EL §14.4):
 
-| Quantity | Estimate | Basis |
-|---|---|---|
-| Host cycles per 6502 instruction, interpreter in SRAM | 158–218 | pico-atom, measured (EL §1); its tier gave 1.12–1.19× |
-| Guest instructions per second | ~250–290 k | 1 MHz at a mean 3.5–4 cycles per instruction |
-| 6502 alone | 26–42 % of core 0 | the two lines above |
-| VIA (countdown ticks, EL §3.4) | 1–3 % | pico-atom's VIA after its countdown rewrite |
-| AY synthesis (§8) | 1–4 % | work per edge, not per sample; ultrasonic tones averaged |
-| ULA mode scan (§7.4) | ≤ 1 % | 8,960 byte tests a field |
-| Field snapshot copy, 10 KiB | < 0.2 % | one `memcpy` at field end |
-| **Whole machine** | **~35–50 % of core 0** | pico-atom's whole machine at 1 MHz measured 35–46 % |
+| Quantity | Estimate | Basis | Measured (M2) |
+|---|---|---|---|
+| Host cycles per 6502 instruction, interpreter in SRAM | 158–218 | pico-atom, measured (EL §1); its tier gave 1.12–1.19× | 138.8–144.7 in SRAM (tier 2), 140.9–142.3 in flash |
+| Guest instructions per second | ~250–290 k | 1 MHz at a mean 3.5–4 cycles per instruction | 308–320 k: 3.13–3.25 cycles per instruction (the bench's programs, not the ROM's) |
+| 6502 alone | 26–42 % of core 0 | the two lines above | 29.2–30.0 %, with the VIA's countdown tick |
+| VIA (countdown ticks, EL §3.4) | 1–3 % | pico-atom's VIA after its countdown rewrite | in the line above |
+| AY synthesis (§8) | 1–4 % | work per edge, not per sample; ultrasonic tones averaged | |
+| ULA mode scan (§7.4) | ≤ 1 % | 8,960 byte tests a field | |
+| Field snapshot copy, 10 KiB | < 0.2 % | one `memcpy` at field end | |
+| **Whole machine** | **~35–50 % of core 0** | pico-atom's whole machine at 1 MHz measured 35–46 % | projected **~30–35 %** |
 
 **The gate (M2)** is the same as the Ace's: projected core 0 share at most
 ~85 %, the figure at which pico-atom ran a 2 MHz guest with zero underruns.
-It is expected to pass with margin. It is still run (EL §14.3), because the
+It is still run (EL §14.3), because the
 copied interpreter must be re-measured in this tree's build, and because a
 BASIC-shaped workload's instruction mix is not the Atom's.
+
+**Decided 2026-10-07: 150 MHz is enough.** On a Plus 2 W, the 6502 and the
+VIA's tick took 29.2 % of core 0 for a 1 MHz guest on the BASIC-shaped
+program and 30.0 % on Dormann's mix, from flash; with the estimates for the
+AY, the mode scan and the snapshot added, about 30–35 %. The SRAM tier is
+not decided by M2: alone on the board, with the XIP cache to itself, tier 2
+was within 2 % of flash either way and tier 1 was 5–9 % slower (HW §9.8).
+M7 and M12 measure it again with core 1 presenting, where it is expected to
+matter. `docs/milestones.md` has the runs.
 
 **Core 1's budget.** A full 240×224 present is 53,760 pixels: by scaling
 HW §4.7's measured 11.48 ms for 256×192, about **12.6 ms** (estimate). The

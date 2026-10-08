@@ -19,9 +19,12 @@ under the SDK's BSD-3-Clause licence.
 
 Not in the tree. `tools/fetch-test-suites.sh` downloads the assembled binary
 from <https://github.com/Klaus2m5/6502_65C02_functional_tests> into
-`test/suites/`, which is gitignored; `test_m6502_functional` reports as
-*skipped* when it is absent. The suite is Klaus Dormann's, published under the
-GPL-3.0.
+`test/suites/`, which is gitignored; `test_m6502_functional` and
+`test_bench_dormann` report as *skipped* when it is absent. A
+`pico-oric-bench` image built while it is there carries it in flash
+(`src/port/bench_dormann.S`), as this project's own build of a GPL-3.0 work;
+that image is for measurement and is not released. The suite is Klaus
+Dormann's, published under the GPL-3.0.
 
 ## Bruce Clark's decimal mode test
 

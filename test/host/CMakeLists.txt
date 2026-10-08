@@ -31,3 +31,14 @@ target_compile_definitions(test_m6502_functional PRIVATE
     PICO_ORIC_DEFAULT_TEST_ROMS="${CMAKE_SOURCE_DIR}/test/suites")
 add_test(NAME test_m6502_functional COMMAND test_m6502_functional)
 set_tests_properties(test_m6502_functional PROPERTIES SKIP_RETURN_CODE 77)
+
+# M2's workloads (design.md §15.2 M2): the basic program always, Dormann's
+# slice when the suite has been fetched.
+add_executable(test_bench test_bench.c)
+target_link_libraries(test_bench PRIVATE pico_oric_bench)
+target_include_directories(test_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_bench PRIVATE ${PICO_ORIC_WARNINGS})
+add_test(NAME test_bench_basic COMMAND test_bench)
+add_test(NAME test_bench_dormann COMMAND test_bench
+    ${CMAKE_SOURCE_DIR}/test/suites/6502_functional_test.bin)
+set_tests_properties(test_bench_basic test_bench_dormann PROPERTIES SKIP_RETURN_CODE 77)
