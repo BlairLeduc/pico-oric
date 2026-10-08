@@ -10,13 +10,12 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M2 are done, and M3 is built** (`docs/design.md` §15): the
-skeleton, its banner checked on a Plus 2 W; pico-atom's 6502 and VIA
-passing their tests here, with Dormann's and Clark's suites; the gate, the
-6502 at ~30 % of core 0 on the board (§3.2: 150 MHz is enough; the SRAM
-tier is still open); and the Oric on the host, both ROMs booting on 16K
-and 48K, typed into, and agreeing with Oricutron line for line (§13.4). M3
-is done once CI has run the test ROM. The record of each milestone
+**Status: M0–M3 are done** (`docs/design.md` §15): the skeleton, its
+banner checked on a Plus 2 W; pico-atom's 6502 and VIA passing their tests
+here, with Dormann's and Clark's suites; the gate, the 6502 at ~30 % of
+core 0 on the board (§3.2: 150 MHz is enough; the SRAM tier is still
+open); and the Oric on the host, both ROMs booting on 16K and 48K, typed
+into, and agreeing with Oricutron line for line (§13.4). The record of each milestone
 (what was verified, on which board, on what date, and what was not checked)
 is in `docs/milestones.md`. Add to it there.
 

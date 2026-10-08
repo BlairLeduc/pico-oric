@@ -61,7 +61,9 @@ neither emulator models and no trace has shown; `ORICUTRON_VIA_AHEAD`,
 which boot never exposes; real key timing and FUNCT (M5); anything
 visible (M4). ROM 1.0 takes a key on its first scan, so the harness holds
 SHIFT a field before the key; a SHIFT pressed in the same instant turned
-`(` into `9`. M5's replay must do the same.
+`(` into `9`. M5's replay must do the same. **CI** green for PR #3 on
+2026-10-08: ca65 assembled the test ROM and `test_test_rom` passed;
+`test_boot` reported skipped, CI having no ROMs.
 
 **M2, the 6502 on the board: the gate** (`src/bench/`,
 `src/port/bench_main.c`, `bench_dormann.S`; `test_bench`), 2026-10-07, on
