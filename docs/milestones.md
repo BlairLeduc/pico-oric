@@ -1,0 +1,74 @@
+# Milestone log
+
+What each milestone verified, on which board, on what date, and what was
+not checked, newest first. `design.md` §15.2 holds each milestone's scope
+and done-when criteria; this file keeps the full record.
+
+**M1, review fixes** (Codex's review of PR #1, 2026-10-07). Three
+findings, all taken. (1) **Delayed IRQ poll**: CLI, SEI and PLP change I
+after the 6502 has polled IRQ for the next instruction, so that poll sees
+the old I; RTI's takes effect at once. pico-atom tests I directly and so
+takes an IRQ one instruction early after CLI or PLP, and misses one that
+arrives during SEI. The CPU now keeps the old I for one instruction
+(`i_old`, `i_old_at`), asked only while an IRQ is asserted.
+`test_m6502_behaviour` gained a case for each of the four, which failed
+before the change (all but RTI's) and pass after it; Dormann and Clark
+still pass. pico-atom has the same gap, not fixed there (read the
+siblings, never edit them). M11's snapshot must carry the two fields. (2)
+**`PICO_ORIC_RAM_TIER` reached only the executable**, not the core
+library where the marked functions are, so a tier did nothing; a tier-2
+build now shows `time_critical.oric_m6502_step` and the rest in the core.
+(3) **`oric_copy`** chose ROM or RAM by comparing pointers into different
+arrays; it now uses the page's `PAGE_ROM` flag. The new `test_bus` checks
+that every page of a copy points into the copy, with a plain struct copy
+as the control (446 stray pointers).
+
+**M1, the 6502 and the VIA on the host** (`src/core/m6502.*`,
+`via6522.*`, `oric.*`, `bus.*`; `tools/fetch-test-suites.sh`;
+`test/asm/6502_decimal_test.s`), built 2026-10-07 on the workstation
+(macOS, Apple clang, Debug). pico-atom's `m6502` and `via6522` copied whole
+and renamed, with their tests: `test_m6502_behaviour`, `_cycles`,
+`_decimal`, `_functional` and `test_via6522`. They run on a minimal
+`oric_t`: the page table over 64 KiB of RAM and a separate 16 KiB ROM
+socket, page `#03` decoded to the VIA by mask, RESET, `oric_run` with
+debt, `oric_copy`. The 16K mirror is mapped as §6.2 believes it, untested
+until M3 settles it. **Checked:** Dormann's functional test runs to its
+success trap at `#3469` after 96,241,367 cycles; Clark's decimal test ends
+with error byte 0, every flag checked; the cycle table passes by execution;
+`test_via6522` passes with its machine checks moved from `#B800` to
+`#0300`; without the suites, `test_m6502_functional` reports skipped.
+**Planted bugs**, each caught and then removed: the decimal high-nibble
+fixup at 10 instead of 9 fails `test_m6502_decimal` and Dormann; BPL's base
+count 3 instead of 2 fails `test_m6502_cycles`; T1's free-run period
+latch + 1 instead of latch + 2 fails `test_via6522`. The core also
+compiles clean under `arm-none-eabi-gcc -Werror` in the firmware build.
+**Measured:** `test_m6502_functional`, both suites, 1.13 s wall time in a
+Debug build (a regression marker, not a performance figure). **Left out,
+from pico-atom's tests:** the MOS's printer checks (an Atom matter); the VIA
+surviving a snapshot, which returns with `snapshot.c` in M11; the "VIA not
+fitted" case, as every Oric has one. **For M3 to decide:** the VIA is
+ticked per instruction, as pico-atom measured it (a countdown, §3.2),
+where §5.3 speaks of stopping a slice at the VIA's next event. CI green
+for PR #1, where `test_m6502_functional` ran and passed (cc65 from
+Ubuntu's packages).
+
+**M0, skeleton**, built 2026-10-07 on the workstation (macOS, Apple clang;
+Pico SDK 2.3.1, arm-none-eabi-gcc 15.2). The layout of design.md §4.1 with
+what M0 needs and no emulation: CMake with a host build
+(`-DPICO_ORIC_HOST=ON`, CTest) and a `pico2` firmware build, both under
+`-Wall -Wextra -Werror`; `src/core/config.h` and `hot.h`;
+`test/host/test_util.h` and `test_skeleton`; the version header from
+`git describe` at build time; `arm-none-eabi-size` on every build; CI
+building both targets and the no-UART image, and running CTest. Copied from
+pico-ace's M0 and renamed: `cmake/`, `board.*`, `hot.h`, `test_util.h`,
+`tools/build.sh`, `flash.sh`, `uart-log.sh`, `ci.yml`. The firmware prints a
+banner and a heartbeat over UART1 and blinks GP25. **Checked:** both builds
+green; `test_skeleton` passes; an `#include "pico/stdlib.h"` planted in
+`config.h` fails the host build (`'pico/stdlib.h' file not found`), and was
+removed. **Measured:** the image, 22,764 bytes text and 860 bss with the
+UART; 20,932 and 844 without. **On the board**, a Plus 2 W (id `7458DC82A89AAC12`,
+RP2350B, chip rev 2), 2026-10-07: flashed over SWD with `tools/flash.sh`
+and captured with `tools/uart-log.sh` (`out/m0.log`), the banner showed
+build target `pico2`, clk_sys and clk_peri at 150 MHz, core rail ~1100 mV,
+firmware `e3472e4`, then heartbeats a second apart at die 20 °C. A pico2
+image cannot light the LED on a W board. CI green on both jobs for PR #1.
