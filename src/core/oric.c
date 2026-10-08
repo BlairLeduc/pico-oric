@@ -9,7 +9,13 @@
 
 void oric_config_default(oric_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
-    cfg->ram = ORIC_RAM_48K;   /* the Atmos 48K (§18 item 3) */
+    /* The Atmos 48K (§18 item 3). */
+    cfg->rom = ROM_BASIC11;
+    cfg->ram = ORIC_RAM_48K;
+    /* Believed, not settled (§11.1, §16: medium). */
+    cfg->line_cycles = 64;
+    cfg->lines_50hz = 312;
+    cfg->lines_60hz = 264;
 }
 
 static void map_open(oric_t *m, unsigned first_page, unsigned last_page) {
@@ -32,10 +38,8 @@ static void map_rw(oric_t *m, unsigned first_page, unsigned last_page, uint32_t 
 }
 
 void oric_init(oric_t *m, const oric_config_t *cfg) {
-    /* Zero-filled RAM (§6.3, EL §9.2). */
     memset(m, 0, sizeof(*m));
     m->cfg = *cfg;
-    m->open_bus = 0xFFu;
 
     map_open(m, 0x00u, 0xFFu);
 
@@ -57,25 +61,82 @@ void oric_init(oric_t *m, const oric_config_t *cfg) {
     /* #C000-#FFFF stays open until oric_load_rom fills the socket: the
      * repository ships no ROM (§10.2). */
 
-    via6522_reset(&m->via);
+    oric_power_on(m);
+}
 
-    m6502_init(&m->cpu);
+void oric_power_on(oric_t *m) {
+    /* Zero-filled RAM (§6.3, EL §9.2). */
+    memset(m->ram, 0, sizeof(m->ram));
+    m->open_bus = 0xFFu;
+    m->hz60 = false;
     m->budget = 0;
+    m->fields = 0;
+    m6502_init(&m->cpu);
     oric_reset(m);
+}
+
+/* ---- The VIA's wiring (§2.3) ------------------------------------------- */
+
+/* Put the VIA's outputs on what they drive, and what that drives back on
+ * the VIA's inputs. Called after anything that can change a line: a
+ * register access, a key, a reset.
+ *
+ * The AY: BC1 is CA2 and BDIR is CB2. Both ROMs' register write (#F535
+ * in 1.0, #F590 in 1.1) sets the PCR to #EE, both high, to latch the
+ * register number from PA, then #EC, CA2 low and CB2 high, to write
+ * (§16, settled 2026-10-08 by reading both ROMs).
+ *
+ * The keyboard: PB0-PB2 select a row and AY port A's zero bits enable
+ * columns; PB3 reads high while a key is down in an enabled column of
+ * that row. Both scans write a column mask with one zero bit (#7F, #BF,
+ * ...) and take PB3 set as a key (#F506 in 1.0, #F561 in 1.1; §16). */
+static void wire(oric_t *m) {
+    via6522_t *v = &m->via;
+
+    ay_bus_t mode = (ay_bus_t)((v->cb2 ? 2u : 0u) | (v->ca2 ? 1u : 0u));
+    ay8912_bus(&m->ay, mode, via6522_pa_out(v));
+    via6522_set_pa(v, m->ay.driving ? m->ay.bus_out : 0xFFu);
+
+    uint8_t row = (uint8_t)(via6522_pb_out(v) & 7u);
+    uint8_t enabled = (uint8_t)~ay8912_port_a(&m->ay);
+    bool down = (m->keys[row] & enabled) != 0;
+    via6522_set_pb(v, down ? 0xFFu : 0xF7u);
+
+    m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(v));
+}
+
+void oric_io_changed(oric_t *m) {
+    wire(m);
 }
 
 void oric_reset(oric_t *m) {
     m->cpu.reset_pending = false;
-    /* The VIA is on the reset line with the CPU (§6.3; §16 to confirm
-     * from the schematic). The pins are the machine's, not the chip's,
-     * and keep their levels. */
-    uint8_t in_a = m->via.in_a, in_b = m->via.in_b;
+    /* The VIA and the AY are on the reset line with the CPU (§6.3; §16
+     * to confirm from the schematic). */
     via6522_reset(&m->via);
-    m->via.in_a = in_a;
-    m->via.in_b = in_b;
-    m6502_set_irq(&m->cpu, M6502_IRQ_VIA, false);
+    ay8912_reset(&m->ay);
+    wire(m);
     m6502_set_nmi(&m->cpu, false);
     m6502_reset(&m->cpu, m);
+}
+
+void oric_nmi(oric_t *m) {
+    /* A press is one falling edge on /NMI; the CPU latches it (§5.2). */
+    m6502_set_nmi(&m->cpu, true);
+    m6502_set_nmi(&m->cpu, false);
+}
+
+void oric_key_set(oric_t *m, int row, int col, bool down) {
+    if (row < 0 || row >= (int)ORIC_KEY_ROWS || col < 0 || col >= (int)ORIC_KEY_COLS) return;
+    uint8_t bit = (uint8_t)(1u << col);
+    if (down) m->keys[row] |= bit;
+    else      m->keys[row] = (uint8_t)(m->keys[row] & ~bit);
+    wire(m);
+}
+
+uint8_t oric_peek(const oric_t *m, uint16_t addr) {
+    const uint8_t *p = m->page[addr >> 8].read;
+    return p ? p[addr & 0xFFu] : m->open_bus;
 }
 
 /* Move one page pointer from src's struct to dst's. Only oric_load_rom
@@ -136,5 +197,18 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
         m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
     }
     m->instructions += n;
+    return done;
+}
+
+uint32_t oric_field_cycles(const oric_t *m) {
+    return (uint32_t)m->cfg.line_cycles * (m->hz60 ? m->cfg.lines_60hz : m->cfg.lines_50hz);
+}
+
+uint32_t oric_run_field(oric_t *m) {
+    /* The field began where the last one's overshoot says (§4.2). */
+    int32_t want = (int32_t)oric_field_cycles(m) + m->budget;
+    uint32_t done = want > 0 ? oric_run(m, (uint32_t)want) : 0;
+    m->budget = want - (int32_t)done;
+    m->fields++;
     return done;
 }

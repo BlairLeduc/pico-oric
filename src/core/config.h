@@ -25,6 +25,13 @@
 /* Page #03 is I/O; the VIA's registers are A3-A0 (§2.2, §6.4). */
 #define ORIC_IO_PAGE         0x03u
 
+/* ---- Keyboard (design.md §2.3, §2.4) ---------------------------------- */
+
+/* Rows from PB0-PB2 through a 1-of-8 decoder, columns from AY port A:
+ * both ROMs' scans (#F4C8 in 1.0, #F523 in 1.1) walk eight of each. */
+#define ORIC_KEY_ROWS           8u
+#define ORIC_KEY_COLS           8u
+
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */

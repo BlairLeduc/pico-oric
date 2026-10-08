@@ -12,9 +12,12 @@ option(PICO_ORIC_HOST "Build the portable core and its host tests, with no Pico 
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_ORIC_CORE_SOURCES
+    src/core/ay8912.c
     src/core/bus.c
     src/core/m6502.c
     src/core/oric.c
+    src/core/romset.c
+    src/core/sha1.c
     src/core/via6522.c
 )
 

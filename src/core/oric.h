@@ -4,9 +4,10 @@
  * performs no dynamic allocation, which is what makes the §3.3 budget a
  * link-time fact.
  *
- * M1 builds what the 6502 and the VIA need to run: the page table, RAM,
- * the ROM socket, page #03's decode and the run loop. The rest of §4.2's
- * seam (the field, NMI, the AY, the keyboard, video) arrives with M3.
+ * M1 built what the 6502 and the VIA need to run: the page table, RAM,
+ * the ROM socket, page #03's decode and the run loop. M3 wires the VIA to
+ * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
+ * field. Video arrives with M4, sound with M8.
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -15,8 +16,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ay8912.h"
 #include "config.h"
 #include "m6502.h"
+#include "romset.h"
 #include "via6522.h"
 
 /* Page descriptor flags (§6.1). */
@@ -35,14 +38,26 @@ typedef struct {
 /* The two RAM fits (§2.1, §6.2). */
 typedef enum { ORIC_RAM_16K, ORIC_RAM_48K } oric_ram_t;
 
-/* Configuration, not code (§6.2), applied only by a power-on. */
+/* Configuration, not code (§6.2), applied only by a power-on. The
+ * field's timing is here, not in config.h, because §16 has not settled
+ * it: a timing constant stays runtime configuration until it is
+ * (EL §14.2, §11.1). */
 typedef struct {
+    rom_id_t   rom;            /* ROM_BASIC10 or ROM_BASIC11; the port loads it */
     oric_ram_t ram;
+    uint16_t   line_cycles;    /* 64 (§11.1)                                    */
+    uint16_t   lines_50hz;     /* 312                                           */
+    uint16_t   lines_60hz;     /* 264                                           */
 } oric_config_t;
 
 typedef struct oric_s {
     m6502_t   cpu;
     via6522_t via;
+    ay8912_t  ay;
+
+    /* The keyboard: a bit per column, set while the key is down, for
+     * each of the eight rows PB0-PB2 select (§2.3, §2.4). */
+    uint8_t keys[ORIC_KEY_ROWS];
 
     /* All 64 KiB, the top 16 KiB being the overlay RAM under the ROM
      * (§2.1). The ROM has its own array, so that RAM stays beneath it. */
@@ -56,8 +71,14 @@ typedef struct oric_s {
 
     oric_config_t cfg;
 
-    /* Cycle debt carried between slices (§4.2). */
+    /* The ULA's frequency choice, from the mode attribute: the length
+     * of the next field (§11.1). M4's mode scan sets it. */
+    bool hz60;
+
+    /* Cycle debt carried between fields (§4.2): what the last field ran
+     * past its length, as a negative number. */
     int32_t budget;
+    uint32_t fields;
 
     /* Instructions executed, for host cycles per guest instruction
      * (§14). A counter, not machine state: snapshots leave it. */
@@ -68,15 +89,42 @@ typedef struct oric_s {
  * port's to load. */
 void oric_config_default(oric_config_t *cfg);
 
-/* Wire up the page table from cfg, zero RAM and reset every chip (§6.3). */
+/* Wire up the page table from cfg and power on (§6.3). */
 void oric_init(oric_t *m, const oric_config_t *cfg);
 
-/* The RESET line: the CPU and the VIA, RAM kept (§4.2, §6.3). */
+/* Zero RAM, the overlay included, and reset every chip with the CPU
+ * (§6.3). The ROM stays in its socket and the keys stay as held. */
+void oric_power_on(oric_t *m);
+
+/* The RESET line: the CPU, the VIA and the AY, RAM kept (§4.2, §6.3). */
 void oric_reset(oric_t *m);
+
+/* The reset button under the case, which is NMI (§2.1). */
+void oric_nmi(oric_t *m);
 
 /* Run at least `cycles` guest cycles, finishing whole instructions.
  * Returns the cycles actually run, which the caller carries as debt. */
 uint32_t oric_run(oric_t *m, uint32_t cycles);
+
+/* Cycles in the next field, from the ULA's 50 or 60 Hz choice (§11.1). */
+uint32_t oric_field_cycles(const oric_t *m);
+
+/* One field, less the debt the last one left. Returns the cycles run;
+ * never assume 19,968 (§4.2). M4: ends at the first active line. */
+uint32_t oric_run_field(oric_t *m);
+
+/* A key at a matrix cell, down or up (§2.4). The row is PB0-PB2's
+ * value, the column the bit of AY port A that enables it. */
+void oric_key_set(oric_t *m, int row, int col, bool down);
+
+/* After anything outside the run loop changes a VIA register or line:
+ * put the outputs on the AY and the keyboard, and back (§2.3). The bus
+ * calls it after every access to page #03. */
+void oric_io_changed(oric_t *m);
+
+/* Read a guest address as the CPU would, without its side effects: page
+ * #03 reads as the open bus. For tests and the presenter. */
+uint8_t oric_peek(const oric_t *m, uint16_t addr);
 
 /* Copy a whole machine. The page table points into the struct, so a
  * plain assignment leaves the copy reading the original's memory; this
