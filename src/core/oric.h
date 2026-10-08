@@ -74,9 +74,11 @@ typedef struct oric_s {
 
     oric_config_t cfg;
 
-    /* The ULA's mode attribute bits (ula.h) after the last frame it drew,
-     * which set the next field's length (§11.1), and as they were at that
-     * frame's start, which oric_video_take hands on (§7.4). */
+    /* The ULA's mode attribute bits (ula.h). The field ends where the
+     * ULA is about to draw a frame from the top, and that frame is what
+     * oric_video_take copies (§11.1): frame_mode is the mode it starts
+     * in, and ula_mode the mode the scan finds it leaves, which sets the
+     * next field's length and the next frame's start (§7.4). */
     uint8_t ula_mode;
     uint8_t frame_mode;
 
@@ -129,7 +131,9 @@ uint32_t oric_run_field(oric_t *m);
  * 16K machine, #1800-#3FFF of its RAM through the mirror (§2.2, §4.4). */
 const uint8_t *oric_video_window(const oric_t *m);
 
-/* Whether blinking cells show in the frame just finished (§16). */
+/* Whether blinking cells show in the frame oric_video_take copies: the
+ * one the ULA draws next, frame `fields` counting from 0 at power-on
+ * (§11.1). Phases are blink_fields frames long, shown first (§16). */
 bool oric_blink_on(const oric_t *m);
 
 /* After oric_run_field: the frame for the presenter, the window, the

@@ -123,9 +123,14 @@ int main(void) {
         oric_run_field(&g_m);
         oric_video_take(&g_m, f);
         CHECK(f->mode == 0x06, "%s: the second frame starts in hires", fit ? "16K" : "48K");
-        for (unsigned i = 2; i <= cfg.blink_fields; i++) oric_run_field(&g_m);
+        /* Frame n, the one drawn after field n, is in phase n / 32: frame
+         * 31 is the last shown, frame 32 the first hidden (§11.1, §16). */
+        while (g_m.fields < cfg.blink_fields - 1u) oric_run_field(&g_m);
         oric_video_take(&g_m, f);
-        CHECK(!f->blink_on, "after %u fields, the blink phase turns", cfg.blink_fields);
+        CHECK(f->field == cfg.blink_fields - 1u && f->blink_on, "frame %u is shown", f->field);
+        oric_run_field(&g_m);
+        oric_video_take(&g_m, f);
+        CHECK(f->field == cfg.blink_fields && !f->blink_on, "frame %u is hidden", f->field);
     }
 
     TEST_DONE();
