@@ -38,7 +38,12 @@ leave 29 stored in 1.0 (all 60 in 1.1), and at 3 and 3 all 60 in both.
 (`test_keymap`, and `&` lost in `test_keyboard`); no lead for a SHIFT the
 entry asserts (`test_keymap`); left and right SHIFT swapped (the pairs in
 `test_keyboard`); `;` and `'` swapped (both); the replay at 2 and 2
-(`test_keyboard`'s program); CTRL on FUNCT's row (both). **Measured:**
+(`test_keyboard`'s program); CTRL on FUNCT's row (both). **Found in
+review** (PR #5): the keys the MCU sends only as Shift chords (Insert,
+Break, End, PgUp, PgDn, Home) had no entries, so Shift+Enter typed
+nothing. Each is now its base key's cell with SHIFT; `test_keymap` checks
+every one, and fails 13 checks with the entries removed; through both
+ROMs they decode as their base keys do (119 entries). **Measured:**
 each ROM needs 4 fields a key at the scan; the replay takes 6, and a line
 of 10 keys in one poll 59 fields, 5.9 a key; `test_keyboard` runs in 6.8
 s (Debug). **Not checked:** anything on the board (M6, M7); which SHIFT is

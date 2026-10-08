@@ -930,6 +930,10 @@ Constraints from the MCU that bind the table:
 - Several keys exist only as shifted alternates (Home, End, PgUp/PgDn, Break,
   Insert). Insert is both Shift+Enter and Alt+I, so decide which physical
   key it is when its event arrives, by whether Alt is down (HW §6.2).
+  **Each needs a binding of its own.** Canonicalisation pairs its press
+  with its release but binds nothing: the Oric's first table had no
+  entries for them, so Shift+Enter typed nothing until a review caught it.
+  Give the table test a list of them to check.
 - `F1`–`F5` arrive as `0x81`–`0x85` and `F10` as `0x90` (the MCU's
   Shift+`F5`). A guest without function keys leaves them free for the
   emulator's own pages.

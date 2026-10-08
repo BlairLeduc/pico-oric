@@ -130,6 +130,19 @@ const keymap_t keymap_picocalc[] = {
     { PICOCALC_KEY_DOWN,  OK_DOWN,  0 },
     { PICOCALC_KEY_RIGHT, OK_RIGHT, 0 },
 
+    /* With Shift, these keys send codes of their own (hardware-notes.md
+     * §6.3). Each is its base key's cell with SHIFT, as the Oric's typist
+     * would press it, and SHIFT changes none of their codes (§2.4).
+     * Canonicalisation only pairs a press with its release; without
+     * these, Shift+Enter would type nothing. Alt+I is Insert too, and
+     * finds nothing: the Alt layer has no entry for it. */
+    { PICOCALC_KEY_INSERT,    OK_RETURN, KM_SHIFT },
+    { PICOCALC_KEY_BREAK,     OK_ESC,    KM_SHIFT },
+    { PICOCALC_KEY_END,       OK_DEL,    KM_SHIFT },
+    { PICOCALC_KEY_PAGE_UP,   OK_UP,     KM_SHIFT },
+    { PICOCALC_KEY_PAGE_DOWN, OK_DOWN,   KM_SHIFT },
+    { PICOCALC_KEY_HOME,      OK_FUNCT,  KM_SHIFT },
+
     /* FUNCT is a held modifier on the Atmos, so a plain key, not an Alt
      * chord (EL §7.2). Neither ROM reads it (§16); programs may. */
     { PICOCALC_KEY_TAB, OK_FUNCT, 0 },
@@ -156,13 +169,6 @@ const keymap_t keymap_picocalc[] = {
 
 const size_t keymap_picocalc_len = sizeof keymap_picocalc / sizeof keymap_picocalc[0];
 
-/* PicoCalc keys that exist only as another's shifted alternate
- * (hardware-notes.md §6.3), by the key they are on. */
-#define PC_HOME      0xD2u
-#define PC_END       0xD5u
-#define PC_PAGE_UP   0xD6u
-#define PC_PAGE_DOWN 0xD7u
-
 uint8_t keymap_picocalc_canonical(uint8_t code) {
     if (code >= 'A' && code <= 'Z') return (uint8_t)(code + ('a' - 'A'));
 
@@ -175,12 +181,12 @@ uint8_t keymap_picocalc_canonical(uint8_t code) {
     case '|': return '\\'; case '?': return '/';  case ':': return ';';
     case '"': return '\''; case '<': return ',';  case '>': return '.';
     case '{': return '[';  case '}': return ']';  case '~': return '`';
-    case PC_END:             return PICOCALC_KEY_DEL;
-    case PC_HOME:            return PICOCALC_KEY_TAB;
+    case PICOCALC_KEY_END:             return PICOCALC_KEY_DEL;
+    case PICOCALC_KEY_HOME:            return PICOCALC_KEY_TAB;
     case PICOCALC_KEY_BREAK: return PICOCALC_KEY_ESC;
     case PICOCALC_KEY_INSERT: return PICOCALC_KEY_ENTER;
-    case PC_PAGE_UP:         return PICOCALC_KEY_UP;
-    case PC_PAGE_DOWN:       return PICOCALC_KEY_DOWN;
+    case PICOCALC_KEY_PAGE_UP:         return PICOCALC_KEY_UP;
+    case PICOCALC_KEY_PAGE_DOWN:       return PICOCALC_KEY_DOWN;
     case PICOCALC_KEY_F10:   return PICOCALC_KEY_F1 + 4u;
     default:
         /* F6-F9 are Shift+F1-F4. */

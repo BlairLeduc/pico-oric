@@ -288,6 +288,12 @@ static uint8_t want_for(uint8_t code) {
     case PICOCALC_KEY_RIGHT:     return 0x09u;
     case PICOCALC_KEY_DOWN:      return 0x0Au;
     case PICOCALC_KEY_UP:        return 0x0Bu;
+    /* The Shift alternates: SHIFT changes none of their codes (§2.4). */
+    case PICOCALC_KEY_INSERT:    return 0x0Du;
+    case PICOCALC_KEY_BREAK:     return 0x1Bu;
+    case PICOCALC_KEY_END:       return 0x7Fu;
+    case PICOCALC_KEY_PAGE_UP:   return 0x0Bu;
+    case PICOCALC_KEY_PAGE_DOWN: return 0x0Au;
     default:                     return 0;   /* FUNCT, the menu's keys */
     }
 }

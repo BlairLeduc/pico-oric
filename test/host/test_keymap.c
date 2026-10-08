@@ -55,9 +55,10 @@ int main(void) {
             CHECK(e->row < ORIC_KEY_ROWS && e->col < ORIC_KEY_COLS,
                   "code 0x%02X: cell (%u,%u) off the matrix", e->code, e->row, e->col);
             /* SHIFT and CTRL are flags and modifiers, never an entry's
-             * cell; FUNCT is Tab's. */
+             * cell; FUNCT is the Tab key's. */
             CHECK(e->col != OK_COL_MODS ||
-                      (e->row == OK_ROW_FUNCT && e->code == PICOCALC_KEY_TAB),
+                      (e->row == OK_ROW_FUNCT &&
+                       keymap_picocalc_canonical(e->code) == PICOCALC_KEY_TAB),
                   "code 0x%02X bound to column 4, row %u", e->code, e->row);
         }
         if (e->flags & KM_MENU)
@@ -84,6 +85,20 @@ int main(void) {
                   "code 0x%02X bound twice", e->code);
         }
     }
+    /* Every key the PicoCalc sends only as a Shift chord has an entry:
+     * canonicalisation pairs its press with its release, but binds
+     * nothing (hardware-notes.md §6.3). */
+    {
+        static const uint8_t alts[] = {
+            PICOCALC_KEY_INSERT, PICOCALC_KEY_BREAK, PICOCALC_KEY_HOME,
+            PICOCALC_KEY_END, PICOCALC_KEY_PAGE_UP, PICOCALC_KEY_PAGE_DOWN,
+            PICOCALC_KEY_F6, PICOCALC_KEY_F10,
+        };
+        for (unsigned i = 0; i < sizeof alts; i++)
+            CHECK(entry_for(alts[i], false) != NULL, "Shift alternate 0x%02X has no entry",
+                  alts[i]);
+    }
+
     /* Every character the PicoCalc types reaches the Oric (EL §7.2), but
      * for the two the Oric has no key for. */
     for (unsigned c = 0x20; c < 0x7F; c++) {
@@ -101,8 +116,8 @@ int main(void) {
               c, base);
         CHECK((e->flags & KM_SHIFT) && !(b->flags & KM_SHIFT), "'%c' / '%c' shifts", c, base);
     }
-    /* No two different keys share a cell, apart from Backspace and Del,
-     * which are both DEL. */
+    /* No two different keys share a cell, apart from Backspace and Del
+     * (with End, its Shift alternate), which are all DEL. */
     for (size_t i = 0; i < keymap_picocalc_len; i++) {
         const keymap_t *e = &keymap_picocalc[i];
         if (e->flags & (KM_NOCELL | KM_ALT)) continue;
@@ -111,7 +126,10 @@ int main(void) {
             if (f->flags & (KM_NOCELL | KM_ALT)) continue;
             bool same_key = keymap_picocalc_canonical(e->code) ==
                             keymap_picocalc_canonical(f->code);
-            bool dels = (e->code == PICOCALC_KEY_BACKSPACE && f->code == PICOCALC_KEY_DEL);
+            bool dels = (e->code == PICOCALC_KEY_BACKSPACE ||
+                         keymap_picocalc_canonical(e->code) == PICOCALC_KEY_DEL) &&
+                        (f->code == PICOCALC_KEY_BACKSPACE ||
+                         keymap_picocalc_canonical(f->code) == PICOCALC_KEY_DEL);
             if (e->row == f->row && e->col == f->col)
                 CHECK(same_key || dels, "0x%02X and 0x%02X share (%u,%u)", e->code, f->code,
                       e->row, e->col);
@@ -446,16 +464,46 @@ int main(void) {
               "the captured Alt+I left %u press(es) open", k.n_open);
         CHECK(k.q_len == 0, "the repeats were not absorbed");
 
-        /* Shift+Enter is Insert too, and its release under the other
-         * translation, Enter, closes it. */
+        /* Shift+Enter is Insert too: SHIFT+RETURN, as the Oric's typist
+         * would press it, and its release under the other translation,
+         * Enter, closes it. */
         fresh();
         press(PICOCALC_KEY_SHIFT_L);
         press(PICOCALC_KEY_INSERT);
+        fields(2);
+        CHECK(cell_down(7, 5) && shift_l(), "Shift+Enter is SHIFT+RETURN");
         release(PICOCALC_KEY_SHIFT_L);
         release(PICOCALC_KEY_ENTER);
         fields(10);
-        CHECK(k.n_open == 0 && keymatrix_idle(&k), "Shift+Enter left %u press(es) open",
-              k.n_open);
+        CHECK(k.n_open == 0 && keymatrix_idle(&k) && matrix_empty(),
+              "Shift+Enter left %u press(es) open", k.n_open);
+
+        /* Alt+I is Insert, and reaches nothing: the Alt layer has no I. */
+        fresh();
+        press(PICOCALC_KEY_ALT);
+        press(PICOCALC_KEY_INSERT);
+        fields(2);
+        CHECK(matrix_empty() && k.n == 0, "Alt+I reached the matrix");
+
+        /* The keys the PicoCalc sends only with Shift are their base
+         * key's cell with SHIFT. */
+        static const struct { uint8_t code, row, col; } shifted[] = {
+            { PICOCALC_KEY_INSERT,    7, 5 },
+            { PICOCALC_KEY_BREAK,     1, 5 },
+            { PICOCALC_KEY_END,       5, 5 },
+            { PICOCALC_KEY_PAGE_UP,   4, 3 },
+            { PICOCALC_KEY_PAGE_DOWN, 4, 6 },
+            { PICOCALC_KEY_HOME,      OK_ROW_FUNCT, OK_COL_MODS },
+        };
+        for (unsigned i = 0; i < sizeof shifted / sizeof shifted[0]; i++) {
+            fresh();
+            press(PICOCALC_KEY_SHIFT_R);
+            press(shifted[i].code);
+            fields(2);
+            CHECK(cell_down(shifted[i].row, shifted[i].col) && shift_r(),
+                  "Shift+0x%02X is SHIFT+(%u,%u)", shifted[i].code, shifted[i].row,
+                  shifted[i].col);
+        }
 
         /* An Alt chord with no binding reaches nothing. */
         fresh();

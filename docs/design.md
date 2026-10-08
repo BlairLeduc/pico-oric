@@ -807,6 +807,7 @@ By meaning, settled by §9.3's sweep. The table is data (EL §7.2), in
 | `Esc` | `ESC` | |
 | `Ctrl` | `CTRL` | Ctrl chords reach the host unchanged (HW §6.3), so every Oric CTRL key works. With Shift held, the Oric's SHIFT hides CTRL (§2.4) |
 | left `Shift`, right `Shift` | left `SHIFT`, right `SHIFT` | separate cells on both machines; games read them apart. Asserted whatever else is held (EL §7.2). A character the PicoCalc types with Shift also asserts the left SHIFT, which goes down a field ahead of its cell |
+| `Shift`+`Enter`, `Esc`, `Del`, `Up`, `Down`, `Tab` | SHIFT + `RETURN`, `ESC`, `DEL`, ↑, ↓, `FUNCT` | the MCU sends these as Insert, Break, End, PgUp, PgDn and Home (HW §6.3), each needing an entry of its own; SHIFT changes none of the Oric's codes (§2.4). Alt+I is Insert too, and types nothing |
 | arrows | the Oric's arrows | plain keys on the Oric, so the swallowed Shift+arrow chords (HW §6.3) cost nothing |
 | `Space` | `SPACE` | |
 | `Tab` | `FUNCT` | **settled** in M5: a held modifier on the Atmos, so a plain key, not an Alt chord (EL §7.2). Neither ROM reads it (§2.4); programs may, and while it is down it hides the left SHIFT from the ROM |

@@ -95,6 +95,13 @@ uint8_t keymap_picocalc_canonical(uint8_t code);
 #define PICOCALC_KEY_INSERT    0xD1u   /* Shift+Enter, or Alt+I */
 #define PICOCALC_KEY_DEL       0xD4u
 
+/* Keys that exist only as another's shifted alternate
+ * (hardware-notes.md §6.3), by the key they are on. */
+#define PICOCALC_KEY_HOME      0xD2u   /* Shift+Tab */
+#define PICOCALC_KEY_END       0xD5u   /* Shift+Del */
+#define PICOCALC_KEY_PAGE_UP   0xD6u   /* Shift+Up */
+#define PICOCALC_KEY_PAGE_DOWN 0xD7u   /* Shift+Down */
+
 #define KEY_EV_PRESSED   1u
 #define KEY_EV_HELD      2u
 #define KEY_EV_RELEASED  3u
