@@ -1,9 +1,11 @@
 #!/bin/sh
 # Build oricutron-trace, the reference half of the trace diff (design.md
-# §13.4), from an Oricutron checkout. Nothing of Oricutron is copied into
-# this tree: the checkout is copied into OUT, a trace hook is added to its
-# 6502.c there with perl, its own Makefile builds it, and every object but
-# main.o is linked with the headless driver.
+# §13.4), and oricutron-render, which draws test_golden's frames with
+# Oricutron's ULA (§7.7), from an Oricutron checkout. Nothing of
+# Oricutron is copied into this tree: the checkout is copied into OUT, a
+# trace hook is added to its 6502.c there with perl, its own Makefile
+# builds it, and every object but main.o is linked with each headless
+# driver.
 #
 #   git clone https://github.com/pete-gordon/oricutron.git out/oricutron
 #   git -C out/oricutron checkout 002279fce9fa756d1d63cdc40ae97939eb7de7ed
@@ -83,8 +85,14 @@ if grep '\*\*\* \[' "$out/oricutron-make.log" |
 fi
 
 objs="$(ls "$build"/*.o | grep -v '/main\.o$')"
-"$cc" -O2 -Wall -Wextra -Wno-unused-parameter $(sdl2-config --cflags) \
-    -I "$build" -I "$here" -c "$here/oricutron-trace.c" -o "$out/oricutron-trace.o"
-# shellcheck disable=SC2086
-"$cc" -o "$out/oricutron-trace" "$out/oricutron-trace.o" $objs $(sdl2-config --libs) -lm $frameworks
-echo "$out/oricutron-trace"
+# Two drivers on the same objects: the trace (§13.4), and the renderer
+# that draws test_golden's frames with Oricutron's ULA (§7.7).
+for d in oricutron-stubs oricutron-trace oricutron-render; do
+    "$cc" -O2 -Wall -Wextra -Wno-unused-parameter $(sdl2-config --cflags) \
+        -I "$build" -I "$here" -c "$here/$d.c" -o "$out/$d.o"
+done
+for d in oricutron-trace oricutron-render; do
+    # shellcheck disable=SC2086
+    "$cc" -o "$out/$d" "$out/$d.o" "$out/oricutron-stubs.o" $objs $(sdl2-config --libs) -lm $frameworks
+    echo "$out/$d"
+done

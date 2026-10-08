@@ -16,6 +16,8 @@ void oric_config_default(oric_config_t *cfg) {
     cfg->line_cycles = 64;
     cfg->lines_50hz = 312;
     cfg->lines_60hz = 264;
+    /* MAME's 32 and Brown's, against Oricutron's 16 (§16: disputed). */
+    cfg->blink_fields = 32;
 }
 
 static void map_open(oric_t *m, unsigned first_page, unsigned last_page) {
@@ -69,7 +71,8 @@ void oric_power_on(oric_t *m) {
     /* Zero-filled RAM (§6.3, EL §9.2). */
     memset(m->ram, 0, sizeof(m->ram));
     m->open_bus = 0xFFu;
-    m->hz60 = false;
+    m->ula_mode = ULA_MODE_POWER_ON;
+    m->frame_mode = ULA_MODE_POWER_ON;
     m->budget = 0;
     m->fields = 0;
     m6502_init(&m->cpu);
@@ -220,7 +223,8 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
 }
 
 uint32_t oric_field_cycles(const oric_t *m) {
-    return (uint32_t)m->cfg.line_cycles * (m->hz60 ? m->cfg.lines_60hz : m->cfg.lines_50hz);
+    bool hz50 = (m->ula_mode & ULA_MODE_50HZ) != 0;
+    return (uint32_t)m->cfg.line_cycles * (hz50 ? m->cfg.lines_50hz : m->cfg.lines_60hz);
 }
 
 uint32_t oric_run_field(oric_t *m) {
@@ -229,5 +233,31 @@ uint32_t oric_run_field(oric_t *m) {
     uint32_t done = want > 0 ? oric_run(m, (uint32_t)want) : 0;
     m->budget = want - (int32_t)done;
     m->fields++;
+
+    /* The frame about to be drawn starts in the mode the last one left;
+     * what it leaves sets the next field's length, from the next field
+     * (§7.4, §11.1, §16: low). */
+    m->frame_mode = m->ula_mode;
+    m->ula_mode = ula_scan_mode(oric_video_window(m), m->frame_mode);
     return done;
+}
+
+const uint8_t *oric_video_window(const oric_t *m) {
+    /* The page table already says where #9800 is, mirror or not, and
+     * the window's 40 pages are contiguous in both fits (§6.2). */
+    return m->page[ORIC_VIDEO_BASE / ORIC_PAGE_SIZE].read;
+}
+
+bool oric_blink_on(const oric_t *m) {
+    /* Shown in the first phase, hidden in the second, as MAME's counter
+     * runs (§16). */
+    unsigned n = m->cfg.blink_fields ? m->cfg.blink_fields : 1u;
+    return ((m->fields / n) & 1u) == 0;
+}
+
+void oric_video_take(const oric_t *m, oric_frame_t *f) {
+    memcpy(f->window, oric_video_window(m), ORIC_VIDEO_BYTES);
+    f->mode = m->frame_mode;
+    f->blink_on = oric_blink_on(m);
+    f->field = m->fields;
 }

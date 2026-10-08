@@ -37,6 +37,36 @@
 #define ORIC_KEY_ROWS           8u
 #define ORIC_KEY_COLS           8u
 
+/* ---- Video (design.md §2.5, §7) --------------------------------------- */
+
+/* 240x224: 40 cells of 6 pixels a line, 28 text rows of 8 lines, the
+ * hires bitmap's 200 lines above the last three (§2.1, §16: high). */
+#define ORIC_SCREEN_COLS       40u
+#define ORIC_SCREEN_ROWS       28u
+#define ORIC_GLYPH_W            6u
+#define ORIC_GLYPH_H            8u
+#define ORIC_PIXEL_W  (ORIC_SCREEN_COLS * ORIC_GLYPH_W)   /* 240 */
+#define ORIC_PIXEL_H  (ORIC_SCREEN_ROWS * ORIC_GLYPH_H)   /* 224 */
+#define ORIC_HIRES_LINES      200u
+
+/* Everything the ULA can fetch in either mode, #9800-#BFFF: both
+ * character-set locations, the bitmap and the text screen (§4.4). On a
+ * 16K machine the same window is #1800-#3FFF of its RAM (§2.2). */
+#define ORIC_VIDEO_BASE    0x9800u
+#define ORIC_VIDEO_BYTES    10240u
+#define ORIC_TEXT_BASE     0xBB80u  /* 28 rows of 40                    */
+#define ORIC_HIRES_BASE    0xA000u  /* 200 lines of 40                  */
+#define ORIC_CHARSET_TEXT  0xB400u  /* standard; alternate 1 KiB above  */
+#define ORIC_CHARSET_HIRES 0x9800u  /* the same pair, in hires mode     */
+#define ORIC_CHARSET_BYTES   1024u  /* 128 glyphs of 8 rows             */
+
+/* The presenter's dirty bands: one per text row, 8 lines (§7.3). */
+#define ORIC_BAND_COUNT  ORIC_SCREEN_ROWS
+#define ORIC_BAND_LINES  ORIC_GLYPH_H
+
+/* The frame pool: three buffers, so core 0 never waits (§4.4). */
+#define ORIC_SNAPSHOT_COUNT     3u
+
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */

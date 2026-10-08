@@ -10,12 +10,13 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M3 are done** (`docs/design.md` §15): the skeleton, its
+**Status: M0–M4 are done** (`docs/design.md` §15): the skeleton, its
 banner checked on a Plus 2 W; pico-atom's 6502 and VIA passing their tests
 here, with Dormann's and Clark's suites; the gate, the 6502 at ~30 % of
 core 0 on the board (§3.2: 150 MHz is enough; the SRAM tier is still
-open); and the Oric on the host, both ROMs booting on 16K and 48K, typed
-into, and agreeing with Oricutron line for line (§13.4). The record of each milestone
+open); the Oric on the host, both ROMs booting on 16K and 48K, typed
+into, and agreeing with Oricutron line for line (§13.4); and video on the
+host, the goldens drawn identically by Oricutron's ULA (§7.7). The record of each milestone
 (what was verified, on which board, on what date, and what was not checked)
 is in `docs/milestones.md`. Add to it there.
 
@@ -98,6 +99,7 @@ git -C out/oricutron checkout 002279fce9fa756d1d63cdc40ae97939eb7de7ed
 tools/trace/build-oricutron.sh out/oricutron     # corrects its errata, by name
 cmake --build build/host --target oric-trace
 tools/trace-diff.py run --rom 1.0 --ram 16 --keys 'PRINT 2+2\n'
+tools/render-diff.sh                             # the goldens, drawn by Oricutron's ULA (§7.7)
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every
@@ -120,7 +122,9 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   than by comparing two tables in the repository, and give a timing test a
   control that must fail.
 - **A golden image proves nothing until someone has looked at it.** View
-  every changed image before committing it.
+  every changed image before committing it, and run `tools/render-diff.sh`:
+  Oricutron must draw the same frame identically. `test_golden --write DIR`
+  rewrites them.
 
 ## Architecture: the parts that are easy to break
 

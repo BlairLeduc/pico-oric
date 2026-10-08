@@ -7,7 +7,8 @@
  * M1 built what the 6502 and the VIA need to run: the page table, RAM,
  * the ROM socket, page #03's decode and the run loop. M3 wires the VIA to
  * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
- * field. Video arrives with M4, sound with M8.
+ * field. M4 adds the ULA's mode and the frame handed to the presenter;
+ * sound arrives with M8.
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -20,6 +21,7 @@
 #include "config.h"
 #include "m6502.h"
 #include "romset.h"
+#include "ula.h"
 #include "via6522.h"
 
 /* Page descriptor flags (§6.1). */
@@ -48,6 +50,7 @@ typedef struct {
     uint16_t   line_cycles;    /* 64 (§11.1)                                    */
     uint16_t   lines_50hz;     /* 312                                           */
     uint16_t   lines_60hz;     /* 264                                           */
+    uint16_t   blink_fields;   /* 32: fields per blink phase (§16: disputed)    */
 } oric_config_t;
 
 typedef struct oric_s {
@@ -71,9 +74,13 @@ typedef struct oric_s {
 
     oric_config_t cfg;
 
-    /* The ULA's frequency choice, from the mode attribute: the length
-     * of the next field (§11.1). M4's mode scan sets it. */
-    bool hz60;
+    /* The ULA's mode attribute bits (ula.h). The field ends where the
+     * ULA is about to draw a frame from the top, and that frame is what
+     * oric_video_take copies (§11.1): frame_mode is the mode it starts
+     * in, and ula_mode the mode the scan finds it leaves, which sets the
+     * next field's length and the next frame's start (§7.4). */
+    uint8_t ula_mode;
+    uint8_t frame_mode;
 
     /* Cycles of the current instruction the VIA has already been ticked
      * through, to reach an access part-way into it (§5.3). */
@@ -114,8 +121,25 @@ uint32_t oric_run(oric_t *m, uint32_t cycles);
 uint32_t oric_field_cycles(const oric_t *m);
 
 /* One field, less the debt the last one left. Returns the cycles run;
- * never assume 19,968 (§4.2). M4: ends at the first active line. */
+ * never assume 19,968 (§4.2). It ends where the snapshot is taken, the
+ * frame the ULA is about to draw (§11.1); which raster line that is, no
+ * program can see (§16). The mode scan then runs over the window, for
+ * the next field's length. */
 uint32_t oric_run_field(oric_t *m);
+
+/* The 10 KiB the ULA can fetch, #9800-#BFFF, as one run of bytes: in a
+ * 16K machine, #1800-#3FFF of its RAM through the mirror (§2.2, §4.4). */
+const uint8_t *oric_video_window(const oric_t *m);
+
+/* Whether blinking cells show in the frame oric_video_take copies: the
+ * one the ULA draws next, frame `fields` counting from 0 at power-on
+ * (§11.1). Phases are blink_fields frames long, shown first (§16). */
+bool oric_blink_on(const oric_t *m);
+
+/* After oric_run_field: the frame for the presenter, the window, the
+ * mode at its start and the blink phase (§4.4). Core 0 calls it into a
+ * buffer it has claimed from the pool. */
+void oric_video_take(const oric_t *m, oric_frame_t *f);
 
 /* A key at a matrix cell, down or up (§2.4). The row is PB0-PB2's
  * value, the column the bit of AY port A that enables it. */
