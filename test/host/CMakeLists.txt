@@ -11,6 +11,7 @@ set(PICO_ORIC_HOST_TESTS
     test_m6502_decimal
     test_skeleton
     test_snappool
+    test_status
     test_ula
     test_via6522
 )

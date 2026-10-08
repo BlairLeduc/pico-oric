@@ -1426,6 +1426,16 @@ out-of-line copies of a Z80 interpreter's small memory helpers (read,
 them in flash through veneers. Give such helpers the same section
 attribute as their callers. It costs nothing where they are inlined.
 
+The converse trap: **a hot function inlined into a cold caller runs where
+the caller is.** A 6502 emulator (2026-10-08, gcc 15.2 `-O3`) marked its
+run loop for SRAM, and its benchmark, which called the loop directly,
+found it there. The emulator called it only from a once-a-field wrapper
+in ordinary `.text`; GCC inlined the loop into the wrapper and dropped the
+SRAM copy, so `nm` showed no symbol for it, and the loop ran from flash
+and called the interpreter in SRAM through a veneer every instruction.
+Mark the caller too, and look for every hot name in `nm`, not only the
+ones that are there.
+
 The same method on a Z80 interpreter (2026-10-03, Plus 2 W at 150 MHz, 30 KB
 in SRAM) gave the same shape: **1.20×** on ZEXDOC's wide instruction mix,
 and nothing (−1.2 %) on a small Forth inner-interpreter loop whose opcodes

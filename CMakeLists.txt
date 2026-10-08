@@ -23,6 +23,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/romset.c
     src/core/sha1.c
     src/core/snappool.c
+    src/core/status.c
     src/core/ula.c
     src/core/via6522.c
 )
@@ -111,8 +112,10 @@ else()
     endif()
 
     # How much of the core's hot path runs from SRAM (src/core/hot.h),
-    # measured in M2 (design.md §3.2).
-    set(PICO_ORIC_RAM_TIER 0 CACHE STRING "Hot-code SRAM tier, 0-2 (src/core/hot.h)")
+    # measured in M2 and M7 (design.md §3.2): tier 2 from M7. A build
+    # directory configured before keeps its cached 0 until it is passed
+    # once (hardware-notes.md §9.8).
+    set(PICO_ORIC_RAM_TIER 2 CACHE STRING "Hot-code SRAM tier, 0-2 (src/core/hot.h)")
     # The core library needs it too: that is where the marked functions are.
     target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_RAM_TIER=${PICO_ORIC_RAM_TIER})
 
@@ -179,10 +182,11 @@ else()
     target_include_directories(pico_oric_fatfs PUBLIC ${PICO_ORIC_FATFS_DIR})
     # Third-party code: built as it comes, without our -Werror.
 
-    # M6's firmware: bring-up, with no guest yet (design.md §15.2 M6).
+    # The emulator (design.md §15.2 M7).
     add_executable(pico-oric
         src/port/board.c
         src/port/card.c
+        src/port/core0.c
         src/port/core1.c
         src/port/diskio.c
         src/port/display.c
@@ -191,11 +195,41 @@ else()
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
+        src/port/roms.c
         src/port/sd.c
         src/port/southbridge.c
         src/port/storage.c
+        src/port/textpage.c
     )
     pico_oric_firmware(pico-oric)
+
+    # The machine a build boots (design.md §4.1), over the Atmos 48K
+    # default: PICO_ORIC_BOOT_ROM 10 or 11, PICO_ORIC_BOOT_RAM 16 or 48.
+    # Each in its own build directory, which keeps its cached options
+    # (EL §13.1).
+    set(PICO_ORIC_BOOT_ROM "" CACHE STRING "BASIC ROM to boot: 10 or 11, empty for the default")
+    set(PICO_ORIC_BOOT_RAM "" CACHE STRING "RAM to boot: 16 or 48, empty for the default")
+    if (PICO_ORIC_BOOT_ROM)
+        if (NOT PICO_ORIC_BOOT_ROM MATCHES "^(10|11)$")
+            message(FATAL_ERROR "PICO_ORIC_BOOT_ROM is 10 or 11, not ${PICO_ORIC_BOOT_ROM}")
+        endif()
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_ROM=${PICO_ORIC_BOOT_ROM})
+    endif()
+    if (PICO_ORIC_BOOT_RAM)
+        if (NOT PICO_ORIC_BOOT_RAM MATCHES "^(16|48)$")
+            message(FATAL_ERROR "PICO_ORIC_BOOT_RAM is 16 or 48, not ${PICO_ORIC_BOOT_RAM}")
+        endif()
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_RAM=${PICO_ORIC_BOOT_RAM})
+    endif()
+
+    # The perf line at the panel's top (design.md §7.5), until M9's Setup
+    # page and settings file can turn it on and off.
+    option(PICO_ORIC_PERF_LINE "Draw the perf line above the guest" ON)
+    if (PICO_ORIC_PERF_LINE)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_PERF_LINE=1)
+    else()
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_PERF_LINE=0)
+    endif()
     target_link_libraries(pico-oric
         pico_oric_fatfs
         hardware_dma

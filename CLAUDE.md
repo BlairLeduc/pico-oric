@@ -10,19 +10,21 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M6 are done** (`docs/design.md` §15): the skeleton, its
+**Status: M0–M7 are done** (`docs/design.md` §15): the skeleton, its
 banner checked on a Plus 2 W; pico-atom's 6502 and VIA passing their tests
 here, with Dormann's and Clark's suites; the gate, the 6502 at ~30 % of
-core 0 on the board (§3.2: 150 MHz is enough; the SRAM tier is still
-open); the Oric on the host, both ROMs booting on 16K and 48K, typed
-into, and agreeing with Oricutron line for line (§13.4); video on the
-host, the goldens drawn identically by Oricutron's ULA (§7.7); the
-keyboard on the host, the matrix settled by sweeping both ROMs (§2.4) and
-the replay's pacing by executing them (§9.3); and the board brought up,
-the panel's pattern, every key and the card's ROMs checked on a Plus 2 W.
-The record of each milestone
-(what was verified, on which board, on what date, and what was not checked)
-is in `docs/milestones.md`. Add to it there.
+core 0 on the board (§3.2: 150 MHz is enough); the Oric on the host, both
+ROMs booting on 16K and 48K, typed into, and agreeing with Oricutron line
+for line (§13.4); video on the host, the goldens drawn identically by
+Oricutron's ULA (§7.7); the keyboard on the host, the matrix settled by
+sweeping both ROMs (§2.4) and the replay's pacing by executing them
+(§9.3); and the board brought up, the panel's pattern, every key and the
+card's ROMs checked on a Plus 2 W; and the Oric on the device, all four
+machines booting from the card's ROMs in real time, presenting with no
+dropped snapshots, at 27–31 % of core 0 with the hot code in SRAM (tier 2,
+the default since M7). The record of each milestone (what was verified, on
+which board, on what date, and what was not checked) is in
+`docs/milestones.md`. Add to it there.
 
 **Settled decisions** (`docs/design.md` §18, 2026-10-07): **ROMs come from the
 SD card, identified by SHA-1**, and none ships in the repository or the
@@ -89,6 +91,7 @@ ctest --test-dir build/host --output-on-failure
 tools/build.sh                                          # build/pico/pico-oric.uf2
 tools/build.sh -DPICO_ORIC_UART=OFF build/pico-release  # the build that ships
 tools/build.sh -DPICO_ORIC_RAM_TIER=2 build/bench-t2    # one directory per tier
+tools/build.sh -DPICO_ORIC_BOOT_ROM=10 -DPICO_ORIC_BOOT_RAM=16 build/boot-10-16  # another machine
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
@@ -96,6 +99,10 @@ tools/build.sh -DPICO_ORIC_RAM_TIER=2 build/bench-t2    # one directory per tier
 tools/uart-log.sh 30 out/run.log &   # capture UART1 first, so the banner is in it
 tools/flash.sh                       # reset halt + resume, never reset run (HW §2.7)
 tools/flash.sh build/bench-t2/pico-oric-bench.elf   # M2's bench; its counts must say "= host"
+tools/uart-type.sh 'PRINT 2+2\r'      # type at the guest
+tools/uart-screen.sh                 # the guest's text screen into the capture
+tools/perf-run.sh build/pico/pico-oric.elf out/m7/t0   # §14's workloads, one boot each
+tools/perf-summary.sh out/m7/t0                         # one line per workload
 
 # the trace diff against Oricutron (design.md §13.4), checkout in out/
 git clone https://github.com/pete-gordon/oricutron.git out/oricutron
@@ -143,6 +150,9 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   field's length is the ULA's 50 or 60 Hz choice, never assumed.
 - **Copy a machine with `oric_copy`, never `=`.** The page table points into
   the struct.
+- **Load the ROM, then power on or reset.** `oric_init` powers on with the
+  socket empty, and the CPU takes its reset vector then: without a second
+  power-on it starts at `#FFFF`, the open bus's vector (found in M7).
 - **`page_t` is exactly two pointers** (`read`, `write`, NULL for the slow
   path). Per-page flags go in a separate array. Page `#03` is I/O and always
   takes the slow path; decode there by mask, not equality.

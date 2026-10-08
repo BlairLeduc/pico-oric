@@ -91,6 +91,14 @@
 #define ORIC_LINEBUF_COUNT      2u  /* DMA ping-pong (HW §4.6)              */
 #define ORIC_LINEBUF_PIXELS  ORIC_PANEL_W
 
+/* The perf line at the panel's top and the status line at its foot,
+ * each a row of 6x8 glyphs across the panel, centred in its 48-row band
+ * (§7.5). */
+#define ORIC_TEXT_COLS  (ORIC_PANEL_W / ORIC_GLYPH_W)          /* 53 */
+#define ORIC_TEXT_X     ((ORIC_PANEL_W - ORIC_TEXT_COLS * ORIC_GLYPH_W) / 2u)
+#define ORIC_PERF_Y     ((ORIC_SCREEN_Y - ORIC_GLYPH_H) / 2u)  /* 20 */
+#define ORIC_STATUS_Y   (ORIC_PANEL_H - ORIC_SCREEN_Y + ORIC_PERF_Y)  /* 292 */
+
 /* ---- Port buffers (design.md §3.3) ------------------------------------ */
 
 /* Core 0's log, drained by core 1 (EL §2.3): the ring, a power of two,

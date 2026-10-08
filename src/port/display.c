@@ -2,9 +2,10 @@
 
 #include "display.h"
 
+#include <string.h>
+
 #include "pico/stdlib.h"
 
-#include "config.h"
 #include "lcd.h"
 
 #define RGB565(r, g, b) \
@@ -16,62 +17,115 @@
 _Static_assert(ORIC_SCREEN_X + SCREEN_W <= ORIC_PANEL_W &&
                ORIC_SCREEN_Y + SCREEN_H <= ORIC_PANEL_H,
                "the guest must fit on the panel");
+_Static_assert(ORIC_PERF_Y + ORIC_GLYPH_H <= ORIC_SCREEN_Y,
+               "the perf line must sit above the guest");
+_Static_assert(ORIC_STATUS_Y >= ORIC_SCREEN_Y + SCREEN_H &&
+               ORIC_STATUS_Y + ORIC_GLYPH_H <= ORIC_PANEL_H,
+               "the status line must sit below the guest");
+_Static_assert(ORIC_TEXT_X + ORIC_TEXT_COLS * ORIC_GLYPH_W <= ORIC_LINEBUF_PIXELS,
+               "a text line must fit a line buffer");
+
+/* What was last sent to the guest's rectangle, as decoded cells (§7.3). */
+static ula_shadow_t s_shadow;
+
+/* The emulator's font, for the two lines (§7.6). */
+static uint8_t s_font[ORIC_CHARSET_BYTES];
 
 /* DMA ping-pong (hardware-notes.md §4.6), the panel's width so that the
- * perf and status lines can use them too (M7). */
+ * text lines can use them too. */
 static uint16_t s_line[ORIC_LINEBUF_COUNT][ORIC_LINEBUF_PIXELS];
 
-void display_test_pattern(void) {
-    const unsigned x = ORIC_SCREEN_X, y = ORIC_SCREEN_Y;
-    const unsigned w = SCREEN_W, h = SCREEN_H;
-    const unsigned pw = ORIC_PANEL_W, ph = ORIC_PANEL_H;
-    const uint16_t white = RGB565(0xFF, 0xFF, 0xFF);
-    const uint16_t grey = RGB565(0x80, 0x80, 0x80);
+/* What each line shows now: blank, as lcd_init left the panel. */
+typedef struct {
+    unsigned y;
+    char     text[ORIC_TEXT_COLS];
+} text_line_t;
 
-    lcd_fill(0, 0, pw, ph, 0x0000);
+static text_line_t s_perf   = { .y = ORIC_PERF_Y };
+static text_line_t s_status = { .y = ORIC_STATUS_Y };
 
-    lcd_fill(0, 0, pw, 1, grey);
-    lcd_fill(0, ph - 1u, pw, 1, grey);
-    lcd_fill(0, 0, 1, ph, grey);
-    lcd_fill(pw - 1u, 0, 1, ph, grey);
+/* Grey, so the lines do not read as the guest's. */
+#define TEXT_INK RGB565(0x90, 0x90, 0x90)
 
-    lcd_fill(x, y, w, 1, white);               /* top    */
-    lcd_fill(x, y + h - 1u, w, 1, white);      /* bottom */
-    lcd_fill(x, y, 1, h, white);               /* left   */
-    lcd_fill(x + w - 1u, y, 1, h, white);      /* right  */
-
-    lcd_fill(x + 2u, y + 2u, 16, 16, RGB565(0xFF, 0x00, 0x00));
-    lcd_fill(x + w - 18u, y + 2u, 16, 16, RGB565(0x00, 0xFF, 0x00));
-    lcd_fill(x + 2u, y + h - 18u, 16, 16, RGB565(0x00, 0x00, 0xFF));
-    lcd_fill(x + w - 18u, y + h - 18u, 16, 16, RGB565(0xFF, 0xFF, 0x00));
+void display_init(const uint8_t font[ORIC_CHARSET_BYTES]) {
+    memcpy(s_font, font, sizeof s_font);
+    memset(s_perf.text, ' ', sizeof s_perf.text);
+    memset(s_status.text, ' ', sizeof s_status.text);
+    s_shadow.valid = false;
 }
 
-void display_measure(uint32_t *fill_us, uint32_t *blit_us, uint32_t *row_us) {
-    const unsigned x = ORIC_SCREEN_X, y = ORIC_SCREEN_Y;
+void display_invalidate(void) {
+    s_shadow.valid = false;
+}
 
-    /* Two different rows, so the blit is seen to happen. */
-    for (unsigned i = 0; i < SCREEN_W; i++) {
-        s_line[0][i] = RGB565(i, 0x40, 0xFF - i);
-        s_line[1][i] = RGB565(0xFF - i, i, 0x40);
+void display_present(const oric_frame_t *f, display_stats_t *st) {
+    uint32_t t0 = time_us_32();
+    display_stats_t s = { .full = !s_shadow.valid };
+
+    ula_band_t bands[ORIC_BAND_COUNT];
+    ula_diff(&s_shadow, f, bands);
+
+    /* The shadow now holds this frame's cells, and is what the rows are
+     * generated from. */
+    unsigned cur = 0;
+    for (unsigned b = 0; b < ORIC_BAND_COUNT; b++) {
+        unsigned c0 = bands[b].c0, c1 = bands[b].c1;
+        if (c0 > c1) continue;
+        unsigned w = (c1 - c0 + 1u) * ORIC_GLYPH_W;
+        unsigned y0 = b * ORIC_BAND_LINES;
+        lcd_blit_begin(ORIC_SCREEN_X + c0 * ORIC_GLYPH_W, ORIC_SCREEN_Y + y0, w,
+                       ORIC_BAND_LINES);
+        for (unsigned y = y0; y < y0 + ORIC_BAND_LINES; y++) {
+            /* The buffer not on the wire: lcd_blit_row waits out the
+             * previous row's DMA before starting this one. */
+            cur ^= 1u;
+            ula_row(s_shadow.cell[y], c0, c1, ula_palette_rgb565, s_line[cur]);
+            lcd_blit_row(s_line[cur], w);
+        }
+        lcd_blit_end();
+        s.bands++;
+        s.pixels += w * ORIC_BAND_LINES;
     }
 
-    uint32_t t0 = time_us_32();
-    lcd_fill(x, y, SCREEN_W, SCREEN_H, RGB565(0x00, 0x00, 0x80));
-    *fill_us = time_us_32() - t0;
+    s.us = time_us_32() - t0;
+    if (st) *st = s;
+}
 
-    /* Rows as the presenter will send them: lcd_blit_row waits out the
-     * previous row's DMA before starting this one. */
-    t0 = time_us_32();
-    lcd_blit_begin(x, y, SCREEN_W, SCREEN_H);
-    for (unsigned r = 0; r < SCREEN_H; r++) lcd_blit_row(s_line[r & 1u], SCREEN_W);
+/* Pixel row r of a text line, the panel's width: the glyph's bits 5-0,
+ * bit 5 leftmost, as the Oric's sit (§7.6). */
+static void text_row(const text_line_t *l, unsigned r, uint16_t *px) {
+    for (unsigned x = 0; x < ORIC_TEXT_X; x++) *px++ = 0x0000;
+    for (unsigned c = 0; c < ORIC_TEXT_COLS; c++) {
+        uint8_t bits = s_font[(uint8_t)(l->text[c] & 0x7F) * ORIC_GLYPH_H + r];
+        for (unsigned b = 0; b < ORIC_GLYPH_W; b++)
+            *px++ = (bits & (0x20u >> b)) ? TEXT_INK : 0x0000;
+    }
+    for (unsigned x = ORIC_TEXT_X + ORIC_TEXT_COLS * ORIC_GLYPH_W; x < ORIC_PANEL_W; x++)
+        *px++ = 0x0000;
+}
+
+static void draw_line(text_line_t *l, const char *text) {
+    char line[ORIC_TEXT_COLS];
+    size_t n = strnlen(text, ORIC_TEXT_COLS);
+    memcpy(line, text, n);
+    memset(line + n, ' ', ORIC_TEXT_COLS - n);
+    if (memcmp(line, l->text, ORIC_TEXT_COLS) == 0) return;
+    memcpy(l->text, line, ORIC_TEXT_COLS);
+
+    unsigned cur = 0;
+    lcd_blit_begin(0, l->y, ORIC_PANEL_W, ORIC_GLYPH_H);
+    for (unsigned r = 0; r < ORIC_GLYPH_H; r++) {
+        cur ^= 1u;
+        text_row(l, r, s_line[cur]);
+        lcd_blit_row(s_line[cur], ORIC_PANEL_W);
+    }
     lcd_blit_end();
-    *blit_us = time_us_32() - t0;
+}
 
-    t0 = time_us_32();
-    lcd_blit_begin(x, y + SCREEN_H / 2u, SCREEN_W, 1);
-    lcd_blit_row(s_line[0], SCREEN_W);
-    lcd_blit_end();
-    *row_us = time_us_32() - t0;
+void display_perf(const char *text) {
+    draw_line(&s_perf, text);
+}
 
-    lcd_fill(x, y, SCREEN_W, SCREEN_H, 0x0000);
+void display_status(const char *text) {
+    draw_line(&s_status, text);
 }
