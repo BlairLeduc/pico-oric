@@ -31,8 +31,10 @@ listed, and each file was recognised by SHA-1 as its own image. A
 655 s run (`out/m6-soak.log`): 19,633 keyboard polls and **zero** I²C
 errors, through the key presses and the card swap. **Found:** Caps Lock
 sends `0xC1` as an event, which the map leaves unbound, as it does `` `
-``, which has no Oric key; and Alt then Space gave a release of Space with
-no press, the MCU having taken Alt+Space. `keymatrix` ignores a release
+``, which has no Oric key; and once, Alt pressed and released, then a release of
+Space with no press. The owner did not mean to chord them: a rolled
+Alt+Space, which the MCU consumes, would give this, but so would a lost
+press, and the cause is not established. `keymatrix` ignores a release
 for a key it does not hold, so neither needs a change; both are in
 hardware-notes §6.2. **Measured** (one run each unless given): an I²C
 register read 4.86 ms, the longest keyboard poll 9.75 ms (two FIFO

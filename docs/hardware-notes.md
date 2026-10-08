@@ -1038,10 +1038,13 @@ while the MCU also applies it to the letters it sends (a Plus 2 W,
 2026-10-08: after it, letters arrived as capitals with no Shift). A host
 that does not bind it must still accept it.
 
-A chord the MCU consumes (§6.3) can still send its key's **release**. In
-the same capture, Alt pressed and released, then a release of Space with no
-press of Space before it: the press went to the MCU as Alt+Space, the
-release did not. Ignore a release for a key that is not down.
+**A release can arrive with no press before it.** In the same capture,
+Alt pressed and released, then a release of Space with no press of Space
+before it. The operator did not mean to press Space with Alt held. One
+reading is a rolled press: Space went down a moment before Alt came up, the
+MCU took it as Alt+Space, which it consumes (§6.3), and the release came
+after Alt's. A press lost some other way would look the same. It was seen
+once and is not explained. Ignore a release for a key that is not down.
 
 ### 6.3 The keymap decides which chords exist
 
