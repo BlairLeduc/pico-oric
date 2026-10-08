@@ -43,7 +43,10 @@ in flash through veneers: `oric_reset`, and the VIA's `via6522_sync` and
 VIA's two will once M3 has I/O. Image sizes: 117,396 B text (64 KiB of it
 Dormann's image) and 85,196 B bss; `pico-oric` is unchanged at 22,764 and
 860. **Not checked:** the ROM's own mix (M3); core 1 sharing the cache;
-the VIA's cost apart from the CPU's; the `-DPICO_ORIC_UART=OFF` bench.
+the VIA's cost apart from the CPU's; the `-DPICO_ORIC_UART=OFF` bench on the
+board (it builds). CI green on both jobs for PR #2, where both bench tests
+ran and passed: the pinned counts hold under Ubuntu's gcc as well as Apple
+clang.
 
 **M1, review fixes** (Codex's review of PR #1, 2026-10-07). Three
 findings, all taken. (1) **Delayed IRQ poll**: CLI, SEI and PLP change I
