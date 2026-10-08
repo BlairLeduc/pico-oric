@@ -4,6 +4,67 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M3, the Oric on the host** (`src/core/ay8912.*`, `romset.*`, `sha1.*`,
+`oric.*`, `bus.*`; `test/host/guest.*`, `test_boot`, `test_ay8912`,
+`test_field`, `test_romset`, `test_test_rom`; `test/asm/oric_test_rom.s`;
+`tools/trace/`, `tools/trace-diff.py`), built 2026-10-08 on the
+workstation (macOS, Apple clang, Debug), with the owner's `basic10.rom`
+and `basic11b.rom` (§10.2's hashes). `sha1` copied from pico-ace; `romset`
+after pico-atom's, by SHA-1. The VIA wired as both ROMs drive it, read
+from their disassembly first: CA2 = BC1, CB2 = BDIR; AY port A's zero bits
+enable keyboard columns, PB0–PB2 pick the row, PB3 high is a key down. The
+AY as a register file behind its bus (no sound). `oric_power_on`,
+`oric_nmi`, `oric_key_set`, `oric_run_field` with the line and field
+lengths in `oric_config_t`. The harness types through each ROM's own key
+table (`#FF70`, `#FF78`). **Checked by executing the ROMs** (`test_boot`):
+both reach Ready on 16K and 48K with their banners and 15,102, 47,870,
+4,863 and 37,631 bytes free; `PRINT 2+2` typed into the matrix prints 4 on
+all four; T1 is free-running at latch 10,000 and the handler runs 99–100
+times a second; RND gives the same three values after every power-on; NMI
+warm-starts and keeps a program, RESET cold-starts; no undocumented opcode
+runs. The control, a 16K machine with nothing above `#3FFF`, stops both
+ROMs in their RAM test. §16 is updated with each of these.
+**The trace diff:** Oricutron at `002279f` (2026-01-23), built by
+`tools/trace/build-oricutron.sh` with a hook in its 6502 step and a
+headless driver. It first parted from us at T1's first interrupt, and that
+found two bugs in our core, both fixed: (1) the VIA was ticked through an
+instruction after it ran, so a write on its last cycle started T1 three
+cycles early. Now the 6502 records which cycle a page-`#03` access falls
+on, on the slow path only, and the VIA is brought up to it first. (2) The
+IRQ was polled with the VIA at the instruction's end; a 6502 decides at
+the end of the penultimate cycle, so the VIA now runs two cycles behind at
+boundaries (§5.3). It also found two errata in Oricutron, corrected by
+name in its build: `ORICUTRON_NO_I_DELAY` and `ORICUTRON_BRANCH_PAGE`
+(§13.4). After that, boot and `PRINT 2+2` agree line for line, cycles
+included, after the reset's S and P: 2,093,293, 2,169,408, 2,132,110 and
+2,144,512 instructions on 1.0 16K, 1.0 48K, 1.1 16K and 1.1 48K
+(`out/m3-trace.log`). **The test ROM**, assembled by CMake when ca65 is
+present, runs in CI: RAM size by aliasing, AY registers written and read
+back through the VIA, a full keyboard scan, text, font and hires bytes,
+100 T1 interrupts and PB7 edges a second, one NMI per press. **Planted
+bugs**, each in a clean rebuild (one first run gave false results because
+a source edited within the build's second was not recompiled):
+CA2/CB2 swapped fails `test_ay8912`, `test_boot` and `test_test_rom`;
+PB3 inverted fails the same three; no 16K mirror fails `test_boot` and
+`test_test_rom`; NMI never raised fails `test_boot` and `test_test_rom`;
+the field's debt dropped fails `test_field`, whose control (no debt)
+drifts as it should. **Measured:** power-on to Ready, to within 100
+cycles: 1,075,974 (1.0 16K), 2,846,747 (1.0 48K), 886,330 (1.1 16K),
+2,460,543 (1.1 48K). **Decided:** the VIA stays ticked per instruction, as
+M2 measured it, with the catch-up above, rather than slicing at its next
+event (M1's open question). **Not checked:** the schematic, for the
+mirror, the VIA's decode and the reset lines (the ROMs reach the VIA only
+at `#0300–#030F`); the run loop's added subtraction on the board (the
+bench's host counts are unchanged; M7 measures the whole machine); a taken
+branch that does not cross a page polls IRQ a cycle early on a 6502, which
+neither emulator models and no trace has shown; `ORICUTRON_VIA_AHEAD`,
+which boot never exposes; real key timing and FUNCT (M5); anything
+visible (M4). ROM 1.0 takes a key on its first scan, so the harness holds
+SHIFT a field before the key; a SHIFT pressed in the same instant turned
+`(` into `9`. M5's replay must do the same. **CI** green for PR #3 on
+2026-10-08: ca65 assembled the test ROM and `test_test_rom` passed;
+`test_boot` reported skipped, CI having no ROMs.
+
 **M2, the 6502 on the board: the gate** (`src/bench/`,
 `src/port/bench_main.c`, `bench_dormann.S`; `test_bench`), 2026-10-07, on
 the Plus 2 W (id `7458DC82A89AAC12`, RP2350B rev 2) at 150 MHz, SDK 2.3.1,

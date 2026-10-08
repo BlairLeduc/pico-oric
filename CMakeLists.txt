@@ -12,9 +12,12 @@ option(PICO_ORIC_HOST "Build the portable core and its host tests, with no Pico 
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_ORIC_CORE_SOURCES
+    src/core/ay8912.c
     src/core/bus.c
     src/core/m6502.c
     src/core/oric.c
+    src/core/romset.c
+    src/core/sha1.c
     src/core/via6522.c
 )
 
@@ -50,6 +53,12 @@ if (PICO_ORIC_HOST)
 
     pico_oric_core_library()
     pico_oric_bench_library()
+
+    # Our half of the trace diff against Oricutron (design.md §13.4).
+    add_executable(oric-trace tools/trace/oric-trace.c)
+    target_link_libraries(oric-trace PRIVATE pico_oric_core)
+    target_include_directories(oric-trace PRIVATE tools/trace)
+    target_compile_options(oric-trace PRIVATE ${PICO_ORIC_WARNINGS})
 
     enable_testing()
     add_subdirectory(test/host)

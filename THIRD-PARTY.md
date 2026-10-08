@@ -32,3 +32,12 @@ Dormann's, published under the GPL-3.0.
 of the 6502's decimal mode (<http://www.6502.org/tutorials/decimal_mode.html>),
 which he placed in the **public domain**, as translated to ca65 from Klaus
 Dormann's copy. Its header records the changes.
+
+## Oricutron, the trace diff's reference
+
+Not in the tree, and in no image. `tools/trace/build-oricutron.sh` copies a
+checkout of <https://github.com/pete-gordon/oricutron> (Peter Gordon and
+contributors, GPL-2.0) into the gitignored `out/`, patches that copy, and
+builds `oricutron-trace` there from it and `tools/trace/oricutron-trace.c`,
+for use on the workstation only (`docs/design.md` §13.4). The driver and the
+script are this project's own.

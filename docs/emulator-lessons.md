@@ -490,6 +490,24 @@ made device after device free:
 When a device's internal counters lag between events, give it an explicit
 `sync()` and call it before anything outside the device reads them.
 
+**Tick a timer to the access, not to the instruction's end.** An
+instruction-stepped CPU that ticks its devices after each instruction
+hands a timer the whole instruction's cycles after a write that happened
+on the last of them. The Oric's VIA started T1 three cycles early that
+way, and a trace diff found it at the first interrupt. The CPU knows which
+cycle of the instruction an operand access falls on (the last, for loads
+and stores; the last but two and the last but one for a read-modify-write's
+read and first write). So record it on the slow path only, bring the timer
+up to it before the access, and tick the rest afterwards. RAM pays
+nothing.
+
+**Poll IRQ where the CPU does.** A 6502 decides whether to take an
+interrupt at the end of an instruction's penultimate cycle, so an IRQ that
+arrives in the last cycle waits for the next instruction. CLI, SEI and PLP
+keep the old I for that one poll. A timer ticked a cycle or two behind the
+CPU at instruction boundaries models the first rule for the price of
+nothing: the Oric's VIA runs two behind.
+
 **Make the cycle count the only clock.** Every device times itself in guest
 cycles, never in wall time. Then turbo is free (§9.3), pause is free, a
 snapshot captures time exactly, and a host-side stall (card I/O) is invisible.
@@ -852,7 +870,11 @@ fields. Its replay holds each key 4 fields and leaves 2 up, one more of each
 than the ROM needs, for a scan the guest delays: about 8 keys a second. A
 test typing at 2 held and 0 up, which loses keys, is the control.
 **Modifier releases wait the same minimum**, so a Shift tapped within one
-poll still reaches a game that reads SHIFT alone.
+poll still reaches a game that reads SHIFT alone. **Modifier presses go a
+field ahead of their key.** A scan that walks the matrix column by column
+can pass the modifier's column before both arrive and then find the key
+alone. The Oric's 1.0 ROM takes a key on the first scan that sees it, so a
+Shift and a `9` pressed in the same instant typed `9`, not `(`.
 
 ### 7.2 The mapping table
 
@@ -1336,7 +1358,9 @@ Ace's did at three times, defer 300 MHz entirely and build for one clock.
   alongside and require the test to tell them apart.
 - **Plant bugs to prove each test bites**, one at a time in a scratch copy,
   and record which failed. A plant that passes is either a gap in the test
-  or a change nothing can see (§8.2).
+  or a change nothing can see (§8.2). Rebuild clean for each one: a source
+  rewritten by a script within the same second as the last build may not
+  be recompiled, and a planted run then reports the previous plant.
 - Keep hardware-independent logic (dirty tracking, the snapshot pool's state
   machine, status-line formatting, settings rewriting, parsers) in the core,
   where the host tests reach it.
@@ -1400,6 +1424,13 @@ it finds problems no unit test is shaped to catch.
   the acknowledge's 13 T that xAce does not count, and corrects its timing
   errata. The traces then agree line for line, and every difference left is
   in a named class.
+- **Correct, in the reference's copy, an erratum that parts the traces for
+  good**, by name, and leave the rest of the reference alone. The Oric's
+  reference applies SEI's I at once, so an interrupt that falls just after
+  SEI moves to the next CLI. The main line then runs a different path
+  through the critical section SEI guards, and no resync recovers. Two
+  such patches let the Oric's traces agree line for line through boot and
+  typing.
 - **The reference has bugs.** The Atom's found six cycle-count errors in its
   reference and none in our core; the Ace's found xAce timing `LD r,n` at 4 T
   instead of 7 and `RES`/`SET b,(HL)` at 12 instead of 15, setting N in

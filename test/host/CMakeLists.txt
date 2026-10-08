@@ -2,7 +2,9 @@
 # system compiler and no Pico SDK. One binary per area; exit 77 is a skip.
 
 set(PICO_ORIC_HOST_TESTS
+    test_ay8912
     test_bus
+    test_field
     test_m6502_behaviour
     test_m6502_cycles
     test_m6502_decimal
@@ -42,3 +44,49 @@ add_test(NAME test_bench_basic COMMAND test_bench)
 add_test(NAME test_bench_dormann COMMAND test_bench
     ${CMAKE_SOURCE_DIR}/test/suites/6502_functional_test.bin)
 set_tests_properties(test_bench_basic test_bench_dormann PROPERTIES SKIP_RETURN_CODE 77)
+
+# The harness for the tests that run the real ROMs (§13.3). It finds them
+# by SHA-1 in PICO_ORIC_ROMS, else the repository's gitignored roms/.
+add_library(pico_oric_guest STATIC guest.c)
+target_link_libraries(pico_oric_guest PUBLIC pico_oric_core)
+target_include_directories(pico_oric_guest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(pico_oric_guest PRIVATE ${PICO_ORIC_WARNINGS})
+target_compile_definitions(pico_oric_guest PRIVATE
+    PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
+
+foreach(t test_boot test_romset)
+    add_executable(${t} ${t}.c)
+    target_link_libraries(${t} PRIVATE pico_oric_guest)
+    target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
+    target_compile_definitions(${t} PRIVATE PICO_ORIC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    add_test(NAME ${t} COMMAND ${t})
+    set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77)
+endforeach()
+
+# Our own test ROM (§13.3), assembled when cc65 is on the path, as CI
+# installs it. Without it test_test_rom reports skipped.
+find_program(PICO_ORIC_CA65 ca65)
+find_program(PICO_ORIC_LD65 ld65)
+set(PICO_ORIC_TEST_ROM ${CMAKE_CURRENT_BINARY_DIR}/oric_test_rom.bin)
+if (PICO_ORIC_CA65 AND PICO_ORIC_LD65)
+    set(asm ${CMAKE_SOURCE_DIR}/test/asm)
+    add_custom_command(
+        OUTPUT ${PICO_ORIC_TEST_ROM}
+        COMMAND ${PICO_ORIC_CA65} -o ${CMAKE_CURRENT_BINARY_DIR}/oric_test_rom.o ${asm}/oric_test_rom.s
+        COMMAND ${PICO_ORIC_LD65} -C ${asm}/oric_test_rom.cfg -o ${PICO_ORIC_TEST_ROM}
+                ${CMAKE_CURRENT_BINARY_DIR}/oric_test_rom.o
+        DEPENDS ${asm}/oric_test_rom.s ${asm}/oric_test_rom.cfg
+        COMMENT "ca65: oric_test_rom.bin"
+        VERBATIM)
+    add_custom_target(pico_oric_test_rom ALL DEPENDS ${PICO_ORIC_TEST_ROM})
+else()
+    message(STATUS "pico-oric: ca65/ld65 not found; test_test_rom will skip")
+endif()
+
+add_executable(test_test_rom test_test_rom.c)
+target_link_libraries(test_test_rom PRIVATE pico_oric_core)
+target_include_directories(test_test_rom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_test_rom PRIVATE ${PICO_ORIC_WARNINGS})
+target_compile_definitions(test_test_rom PRIVATE PICO_ORIC_TEST_ROM="${PICO_ORIC_TEST_ROM}")
+add_test(NAME test_test_rom COMMAND test_test_rom)
+set_tests_properties(test_test_rom PROPERTIES SKIP_RETURN_CODE 77)

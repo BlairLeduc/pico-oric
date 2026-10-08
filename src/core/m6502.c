@@ -269,6 +269,17 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
     uint16_t base;
     uint8_t  v;
 
+/* Operand accesses fall on the instruction's last cycle, which `cyc`
+ * counts by then (an indexed read's page-crossing cycle comes first);
+ * a read-modify-write reads two cycles before its last and writes the
+ * old value one before. The VIA is brought up to that cycle (§5.3). */
+#undef RD
+#undef WR
+#define RD(a)          bus_read_at(m, (uint16_t)(a), cyc)
+#define WR(a, v)       bus_write_at(m, (uint16_t)(a), (uint8_t)(v), cyc)
+#define RD_RMW(a)      bus_read_at(m, (uint16_t)(a), cyc - 2u)
+#define WR_RMW(a, v)   bus_write_at(m, (uint16_t)(a), (uint8_t)(v), cyc - 1u)
+
 /* Addressing modes. The _r forms charge the page-crossing cycle; the _w
  * and RMW forms do not, because their base count already includes it. */
 #define A_IMM()   (ea = c->pc++)
@@ -289,7 +300,7 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
 
 /* Read-modify-write writes the unmodified value back before the result —
  * the NMOS double write, which some hardware depends on (§5.1). */
-#define RMW(fn) do { v = RD(ea); WR(ea, v); WR(ea, fn(c, v)); } while (0)
+#define RMW(fn) do { v = RD_RMW(ea); WR_RMW(ea, v); WR(ea, fn(c, v)); } while (0)
 
 #define BRANCH(cond) do {                                                 \
         int8_t off = (int8_t)fetch8(m, c);                                \
@@ -430,15 +441,15 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
     case 0xCC: A_ABS(); op_cmp(c, c->y, RD(ea)); break;
 
     /* ---- increment / decrement --------------------------------------- */
-    case 0xE6: A_ZP();     v = RD(ea); WR(ea, v); v++; WR(ea, v); set_nz(c, v); break;
-    case 0xF6: A_ZPX();    v = RD(ea); WR(ea, v); v++; WR(ea, v); set_nz(c, v); break;
-    case 0xEE: A_ABS();    v = RD(ea); WR(ea, v); v++; WR(ea, v); set_nz(c, v); break;
-    case 0xFE: A_ABSX_W(); v = RD(ea); WR(ea, v); v++; WR(ea, v); set_nz(c, v); break;
+    case 0xE6: A_ZP();     v = RD_RMW(ea); WR_RMW(ea, v); v++; WR(ea, v); set_nz(c, v); break;
+    case 0xF6: A_ZPX();    v = RD_RMW(ea); WR_RMW(ea, v); v++; WR(ea, v); set_nz(c, v); break;
+    case 0xEE: A_ABS();    v = RD_RMW(ea); WR_RMW(ea, v); v++; WR(ea, v); set_nz(c, v); break;
+    case 0xFE: A_ABSX_W(); v = RD_RMW(ea); WR_RMW(ea, v); v++; WR(ea, v); set_nz(c, v); break;
 
-    case 0xC6: A_ZP();     v = RD(ea); WR(ea, v); v--; WR(ea, v); set_nz(c, v); break;
-    case 0xD6: A_ZPX();    v = RD(ea); WR(ea, v); v--; WR(ea, v); set_nz(c, v); break;
-    case 0xCE: A_ABS();    v = RD(ea); WR(ea, v); v--; WR(ea, v); set_nz(c, v); break;
-    case 0xDE: A_ABSX_W(); v = RD(ea); WR(ea, v); v--; WR(ea, v); set_nz(c, v); break;
+    case 0xC6: A_ZP();     v = RD_RMW(ea); WR_RMW(ea, v); v--; WR(ea, v); set_nz(c, v); break;
+    case 0xD6: A_ZPX();    v = RD_RMW(ea); WR_RMW(ea, v); v--; WR(ea, v); set_nz(c, v); break;
+    case 0xCE: A_ABS();    v = RD_RMW(ea); WR_RMW(ea, v); v--; WR(ea, v); set_nz(c, v); break;
+    case 0xDE: A_ABSX_W(); v = RD_RMW(ea); WR_RMW(ea, v); v--; WR(ea, v); set_nz(c, v); break;
 
     case 0xE8: c->x++; set_nz(c, c->x); break;  /* INX */
     case 0xC8: c->y++; set_nz(c, c->y); break;  /* INY */
@@ -560,6 +571,12 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
 #undef A_INDY_W
 #undef RMW
 #undef BRANCH
+#undef RD_RMW
+#undef WR_RMW
+#undef RD
+#undef WR
+#define RD(a)    bus_read(m, (uint16_t)(a))
+#define WR(a, v) bus_write(m, (uint16_t)(a), (uint8_t)(v))
 
     c->cycles += cyc;
     return cyc;
