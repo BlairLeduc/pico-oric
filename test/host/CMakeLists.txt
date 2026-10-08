@@ -2,6 +2,7 @@
 # system compiler and no Pico SDK. One binary per area; exit 77 is a skip.
 
 set(PICO_ORIC_HOST_TESTS
+    test_bus
     test_m6502_behaviour
     test_m6502_cycles
     test_m6502_decimal

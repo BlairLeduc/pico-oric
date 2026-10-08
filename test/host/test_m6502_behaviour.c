@@ -112,6 +112,66 @@ int main(void) {
         CHECK(m->cpu.irq_lines == M6502_IRQ_DISC, "IRQ sources should compose as a mask");
     }
 
+    /* CLI, SEI and PLP change I after the IRQ poll for the next
+     * instruction, so that poll sees the old I (MOS hardware manual,
+     * interrupt timing; 64doc). RTI's I takes effect at once. */
+    {
+        /* CLI with IRQ held: the next instruction runs first. */
+        oric_t *m = bare_machine();
+        m->ram[0xFFFE] = 0x00; m->ram[0xFFFF] = 0x50;
+        m->ram[0x1000] = 0x58; m->ram[0x1001] = 0xEA; m->ram[0x1002] = 0xEA;
+        m6502_set_irq(&m->cpu, M6502_IRQ_VIA, true);
+        m6502_step(m);                                  /* CLI */
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x1002, "CLI: the NOP after it should run first, got #%04X",
+              m->cpu.pc);
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x5000, "CLI: then the IRQ, got #%04X", m->cpu.pc);
+    }
+    {
+        /* An IRQ that arrives during SEI, with I clear before it: polled
+         * with the old I, so it is taken after SEI and stacks P with I
+         * set. (One asserted before SEI is taken before it.) */
+        oric_t *m = bare_machine();
+        m->cpu.p = M6502_U;
+        m->ram[0xFFFE] = 0x00; m->ram[0xFFFF] = 0x50;
+        m->ram[0x1000] = 0x78; m->ram[0x1001] = 0xEA;
+        m6502_step(m);                                  /* SEI */
+        m6502_set_irq(&m->cpu, M6502_IRQ_VIA, true);    /* raised during it */
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x5000, "SEI: the IRQ polled before it should be taken, got #%04X",
+              m->cpu.pc);
+        CHECK(m->ram[0x01FD] & M6502_I, "SEI: the stacked P has I set");
+    }
+    {
+        /* PLP clearing I: one instruction before the IRQ, as CLI. */
+        oric_t *m = bare_machine();
+        m->ram[0xFFFE] = 0x00; m->ram[0xFFFF] = 0x50;
+        m->ram[0x1000] = 0x28; m->ram[0x1001] = 0xEA; m->ram[0x1002] = 0xEA;
+        m->ram[0x01FF] = M6502_U;                       /* P to pull: I clear */
+        m->cpu.s = 0xFE;
+        m6502_set_irq(&m->cpu, M6502_IRQ_VIA, true);
+        m6502_step(m);                                  /* PLP */
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x1002, "PLP: the NOP after it should run first, got #%04X",
+              m->cpu.pc);
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x5000, "PLP: then the IRQ, got #%04X", m->cpu.pc);
+    }
+    {
+        /* RTI restoring I clear: the IRQ comes straight after it. */
+        oric_t *m = bare_machine();
+        m->ram[0xFFFE] = 0x00; m->ram[0xFFFF] = 0x50;
+        m->ram[0x1000] = 0x40;
+        m->ram[0x01FD] = M6502_U; m->ram[0x01FE] = 0x00; m->ram[0x01FF] = 0x20;
+        m->cpu.s = 0xFC;
+        m6502_set_irq(&m->cpu, M6502_IRQ_VIA, true);
+        m6502_step(m);                                  /* RTI to #2000 */
+        m6502_step(m);
+        CHECK(m->cpu.pc == 0x5000, "RTI: the IRQ should follow at once, got #%04X",
+              m->cpu.pc);
+    }
+
     /* NMI is edge-triggered and latched: a held-high line fires once. */
     {
         oric_t *m = bare_machine();

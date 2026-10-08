@@ -78,11 +78,12 @@ void oric_reset(oric_t *m) {
     m6502_reset(&m->cpu, m);
 }
 
-/* Move one page pointer from src's struct to dst's, whichever of its
- * arrays it points into. */
-static uint8_t *rebase(oric_t *dst, const oric_t *src, uint8_t *p) {
+/* Move one page pointer from src's struct to dst's. Only oric_load_rom
+ * points a page into rom[], and it flags the page PAGE_ROM, so the flag
+ * says which array without comparing pointers into different arrays. */
+static uint8_t *rebase(oric_t *dst, const oric_t *src, unsigned page, const uint8_t *p) {
     if (!p) return NULL;
-    if (p >= src->rom && p < src->rom + ORIC_ROM_SIZE) return dst->rom + (p - src->rom);
+    if (src->page_flags[page] & PAGE_ROM) return dst->rom + (p - src->rom);
     return dst->ram + (p - src->ram);
 }
 
@@ -90,8 +91,8 @@ void oric_copy(oric_t *dst, const oric_t *src) {
     if (dst == src) return;
     memcpy(dst, src, sizeof(*dst));
     for (unsigned p = 0; p < ORIC_PAGE_COUNT; p++) {
-        dst->page[p].read  = rebase(dst, src, src->page[p].read);
-        dst->page[p].write = rebase(dst, src, src->page[p].write);
+        dst->page[p].read  = rebase(dst, src, p, src->page[p].read);
+        dst->page[p].write = rebase(dst, src, p, src->page[p].write);
     }
 }
 

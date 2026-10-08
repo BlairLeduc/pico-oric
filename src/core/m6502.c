@@ -55,6 +55,8 @@ void m6502_init(m6502_t *c) {
     c->nmi_pending = false;
     c->nmi_line = false;
     c->reset_pending = false;
+    c->i_old = 0;
+    c->i_old_at = UINT64_MAX;
     c->undoc_count = 0;
     c->undoc_pc = 0;
     c->undoc_op = 0;
@@ -227,10 +229,19 @@ void m6502_reset(m6502_t *c, oric_t *m) {
     c->pc = (uint16_t)(lo | (hi << 8));
     c->nmi_pending = false;
     c->reset_pending = false;
+    c->i_old_at = UINT64_MAX;
     c->cycles += 7u;
 }
 
 /* ---- the interpreter ------------------------------------------------- */
+
+/* The I flag the IRQ poll sees: the one from before a CLI, SEI or PLP
+ * for the instruction after it, else the current one (m6502.h). Only
+ * asked while an IRQ is asserted, so it costs nothing otherwise. */
+static inline bool irq_masked(const m6502_t *c) {
+    uint8_t p = (c->cycles == c->i_old_at) ? c->i_old : c->p;
+    return (p & M6502_I) != 0;
+}
 
 uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
     m6502_t *c = &m->cpu;
@@ -246,7 +257,7 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
         c->cycles += n;
         return n;
     }
-    if (__builtin_expect(c->irq_lines != 0 && !(c->p & M6502_I), 0)) {
+    if (__builtin_expect(c->irq_lines != 0, 0) && !irq_masked(c)) {
         uint32_t n = enter_interrupt(m, c, M6502_VEC_IRQ, false);
         c->cycles += n;
         return n;
@@ -341,7 +352,9 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
     case 0x48: push8(m, c, c->a); break;                              /* PHA */
     case 0x08: push8(m, c, (uint8_t)(c->p | M6502_B | M6502_U)); break; /* PHP */
     case 0x68: c->a = pull8(m, c); set_nz(c, c->a); break;            /* PLA */
-    case 0x28: c->p = (uint8_t)((pull8(m, c) & ~M6502_B) | M6502_U); break; /* PLP */
+    case 0x28: c->i_old = c->p;                                             /* PLP */
+               c->p = (uint8_t)((pull8(m, c) & ~M6502_B) | M6502_U);
+               c->i_old_at = c->cycles + cyc; break;
 
     /* ---- logic ------------------------------------------------------- */
     case 0x29: A_IMM();    c->a &= RD(ea); set_nz(c, c->a); break;
@@ -512,8 +525,10 @@ uint32_t ORIC_HOT2(m6502_step)(oric_t *m) {
     /* ---- flags ------------------------------------------------------- */
     case 0x18: c->p = (uint8_t)(c->p & ~M6502_C); break;  /* CLC */
     case 0x38: c->p |= M6502_C; break;                    /* SEC */
-    case 0x58: c->p = (uint8_t)(c->p & ~M6502_I); break;  /* CLI */
-    case 0x78: c->p |= M6502_I; break;                    /* SEI */
+    case 0x58: c->i_old = c->p; c->i_old_at = c->cycles + cyc;          /* CLI */
+               c->p = (uint8_t)(c->p & ~M6502_I); break;
+    case 0x78: c->i_old = c->p; c->i_old_at = c->cycles + cyc;          /* SEI */
+               c->p |= M6502_I; break;
     case 0xB8: c->p = (uint8_t)(c->p & ~M6502_V); break;  /* CLV */
     case 0xD8: c->p = (uint8_t)(c->p & ~M6502_D); break;  /* CLD */
     case 0xF8: c->p |= M6502_D; break;                    /* SED */

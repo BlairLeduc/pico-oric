@@ -96,6 +96,8 @@ else()
     # How much of the core's hot path runs from SRAM (src/core/hot.h).
     # Nothing is measured yet, so nothing moves (design.md §3.2, M2).
     set(PICO_ORIC_RAM_TIER 0 CACHE STRING "Hot-code SRAM tier, 0-2 (src/core/hot.h)")
+    # The core library needs it too: that is where the marked functions are.
+    target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_RAM_TIER=${PICO_ORIC_RAM_TIER})
 
     # clk_peri does not follow clk_sys by default; the SPI baud and the
     # audio carrier are re-applied in code as well (hardware-notes.md §3).

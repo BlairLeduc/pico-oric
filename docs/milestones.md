@@ -4,6 +4,25 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M1, review fixes** (Codex's review of PR #1, 2026-10-07). Three
+findings, all taken. (1) **Delayed IRQ poll**: CLI, SEI and PLP change I
+after the 6502 has polled IRQ for the next instruction, so that poll sees
+the old I; RTI's takes effect at once. pico-atom tests I directly and so
+takes an IRQ one instruction early after CLI or PLP, and misses one that
+arrives during SEI. The CPU now keeps the old I for one instruction
+(`i_old`, `i_old_at`), asked only while an IRQ is asserted.
+`test_m6502_behaviour` gained a case for each of the four, which failed
+before the change (all but RTI's) and pass after it; Dormann and Clark
+still pass. pico-atom has the same gap, not fixed there (read the
+siblings, never edit them). M11's snapshot must carry the two fields. (2)
+**`PICO_ORIC_RAM_TIER` reached only the executable**, not the core
+library where the marked functions are, so a tier did nothing; a tier-2
+build now shows `time_critical.oric_m6502_step` and the rest in the core.
+(3) **`oric_copy`** chose ROM or RAM by comparing pointers into different
+arrays; it now uses the page's `PAGE_ROM` flag. The new `test_bus` checks
+that every page of a copy points into the copy, with a plain struct copy
+as the control (446 stray pointers).
+
 **M1, the 6502 and the VIA on the host** (`src/core/m6502.*`,
 `via6522.*`, `oric.*`, `bus.*`; `tools/fetch-test-suites.sh`;
 `test/asm/6502_decimal_test.s`), built 2026-10-07 on the workstation

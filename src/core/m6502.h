@@ -46,6 +46,14 @@ typedef struct {
     bool     nmi_line;       /* last level seen, for edge detection         */
     bool     reset_pending;  /* the RESET line (§6.3, §12)                 */
 
+    /* CLI, SEI and PLP change I after the 6502 has polled IRQ for the
+     * next instruction, so that one poll sees the I from before them
+     * (§5.1). `i_old` is it, and it applies while `cycles` still equals
+     * `i_old_at`, which is to say until the next instruction has run.
+     * RTI's I takes effect at once. */
+    uint8_t  i_old;
+    uint64_t i_old_at;
+
     /* Undocumented opcodes: trapped and counted (§5.1). */
     uint32_t undoc_count;
     uint16_t undoc_pc;       /* PC of the most recent trapped opcode        */
