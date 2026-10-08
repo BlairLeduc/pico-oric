@@ -4,6 +4,47 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M2, the 6502 on the board: the gate** (`src/bench/`,
+`src/port/bench_main.c`, `bench_dormann.S`; `test_bench`), 2026-10-07, on
+the Plus 2 W (id `7458DC82A89AAC12`, RP2350B rev 2) at 150 MHz, SDK 2.3.1,
+gcc 15.2 `-O3`. pico-ace's bench shape: `oric_t` with every page plain
+RAM, run by the real `oric_run` (the VIA ticked per instruction) in
+20,000-cycle slices with the overshoot carried as debt, for 10,000,000
+cycles a run. Two workloads. **basic** is MS BASIC's CHRGET at `#E2`, with
+TXTPTR at `#E9`, walking a line of three sums, and an FADD on unpacked
+accumulators (zero, swap, bitwise alignment, 32-bit add, renormalise), put
+together by a small assembler in `bench.c`. **dormann** is the first 10 M
+cycles of Dormann's test, embedded when fetched. **Checked on the host:**
+basic's three sums come out as the packed floats 45, 45 and 65 on each of
+three passes, with S back at `#FF`. A planted bug, the renormalising shift
+without the exponent increment, fails it (`84 3C…` for 45). Dormann is in
+test `#29` at the slice's end, not trapped. Neither workload runs an
+undocumented opcode. One run counts 10,000,001 cycles and 3,076,774
+instructions (basic), and 10,000,002 and 3,196,835 (dormann), and `bench.h`
+records those. **On the board** the same counts came back on every pass of
+every image. Each image ran 7–9 passes, spread under 0.02 %
+(`out/m2-bench-t{0,1,2}.log`), in host cycles per guest instruction:
+
+| SRAM tier | basic | dormann | core 0 at 1 MHz |
+|---|---|---|---|
+| 0, flash | 142.3 | 140.9 | 29.2 %, 30.0 % |
+| 1, callees (1,818 B) | 154.7 | 147.6 | 31.7 %, 31.5 % |
+| 2, + interpreter (24,084 B) | 144.7 | 138.8 | 29.7 %, 29.6 % |
+
+Mean cycles per instruction were 3.250 and 3.128. **Gate decision: 150 MHz
+is enough**, at a projected ~30–35 % of core 0 for the whole machine
+(design.md §3.2). **The tier is not decided:** tier 1 is a loss here,
+because the flash interpreter reaches its SRAM callees through veneers, and
+tier 2 is level with flash. The bench has the XIP cache to itself, which is
+what HW §9.8 says hides placement, so the default stays at tier 0 until M7
+and M12 measure the whole machine. Tier 2's image calls three cold functions
+in flash through veneers: `oric_reset`, and the VIA's `via6522_sync` and
+`due`, both reached from a VIA register read. None runs in the bench; the
+VIA's two will once M3 has I/O. Image sizes: 117,396 B text (64 KiB of it
+Dormann's image) and 85,196 B bss; `pico-oric` is unchanged at 22,764 and
+860. **Not checked:** the ROM's own mix (M3); core 1 sharing the cache;
+the VIA's cost apart from the CPU's; the `-DPICO_ORIC_UART=OFF` bench.
+
 **M1, review fixes** (Codex's review of PR #1, 2026-10-07). Three
 findings, all taken. (1) **Delayed IRQ poll**: CLI, SEI and PLP change I
 after the 6502 has polled IRQ for the next instruction, so that poll sees
