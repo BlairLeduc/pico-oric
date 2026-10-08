@@ -275,14 +275,17 @@ bool bench_dormann_load(bench_t *b, const uint8_t *image, size_t len) {
 /* ---- Running ----------------------------------------------------------- */
 
 /* Each slice's overshoot is carried as debt into the next, as the
- * machine's loop does (oric.h), so a run ends within one instruction of
- * its length. */
+ * machine's loop does (oric.h), and the last slice asks only for what is
+ * left, so a run ends within one instruction of its length. */
 uint64_t bench_run(bench_t *b, uint64_t cycles) {
     uint64_t done = 0;
     uint32_t debt = 0;
     while (done < cycles) {
-        uint32_t ran = oric_run(&b->m, BENCH_SLICE_CYCLES - debt);
-        debt = ran - (BENCH_SLICE_CYCLES - debt);
+        uint32_t want = BENCH_SLICE_CYCLES - debt;
+        if (want > cycles - done)
+            want = (uint32_t)(cycles - done);
+        uint32_t ran = oric_run(&b->m, want);
+        debt = ran - want;
         done += ran;
     }
     return done;

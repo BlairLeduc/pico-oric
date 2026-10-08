@@ -58,6 +58,16 @@ static int basic(void) {
     printf("basic: one pass of the line is %llu cycles, %.2f ms of a 1 MHz Oric\n",
            (unsigned long long)c_pass, c_pass / 1000.0);
 
+    /* A run whose length is not a whole number of slices still ends
+     * within one instruction (7 cycles at most) of it. */
+    static const uint32_t lengths[] = { 1, 7, 19999, 20001, 25000, 45678 };
+    for (unsigned i = 0; i < sizeof lengths / sizeof lengths[0]; i++) {
+        bench_basic_load(&b);
+        uint64_t r = bench_run(&b, lengths[i]);
+        CHECK(r >= lengths[i] && r < lengths[i] + 7, "asked %u cycles, ran %llu",
+              lengths[i], (unsigned long long)r);
+    }
+
     /* The timed run, as the board does it. */
     bench_basic_load(&b);
     uint64_t c = bench_run(&b, BENCH_RUN_CYCLES);

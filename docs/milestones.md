@@ -47,6 +47,12 @@ the VIA's cost apart from the CPU's; the `-DPICO_ORIC_UART=OFF` bench on the
 board (it builds). CI green on both jobs for PR #2, where both bench tests
 ran and passed: the pinned counts hold under Ubuntu's gcc as well as Apple
 clang.
+**Review fix** (Codex's review of PR #2): `bench_run` asked every slice for
+a near-full 20,000 cycles, so a length that is not a whole number of
+slices overshot by up to a slice (25,000 ran 40,001). The last slice now
+asks only for what is left; `test_bench` checks six such lengths, which
+failed before the change. The 10 M-cycle runs, a whole number of slices,
+count the same, so the board's figures stand.
 
 **M1, review fixes** (Codex's review of PR #1, 2026-10-07). Three
 findings, all taken. (1) **Delayed IRQ poll**: CLI, SEI and PLP change I
