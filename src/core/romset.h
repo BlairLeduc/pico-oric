@@ -33,4 +33,8 @@ extern const rom_info_t romset_images[ROM_IMAGE_COUNT];
  * the right size with the wrong bytes. */
 rom_id_t romset_identify(const uint8_t *data, size_t len);
 
+/* The same, for an image hashed as it was read, a piece at a time, as
+ * the card's files are (design.md §10.2): its length and its digest. */
+rom_id_t romset_identify_digest(const uint8_t digest[SHA1_DIGEST_LEN], size_t len);
+
 #endif /* PICO_ORIC_ROMSET_H */

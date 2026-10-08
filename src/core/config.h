@@ -41,6 +41,7 @@
 #define ORIC_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
 #define ORIC_KEY_HELD_MAX       8u  /* keys down at once                   */
 #define ORIC_KEY_TEXT_EVENTS    4u  /* one ASCII byte: a modifier around a key */
+#define ORIC_KEY_RING          ORIC_KEY_EVENT_QUEUE  /* core 1 to core 0 */
 
 /* Both ROMs scan every third T1 interrupt, 30 ms, take a key on the
  * first scan that sees it, and see a key typed twice only after a scan
@@ -80,6 +81,28 @@
 
 /* The frame pool: three buffers, so core 0 never waits (§4.4). */
 #define ORIC_SNAPSHOT_COUNT     3u
+
+/* ---- The panel (design.md §7.5; hardware-notes.md §4) ---------------- */
+
+#define ORIC_PANEL_W          320u
+#define ORIC_PANEL_H          320u
+#define ORIC_SCREEN_X          40u  /* the guest 1:1, centred across        */
+#define ORIC_SCREEN_Y          48u  /* with a 48-row band above and below    */
+#define ORIC_LINEBUF_COUNT      2u  /* DMA ping-pong (HW §4.6)              */
+#define ORIC_LINEBUF_PIXELS  ORIC_PANEL_W
+
+/* ---- Port buffers (design.md §3.3) ------------------------------------ */
+
+/* Core 0's log, drained by core 1 (EL §2.3): the ring, a power of two,
+ * and the longest line formatted onto core 0's stack. */
+#define ORIC_LOG_RING        2048u
+#define ORIC_LOG_LINE         512u
+
+/* ---- The card (design.md §10) ----------------------------------------- */
+
+#define ORIC_PATH_MAX         128u  /* a path on the card, with its NUL    */
+#define ORIC_ROM_DIR     "/oric/roms" /* §10.1                              */
+#define ORIC_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 

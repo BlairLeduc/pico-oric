@@ -1,0 +1,32 @@
+/* log.h — core 0's UART output, without blocking core 0 (design.md §4.3; EL §2.3).
+ *
+ * UART1 runs at 115200, about 11.5 bytes a millisecond, and a heartbeat
+ * is a few hundred bytes: printf from core 0 would stall the field loop
+ * for longer than the PCM queue's slack and cause the very underruns the
+ * heartbeat reports. So core 0 formats into a ring and core 1, which
+ * polls anyway, moves bytes into the UART FIFO as it has room.
+ */
+#ifndef PICO_ORIC_LOG_H
+#define PICO_ORIC_LOG_H
+
+#include <stdbool.h>
+
+/* A build without the UART (PICO_ORIC_UART=0, the one that ships) has
+ * nowhere to log: log_printf discards, and log_pump does nothing. */
+
+/* Core 0. Formats and queues; drops the line whole, and counts it, if
+ * the ring is full. Never waits. */
+void log_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+/* Core 1. Writes what fits in the UART FIFO now; never waits. */
+void log_pump(void);
+
+/* Core 1's own lines, printed directly, but never into the middle of a
+ * line of core 0's that log_pump has half sent: it waits for that line's
+ * end first. For rare events only (the card, a park), since the wait
+ * holds up core 1's loop. */
+void log_core1(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+unsigned log_dropped(void);
+
+#endif /* PICO_ORIC_LOG_H */
