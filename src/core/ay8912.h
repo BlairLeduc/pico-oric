@@ -43,6 +43,7 @@ typedef enum {
 typedef struct {
     uint8_t reg[AY_REG_COUNT];
     uint8_t addr;           /* the latched register number            */
+    bool    selected;       /* the last latch carried select code 0000 */
     uint8_t mode;           /* ay_bus_t, as last put on the pins      */
     bool    driving;        /* in a read: the chip drives the bus     */
     uint8_t bus_out;        /* what it drives while `driving`         */

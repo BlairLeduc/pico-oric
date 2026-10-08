@@ -74,7 +74,10 @@ fi
 # Its objects only: its own link fails without the hook's definition,
 # which is the driver's, and that is the one failure allowed.
 make -k -C "$build" PLATFORM="$platform" SDL_LIB=sdl2 -j8 >"$out/oricutron-make.log" 2>&1 || true
-if grep '\*\*\* \[' "$out/oricutron-make.log" | grep -v '\*\*\* \[oricutron\]' >&2; then
+# BSD make writes "*** [oricutron]"; GNU make 4 writes
+# "*** [Makefile:NNN: oricutron]".
+if grep '\*\*\* \[' "$out/oricutron-make.log" |
+        grep -Ev '\*\*\* \[([^]]*: )?oricutron\]' >&2; then
     echo "Oricutron did not build; see $out/oricutron-make.log" >&2
     exit 1
 fi

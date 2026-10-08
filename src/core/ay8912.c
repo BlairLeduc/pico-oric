@@ -20,6 +20,7 @@ void ay8912_reset(ay8912_t *ay) {
     /* RESET clears every register; the pins float high. */
     memset(ay, 0, sizeof(*ay));
     ay->port_a_in = 0xFFu;
+    ay->selected = true;    /* register 0, as RESET leaves the latch */
 }
 
 void ay8912_bus(ay8912_t *ay, ay_bus_t mode, uint8_t data) {
@@ -28,15 +29,19 @@ void ay8912_bus(ay8912_t *ay, ay_bus_t mode, uint8_t data) {
     switch (mode) {
     case AY_BUS_LATCH:
         /* The high nibble is the chip's select code, 0000 on the 8912:
-         * any other value deselects it and the latch keeps its value. */
-        if ((data & 0xF0u) == 0) ay->addr = data;
+         * any other value deselects it, and it ignores reads and writes
+         * until an address with the right code is latched. */
+        ay->selected = (data & 0xF0u) == 0;
+        if (ay->selected) ay->addr = data;
         break;
     case AY_BUS_WRITE:
+        if (!ay->selected) break;
         if (ay->reg[ay->addr] != (uint8_t)(data & reg_mask[ay->addr])) ay->writes++;
         ay->reg[ay->addr] = (uint8_t)(data & reg_mask[ay->addr]);
         /* M8: bring the generator up to now before the change. */
         break;
     case AY_BUS_READ:
+        if (!ay->selected) break;    /* the bus stays undriven */
         ay->driving = true;
         /* An input port reads its pins, not the register. The 8912 has
          * no port B pins; the register reads back. */

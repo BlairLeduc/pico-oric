@@ -63,10 +63,18 @@ int main(void) {
         ay8912_bus(&ay, AY_BUS_INACTIVE, 0);
         CHECK(!ay.driving, "inactive leaves the bus alone");
 
-        /* A select code other than 0000 in the high nibble deselects. */
+        /* A select code other than 0000 in the high nibble deselects
+         * the chip: writes and reads are ignored until a good latch. */
         ay8912_bus(&ay, AY_BUS_LATCH, 0x12);
         ay8912_bus(&ay, AY_BUS_WRITE, 0x55);
-        CHECK(ay.reg[2] == 0 && ay.addr == 1, "#12 is not register 2");
+        CHECK(ay.reg[2] == 0, "#12 is not register 2");
+        CHECK(ay.reg[1] == 0x0F, "a deselected chip took a write to register 1: %02X", ay.reg[1]);
+        ay8912_bus(&ay, AY_BUS_READ, 0);
+        CHECK(!ay.driving, "a deselected chip drove the bus");
+        ay8912_bus(&ay, AY_BUS_LATCH, 1);
+        ay8912_bus(&ay, AY_BUS_WRITE, 0x03);
+        CHECK(ay.reg[1] == 0x03, "a good latch selects it again");
+        ay8912_bus(&ay, AY_BUS_INACTIVE, 0);
 
         /* Port A: the register while the mixer says output, else the pins. */
         ay8912_bus(&ay, AY_BUS_LATCH, AY_PORT_A);
