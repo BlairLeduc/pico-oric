@@ -10,11 +10,13 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M2 are done** (`docs/design.md` §15): the skeleton, its
-banner checked on a Plus 2 W;
-pico-atom's 6502 and VIA passing their tests here, with Dormann's and
-Clark's suites; and the gate, the 6502 at ~30 % of core 0 on the board
-(§3.2: 150 MHz is enough; the SRAM tier is still open). The record of each milestone
+**Status: M0–M2 are done, and M3 is built** (`docs/design.md` §15): the
+skeleton, its banner checked on a Plus 2 W; pico-atom's 6502 and VIA
+passing their tests here, with Dormann's and Clark's suites; the gate, the
+6502 at ~30 % of core 0 on the board (§3.2: 150 MHz is enough; the SRAM
+tier is still open); and the Oric on the host, both ROMs booting on 16K
+and 48K, typed into, and agreeing with Oricutron line for line (§13.4). M3
+is done once CI has run the test ROM. The record of each milestone
 (what was verified, on which board, on what date, and what was not checked)
 is in `docs/milestones.md`. Add to it there.
 
@@ -90,6 +92,13 @@ tools/build.sh -DPICO_ORIC_RAM_TIER=2 build/bench-t2    # one directory per tier
 tools/uart-log.sh 30 out/run.log &   # capture UART1 first, so the banner is in it
 tools/flash.sh                       # reset halt + resume, never reset run (HW §2.7)
 tools/flash.sh build/bench-t2/pico-oric-bench.elf   # M2's bench; its counts must say "= host"
+
+# the trace diff against Oricutron (design.md §13.4), checkout in out/
+git clone https://github.com/pete-gordon/oricutron.git out/oricutron
+git -C out/oricutron checkout 002279fce9fa756d1d63cdc40ae97939eb7de7ed
+tools/trace/build-oricutron.sh out/oricutron     # corrects its errata, by name
+cmake --build build/host --target oric-trace
+tools/trace-diff.py run --rom 1.0 --ram 16 --keys 'PRINT 2+2\n'
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every
@@ -100,6 +109,10 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   README is in git). Host tests find `basic10.rom`, `basic11b.rom` and
   `microdis.rom` there by SHA-1 and **skip** without them; CI has none, and
   runs a test ROM of our own instead (design.md §13.3). A skip is not a pass.
+- **Our own test ROM** (`test/asm/oric_test_rom.s`) is assembled by CMake
+  when ca65 is on the path at configure time; it is what proves the wiring
+  in CI. `test/host/guest.c` types through the ROM's own key table, SHIFT
+  a field before its key (design.md §16).
 - **Test suites are fetched, not committed** (design.md §5.4). A missing
   suite makes its test exit 77, reported as skipped. **A skipped functional
   test is an unverified CPU.**
@@ -126,7 +139,12 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   takes the slow path; decode there by mask, not equality.
 - **Every AY access is a VIA sequence, and every keyboard scan is an AY
   write** (design.md §2.3). The AY is wired to the VIA's port A and CA2/CB2,
-  not to the CPU's bus.
+  not to the CPU's bus: CA2 = BC1, CB2 = BDIR, PB3 high is a key down.
+- **The VIA's timing is cycle-exact against Oricutron** (design.md §5.3): an
+  access to page `#03` brings the VIA to the access's cycle
+  (`bus_read_at`/`m6502_t.io_at`, slow path only), and the VIA runs two
+  cycles behind the CPU at boundaries so the IRQ poll is the 6502's. Run the
+  trace diff after touching either.
 - **There is no framebuffer, and no VRAM-byte diff.** A serial attribute
   changes every cell to its right without changing their bytes; the
   presenter's shadow holds **decoded cells** (design.md §7.3).

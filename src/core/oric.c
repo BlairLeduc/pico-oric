@@ -44,11 +44,12 @@ void oric_init(oric_t *m, const oric_config_t *cfg) {
     map_open(m, 0x00u, 0xFFu);
 
     if (m->cfg.ram == ORIC_RAM_16K) {
-        /* Believed: the 16 KiB repeats through the 48 KiB below the ROM,
-         * which is how the ULA's fixed fetch addresses find the screen
-         * (§2.2, §6.2). §16 rates it medium-low; M3 settles it. */
-        for (unsigned mirror = 0; mirror < 3u; mirror++)
-            map_rw(m, mirror * 0x40u, mirror * 0x40u + 0x3Fu, 0);
+        /* The 16 KiB repeats through the 48 KiB below the ROM, which is
+         * how the ULA's fixed fetch addresses find the screen; neither ROM
+         * boots without it (§2.2, §6.2, §16). */
+        const unsigned pages = ORIC_RAM16_SIZE / ORIC_PAGE_SIZE;
+        for (unsigned first = 0; first < ORIC_ROM_BASE / ORIC_PAGE_SIZE; first += pages)
+            map_rw(m, first, first + pages - 1u, 0);
     } else {
         map_rw(m, 0x00u, 0xBFu, 0);
     }
@@ -107,6 +108,21 @@ static void wire(oric_t *m) {
 
 void oric_io_changed(oric_t *m) {
     wire(m);
+}
+
+void oric_via_catch_up(oric_t *m) {
+    /* The VIA runs two cycles behind the CPU: at an instruction boundary
+     * it has been ticked to the start of the instruction's penultimate
+     * cycle. A 6502 decides whether to take an IRQ at the end of that
+     * cycle, so an IRQ asserted in the last cycle waits for the next
+     * instruction (§5.3; settled against Oricutron by trace, M3). From
+     * there, the start of the instruction's cycle k is k + 1 ticks on;
+     * the run loop ticks the rest. */
+    uint32_t before = m->cpu.io_at ? m->cpu.io_at + 1u : 0u;
+    if (before > m->via_early) {
+        via6522_tick(&m->via, before - m->via_early);
+        m->via_early = before;
+    }
 }
 
 void oric_reset(oric_t *m) {
@@ -188,12 +204,15 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
     /* Whole instructions until at least `cycles` have elapsed; the caller
      * carries the overshoot forward as debt (§4.2, §5.3). The VIA is
      * ticked per instruction, a countdown that costs the same whatever
-     * the chip is doing (§3.2, via6522.h). */
+     * the chip is doing (§3.2, via6522.h), and up to the cycle of any
+     * access to it part-way through one (bus.c). */
     while (done < cycles) {
         uint32_t c = m6502_step(m);
         n++;
         done += c;
-        via6522_tick(&m->via, c);
+        /* Less what an access to page #03 already brought it through. */
+        via6522_tick(&m->via, c - m->via_early);
+        m->via_early = 0;
         m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
     }
     m->instructions += n;

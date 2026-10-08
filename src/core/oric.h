@@ -75,6 +75,10 @@ typedef struct oric_s {
      * of the next field (§11.1). M4's mode scan sets it. */
     bool hz60;
 
+    /* Cycles of the current instruction the VIA has already been ticked
+     * through, to reach an access part-way into it (§5.3). */
+    uint32_t via_early;
+
     /* Cycle debt carried between fields (§4.2): what the last field ran
      * past its length, as a negative number. */
     int32_t budget;
@@ -121,6 +125,10 @@ void oric_key_set(oric_t *m, int row, int col, bool down);
  * put the outputs on the AY and the keyboard, and back (§2.3). The bus
  * calls it after every access to page #03. */
 void oric_io_changed(oric_t *m);
+
+/* Before an access to page #03 part-way into an instruction: tick the
+ * VIA through the instruction's cycles before the access (§5.3). */
+void oric_via_catch_up(oric_t *m);
 
 /* Read a guest address as the CPU would, without its side effects: page
  * #03 reads as the open bus. For tests and the presenter. */

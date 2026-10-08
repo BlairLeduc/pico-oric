@@ -54,6 +54,12 @@ typedef struct {
     uint8_t  i_old;
     uint64_t i_old_at;
 
+    /* Which cycle of the instruction, from 1, a slow-path access falls
+     * on, so that the VIA can be brought up to it before the access
+     * (§5.3); 0 for an access outside an instruction's operand (a fetch,
+     * the stack, a vector, a test's own). Written only on the slow path. */
+    uint8_t  io_at;
+
     /* Undocumented opcodes: trapped and counted (§5.1). */
     uint32_t undoc_count;
     uint16_t undoc_pc;       /* PC of the most recent trapped opcode        */

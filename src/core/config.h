@@ -4,8 +4,9 @@
  * here, so the SRAM budget (design.md §3.3) is a link-time fact.
  *
  * A guest fact becomes a #define only once it is settled (design.md §16).
- * The ones below are this project's own choices or rated high there; the
- * mirrors, the field's timing and the rest arrive as M3 and M4 settle them.
+ * The ones below are this project's own choices, rated high there, or
+ * settled; the field's timing stays configuration (oric_config_t) until
+ * M4 settles it.
  *
  * Guest addresses are written #XXXX in comments and 0x in code.
  */
@@ -21,6 +22,10 @@
 /* BASIC 1.0 or 1.1, 16 KiB at #C000-#FFFF (§2.1, §10.2). */
 #define ORIC_ROM_BASE      0xC000u
 #define ORIC_ROM_SIZE       16384u
+
+/* The Oric-1 16K's RAM, which repeats through #0000-#BFFF below the ROM
+ * (§2.2, §6.2; §16: settled by executing both ROMs, M3). */
+#define ORIC_RAM16_SIZE     16384u
 
 /* Page #03 is I/O; the VIA's registers are A3-A0 (§2.2, §6.4). */
 #define ORIC_IO_PAGE         0x03u

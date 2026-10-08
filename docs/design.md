@@ -133,11 +133,11 @@ software can see (§16).
 | `#BB80–#BFDF` | RAM; the text screen, 28 rows of 40 bytes. In hires mode its last three rows (`#BF68–#BFDF`) are the text window | |
 | `#C000–#FFFF` | ROM, or overlay RAM when `/ROMDIS` is asserted; with the Microdisc's EPROM enabled, the EPROM at `#E000–#FFFF` | 48K only |
 
-**On a 16K machine** the RAM is believed to repeat through the 48 KiB below
-the ROM, so the ULA's fixed fetch addresses (`#BB80`, `#A000`) land on
-`#3B80` and `#2000`, where the ROM puts its screen. That is how a 16K Oric
-displays anything, and it is to be settled from the schematic and by the ROM
-booting (§16).
+**On a 16K machine** the RAM repeats through the 48 KiB below the ROM, so
+the ULA's fixed fetch addresses (`#BB80`, `#A000`) land on `#3B80` and
+`#2000`, where the ROM puts its screen. That is how a 16K Oric displays
+anything. Settled by executing both ROMs in M3 (§16): with the mirror they
+boot; without it neither gets past its RAM test.
 
 ### 2.3 The VIA's wiring
 
@@ -145,11 +145,11 @@ booting (§16).
 |---|---|---|
 | PA0–PA7 | AY data/address bus; printer data | |
 | CA1 | printer ACK | |
-| CA2 | AY BC1 | which of CA2/CB2 is BC1 and which BDIR is to be settled (§16) |
+| CA2 | AY BC1 | settled by both ROMs' register write and by executing it (§16) |
 | CB1 | tape input | an edge interrupt the ROM's reader uses |
 | CB2 | AY BDIR | |
 | PB0–PB2 | keyboard row select | through a 1-of-8 decoder |
-| PB3 | keyboard sense (input) | a key down in the selected row, in a column AY port A enables |
+| PB3 | keyboard sense (input) | high while a key is down in the selected row, in a column AY port A enables with a zero bit (§16) |
 | PB4 | printer strobe | |
 | PB5 | not connected (believed) | |
 | PB6 | tape motor relay | the status line's deck cue (§10.4) |
@@ -448,8 +448,25 @@ CPU knows none.
 
 ### 5.3 The run loop
 
-`oric_run` stops a slice at the VIA's next event (EL §4.3) and at the
-field's end. Nothing else is checked per instruction. The AY, the tape input
+`oric_run` ticks the VIA once per instruction, a countdown whose cost does
+not depend on what the chip is doing, rather than stopping slices at its
+next event (EL §4.3). M2 measured the 6502 with that tick at ~30 % of core
+0 (§3.2), and M3 decided to keep it. Two refinements came out of M3's trace
+diff (§13.4), each fixing a divergence from Oricutron and the datasheets:
+
+- **An access to page `#03` part-way into an instruction brings the VIA up
+  to that cycle first.** The 6502 knows which cycle of the instruction an
+  operand access falls on: the last, or for a read-modify-write the last
+  but two and the last but one. Ticking the whole instruction afterwards
+  started T1 three cycles early. Only the slow path records the cycle, so
+  RAM and ROM accesses pay nothing.
+- **The VIA runs two cycles behind the CPU at instruction boundaries**, at
+  the start of the instruction's penultimate cycle. A 6502 decides whether
+  to take an IRQ at the end of that cycle, so an IRQ asserted in the last
+  cycle waits for the next instruction. CLI, SEI and PLP keep their old I
+  for that one poll (§5.1).
+
+Nothing else is checked per instruction. The AY, the tape input
 and the disc controller are brought up to date when accessed and at the
 field boundary. Tape and disc traps use pico-ace's second run loop with a
 256-entry table on the PC's low byte, live only while a trap is set (EL
@@ -481,7 +498,7 @@ the open page are split by address mask.
 
 | Machine | `#0000–#BFFF` | `#C000–#FFFF` |
 |---|---|---|
-| 16K | `#0000–#3FFF` mirrored ×3 (believed, §16) | ROM |
+| 16K | `#0000–#3FFF` mirrored ×3 (settled by execution, §16) | ROM |
 | 48K | RAM | ROM; overlay RAM under `/ROMDIS` |
 | 48K + Microdisc | RAM | ROM, overlay RAM, or the EPROM at `#E000` (§10.5) |
 
@@ -1014,10 +1031,28 @@ on the workstation.
 ### 13.4 Trace diff
 
 **Oricutron**, built from its own checkout at a pinned commit by a script,
-with a trace hook added by `sed` at the top of its 6502 step and a headless
-`main` replacing its SDL front end (EL §11.4). `PC A X Y S P cycles` and the
+with a trace hook added at the top of its 6502 step and a headless `main`
+replacing its SDL front end (EL §11.4). `PC A X Y S P cycles` and the
 opcode bytes per instruction. Built in **M3** and kept in use (EL §11.4:
 get it early).
+
+```sh
+git clone https://github.com/pete-gordon/oricutron.git out/oricutron
+git -C out/oricutron checkout 002279fce9fa756d1d63cdc40ae97939eb7de7ed
+tools/trace/build-oricutron.sh out/oricutron     # out/trace/oricutron-trace
+cmake --build build/host --target oric-trace     # our side
+tools/trace-diff.py run --rom 1.1 --ram 48 --keys 'PRINT 2+2\n'
+```
+
+The two keep the same time from reset, and M3's runs agree line for line,
+cycles included. So `trace-diff.py` reports the first difference and fails,
+rather than resyncing past it. Two of Oricutron's errata would part the
+traces for good, so the build script corrects them in its copy, by name:
+`ORICUTRON_NO_I_DELAY` (CLI, SEI and PLP change I before the next IRQ
+poll) and `ORICUTRON_BRANCH_PAGE` (a taken branch's page cycle counted from
+its opcode, not the next instruction). A third, `ORICUTRON_VIA_AHEAD`
+(the VIA clocked by an instruction before it runs), has not yet shown in a
+trace.
 
 - **Resync or keep the same time**: Oricutron's VIA and ULA are
   cycle-based, so the two should keep the same time from reset; a
@@ -1336,17 +1371,18 @@ date, in this table when it changes.
 |---|---|---|---|
 | CPU clock | 1 MHz (12 MHz ÷ 12) | schematic; ULA documentation | high |
 | ROM hashes | §10.2 | MAME's `ROM_LOAD` | **settled** 2026-10-07: the owner's `basic10.rom`, `basic11b.rom` and `microdis.rom` match MAME's CRC32 and SHA-1. Reset vectors `#F42D` (1.0) and `#F88F` (1.1) |
-| 16K RAM mirroring | `#0000–#3FFF` repeats to `#BFFF` | schematic; the ROM booting in 16K | medium-low |
+| 16K RAM mirroring | `#0000–#3FFF` repeats to `#BFFF` | schematic; the ROM booting in 16K | **settled** 2026-10-08 by execution (`test_boot`): with the mirror both ROMs boot (1.0: 15,102 bytes free; 1.1: 4,863); with nothing above `#3FFF` both stop in their RAM test (`#C5F8`, `#C5EB`). Oricutron mirrors the same way (`addr & 0x3FFF`). Schematic not yet read |
 | Overlay RAM under the ROM, `/ROMDIS` | 48K machines only | schematic; Microdisc schematic | medium |
-| VIA decode | `#0300–#030F`, mirrored through `#03FF` unless `/I/O CONTROL` | schematic | medium |
-| CA2 / CB2 to BC1 / BDIR | CA2 = BC1, CB2 = BDIR | schematic; the ROM's AY routine, executed | medium (sources disagree) |
-| AY port A to keyboard columns; PB3 sense polarity | as §2.3 | schematic; ROM's scan, executed | medium |
-| Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | low until swept |
+| VIA decode | `#0300–#030F`, mirrored through `#03FF` unless `/I/O CONTROL` | schematic | medium. Both ROMs reach the VIA only at `#0300–#030F`, so booting does not test the mirrors; Oricutron decodes the whole page to the VIA |
+| VIA access timing and the IRQ poll | | datasheets; trace vs Oricutron | **settled** 2026-10-08 by trace (§5.3, §13.4): the VIA is brought to the cycle of an access part-way into an instruction, and runs two cycles behind the CPU at boundaries. With both, boot and typing agree with Oricutron (its two errata corrected) on all four machines |
+| CA2 / CB2 to BC1 / BDIR | CA2 = BC1, CB2 = BDIR | schematic; the ROM's AY routine, executed | **settled** 2026-10-08: both ROMs' register write (`#F535` in 1.0, `#F590` in 1.1) sets the PCR to `#EE` (both high: latch) then `#EC` (CA2 low, CB2 high: write); executed by `test_ay8912`, whose swapped-wiring control fails, and by typing through both ROMs. Schematic not yet read |
+| AY port A to keyboard columns; PB3 sense polarity | as §2.3 | schematic; ROM's scan, executed | **settled** 2026-10-08: both scans (`#F4C8`/`#F506` in 1.0, `#F523`/`#F561` in 1.1) write port A with one zero bit per column (`#7F`, `#BF`, …), the row to PB0–PB2 with ORB = row \| `#B8`, and take PB3 **high** as a key down; reg 7 bit 6 makes port A an output. Executed: `PRINT 2+2` typed through the matrix prints 4 on all four machines, and an inverted PB3 fails it |
+| Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | low until swept. Read 2026-10-08: both decoders index a 128-byte table, column × 8 + row, unshifted then shifted (`#FF70` in 1.0, `#FF78` in 1.1; the two are identical); `#A4` and `#A7` (column 4, rows 4 and 7) are the SHIFTs, `#A2` CTRL. ROM 1.0 takes a key on its first scan, so a SHIFT pressed in the same instant may be missed: the harness holds SHIFT a field first |
 | FUNCT's cell; does ROM 1.0 see it | | ROMs, executed | low |
 | Key minimum hold and gap, type-ahead | | ROMs, executed | low |
-| T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | medium |
-| VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | medium-high |
-| Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium |
+| T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | **settled** 2026-10-08: both ROMs load T1's latch with `#2710` in free-run mode and enable T1 alone (`IER` = `#40`), so the period is 10,002 cycles (latch + 2), 99.98 Hz; `test_boot` counts 99–100 handler entries a second. The IRQ vector points at page 2 (`#0244` in 1.1, `#0228` in 1.0) |
+| VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | medium-high. Executed 2026-10-08: NMI warm-starts both ROMs (screen cleared, program kept), RESET cold-starts them; the schematic is still to read for the lines themselves |
+| Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium. Oricutron agrees (64 cycles a line, 312 at 50 Hz); configuration until the ULA documentation is read (`oric_config_t`) |
 | First active line; active lines | ?; 224 | ULA documentation | low |
 | When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | low |
 | When a 50/60 Hz change alters the field | the next field | ULA documentation | low |
@@ -1361,8 +1397,8 @@ date, in this table when it changes.
 | AY clock | 1 MHz | schematic | high |
 | AY volume table | measured, ~3 dB steps | a cited measurement of the 8910/8912 | medium |
 | Oric's AY mix and output filter | three channels summed, mono | schematic | medium |
-| RND seed from zeroed RAM | | ROMs, executed | unknown |
-| Tape routines (each ROM) | | ROMs, read and executed | to find in M10 |
+| RND seed from zeroed RAM | | ROMs, executed | **settled** 2026-10-08: the seed is the ROM's, not RAM's. Both ROMs give `.270011996`, `.139756248`, `.690102028` for the first three `RND(1)` after every power-on, however long the machine idles first (`test_boot`). Zeroed RAM does not stick it, and nothing needs seeding |
+| Tape routines (each ROM) | | ROMs, read and executed | read 2026-10-08, to execute in M10. 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0 |
 | `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | medium-high |
 | Tape bit timings, fast and slow | | ROM's T1 writer, counted and executed | to find in M13 |
 | Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | medium |
