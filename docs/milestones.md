@@ -95,7 +95,8 @@ the image only after claiming it, with a barrier each side, so that a job
 cannot rewrite it under the copy (`handoff.h`). On the Plus 2 W the same
 day, with the card put in at the page: the job ran, and the Atmos 48K
 reached Ready at 2,476,042 cycles, without a reset. The page now says
-the machine starts when the card goes in.
+the machine starts when the card goes in. The owner then ran the fix's
+release build on the Pico 2 W, the same day, and it works there too.
 
 **M6, board bring-up and the card** (`src/port/southbridge.*`, `kbd.*`,
 `log.*`, `lcd.*`, `display.*`, `sd.*`, `diskio.c`, `storage.*`,
