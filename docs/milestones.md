@@ -4,6 +4,49 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M5, the keyboard on the host** (`src/core/keymatrix.*`,
+`keymap_picocalc.c`; `test_keyboard`, `test_keymap`; `test/host/guest.*`),
+built 2026-10-08 on the workstation (macOS, Apple clang, Debug), with the
+owner's `basic10.rom` and `basic11b.rom`. pico-ace's held set, canonical
+codes, binding fixed at press, paced replay and Alt layer, adapted to the
+8×8 matrix: each host Shift is the Oric's SHIFT on its side, Ctrl is CTRL,
+Tab is FUNCT, and a key pressed with a modifier, or one whose entry asserts
+SHIFT, reaches the matrix a field behind it. Game layouts and the `.map`
+parser are left for M15. The harness now types as the firmware will,
+through PicoCalc events and the held set. **The sweep:** all 64 cells
+pressed at the prompt in both ROMs, alone, with each SHIFT, with CTRL and
+with FUNCT, the decoded key caught at the handler's `STX #02DF` and read
+back from the screen (201 presses a ROM). The two ROMs agree in every
+cell and with their own key tables; §2.4 is now the sweep's table, and
+`test_keyboard` keeps it. FUNCT is read by neither ROM, and column 4 keeps
+one key, so right SHIFT hides FUNCT, FUNCT hides left SHIFT and either
+SHIFT hides CTRL (checked in pairs). **Checked:** every one of the
+table's 113 entries typed through the held set into both ROMs decodes as
+it should (letters as capitals under CAPS, and as typed with CAPS off);
+Ctrl with each letter gives `#01–#1A`; the menu's keys reach nothing; DEL,
+the four arrows and RETURN edit and run a line. `test_keymap`, which runs
+in CI: the table's invariants (one cell a key, the two characters of a
+key on one cell, nothing on column 4 but FUNCT, no Alt binding the MCU
+keeps) and the held set's pacing, column 4 and queue bounds. **The hold
+and the gap**, from six phases against the scan: both ROMs need a key 2
+fields down and 2 up, and 1 down or 1 up loses keys (the controls); a key
+held 48 fields types once, 50 twice, 60 three times. Type-ahead is one
+key: `XYZ` typed during a run leaves `Z` for `KEY$` and nothing at the
+prompt. The replay holds 3 and gaps 3: 60 typed program lines at 2 and 2
+leave 29 stored in 1.0 (all 60 in 1.1), and at 3 and 3 all 60 in both.
+**Planted bugs**, each caught and removed: no modifier lead
+(`test_keymap`, and `&` lost in `test_keyboard`); no lead for a SHIFT the
+entry asserts (`test_keymap`); left and right SHIFT swapped (the pairs in
+`test_keyboard`); `;` and `'` swapped (both); the replay at 2 and 2
+(`test_keyboard`'s program); CTRL on FUNCT's row (both). **Measured:**
+each ROM needs 4 fields a key at the scan; the replay takes 6, and a line
+of 10 keys in one poll 59 fields, 5.9 a key; `test_keyboard` runs in 6.8
+s (Debug). **Not checked:** anything on the board (M6, M7); which SHIFT is
+left, which is Oricutron's word, not yet BN0138's (§16); the southbridge's
+events themselves, which arrive with M6; game layouts (M15). **The trace
+diff**, rerun, agrees to the end on all four machines with M3's counts;
+its tool types through its own script, not the held set.
+
 **M4, video on the host** (`src/core/ula.*`, `snappool.*`, `font.*`,
 `font_fallback.c`, `oric.*`; `test_ula`, `test_snappool`, `test_font`,
 `test_golden`, `test_field`; `test/host/golden/`; `tools/mkfont.py`,

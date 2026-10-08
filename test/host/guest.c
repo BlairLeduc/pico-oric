@@ -50,7 +50,10 @@ const uint8_t *guest_rom_image(rom_id_t r) {
 }
 
 void guest_fields(guest_t *g, int n) {
-    for (int i = 0; i < n; i++) oric_run_field(&g->m);
+    for (int i = 0; i < n; i++) {
+        keymatrix_field(&g->k, &g->m);
+        oric_run_field(&g->m);
+    }
 }
 
 static bool ready_on_screen(const oric_t *m) {
@@ -60,6 +63,7 @@ static bool ready_on_screen(const oric_t *m) {
 bool guest_boot_machine(guest_t *g) {
     g->rom = g->m.cfg.rom;
     g->ready_cycles = 0;
+    keymatrix_init(&g->k);
     uint64_t t0 = g->m.cpu.cycles;
     /* Fine steps rather than fields, so the time to Ready is a
      * measurement and not a count of fields (§15.2 M3). */
@@ -89,69 +93,42 @@ bool guest_boot(guest_t *g, rom_id_t rom, oric_ram_t ram) {
 
 /* ---- typing --------------------------------------------------------- */
 
-/* The key table each ROM's decoder indexes (LDA table,X at #F4AE in 1.0
- * and #F509 in 1.1): 64 unshifted entries, column x 8 + row, then 64
- * shifted. Unshifted letters are lower case with bit 7 set, which the
- * ROM turns to capitals while CAPS is on, as it is after a reset. Read
- * from both ROMs 2026-10-08. */
-static uint16_t key_table(rom_id_t r) {
-    return r == ROM_BASIC10 ? 0xFF70u : 0xFF78u;
+bool guest_settle(guest_t *g, int max_fields) {
+    int f = 0;
+    for (; f < max_fields && !keymatrix_idle(&g->k); f++) guest_fields(g, 1);
+    guest_fields(g, ORIC_KEY_GAP_FIELDS);
+    return keymatrix_idle(&g->k);
 }
 
-/* SHIFT, as the decoder knows it: #A4, column 4 row 4 (CPY #A4 at
- * #F49A in 1.0, #F4F5 in 1.1). */
-#define SHIFT_ROW 4
-#define SHIFT_COL 4
-
-bool guest_key_for(const guest_t *g, char c, int *row, int *col, bool *shift) {
-    uint8_t want = (uint8_t)(c == '\n' ? '\r' : c);
-    uint8_t letter = (want >= 'A' && want <= 'Z') ? (uint8_t)((want + 0x20u) | 0x80u) : 0;
-    uint16_t t = key_table(g->rom);
-    for (int half = 0; half < 2; half++) {
-        for (int i = 0; i < 64; i++) {
-            uint8_t e = oric_peek(&g->m, (uint16_t)(t + half * 64 + i));
-            if (e == 0) continue;
-            bool hit = half == 0 ? (e == want || (letter && e == letter)) : e == want;
-            if (!hit) continue;
-            *row = i & 7;
-            *col = i >> 3;
-            *shift = half == 1;
-            return true;
-        }
+void guest_press(guest_t *g, uint8_t code, bool alt) {
+    /* A code that is not its own key's base is a Shift chord on the
+     * PicoCalc (keymap_picocalc_canonical). */
+    bool shift = keymap_picocalc_canonical(code) != code;
+    if (alt)   keymatrix_event(&g->k, KEY_EV_PRESSED, PICOCALC_KEY_ALT);
+    if (shift) keymatrix_event(&g->k, KEY_EV_PRESSED, PICOCALC_KEY_SHIFT_L);
+    keymatrix_event(&g->k, KEY_EV_PRESSED, code);
+    keymatrix_event(&g->k, KEY_EV_RELEASED, code);
+    if (shift) keymatrix_event(&g->k, KEY_EV_RELEASED, PICOCALC_KEY_SHIFT_L);
+    if (alt)   keymatrix_event(&g->k, KEY_EV_RELEASED, PICOCALC_KEY_ALT);
+    if (!guest_settle(g, 100)) {
+        fprintf(stderr, "guest_press: 0x%02X still held after 100 fields\n", code);
+        abort();
     }
-    return false;
 }
-
-/* Fields a key is held, and left up after. Generous: the ROM scans at
- * 100 Hz and wants a key seen twice. The minimum is M5's to settle
- * (§16). */
-#define HOLD_FIELDS 4
-#define GAP_FIELDS  4
 
 void guest_type(guest_t *g, const char *s) {
     for (; *s; s++) {
-        int row, col;
-        bool shift;
-        if (!guest_key_for(g, *s, &row, &col, &shift)) {
-            fprintf(stderr, "guest_type: no key for '%c' in this ROM\n", *s);
-            continue;
+        picocalc_event_t ev[ORIC_KEY_TEXT_EVENTS];
+        unsigned n = keymap_picocalc_text((uint8_t)*s, ev);
+        if (n == 0) {
+            fprintf(stderr, "guest_type: no PicoCalc key for 0x%02X\n", (uint8_t)*s);
+            abort();
         }
-        /* SHIFT goes down a field before the key and up a field after,
-         * as a typist's does. Pressed together, a scan already past
-         * column 4 finds the key alone, and ROM 1.0 takes it at once:
-         * `(` came out as `9` (2026-10-08). */
-        if (shift) {
-            oric_key_set(&g->m, SHIFT_ROW, SHIFT_COL, true);
-            guest_fields(g, 1);
+        for (unsigned i = 0; i < n; i++) keymatrix_event(&g->k, ev[i].state, ev[i].code);
+        if (!guest_settle(g, 100)) {
+            fprintf(stderr, "guest_type: 0x%02X still held after 100 fields\n", (uint8_t)*s);
+            abort();
         }
-        oric_key_set(&g->m, row, col, true);
-        guest_fields(g, HOLD_FIELDS);
-        oric_key_set(&g->m, row, col, false);
-        if (shift) {
-            guest_fields(g, 1);
-            oric_key_set(&g->m, SHIFT_ROW, SHIFT_COL, false);
-        }
-        guest_fields(g, GAP_FIELDS);
     }
     guest_fields(g, 25);
 }

@@ -16,6 +16,8 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/bus.c
     src/core/font.c
     src/core/font_fallback.c
+    src/core/keymap_picocalc.c
+    src/core/keymatrix.c
     src/core/m6502.c
     src/core/oric.c
     src/core/romset.c
