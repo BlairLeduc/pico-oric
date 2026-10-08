@@ -6,4 +6,8 @@ out/
 test/suites/
 
 reference/
-roms/
+
+# The Oric's ROMs are copyrighted and not distributed (design.md §10.2):
+# roms/ is a staging area, and only its README is in git.
+roms/*
+!roms/README.md

@@ -5,8 +5,9 @@ Raspberry Pi Pico 2 or compatible board (RP2350). Boards based on the
 RP2040 are not supported, as the emulator needs more SRAM than they have.
 
 > [!NOTE]
-> **Status: design only.** No code yet. The plan and its milestones are in
-> [`docs/design.md`](docs/design.md).
+> **Status: early.** The build skeleton (M0) exists; there is no emulator to
+> run yet. The plan is in [`docs/design.md`](docs/design.md), and what each
+> milestone verified is in [`docs/milestones.md`](docs/milestones.md).
 
 The Oric-1 (Tangerine, 1983) and the Oric Atmos (1984) are British home
 computers built around a 6502A at 1 MHz, a 6522 VIA, an AY-3-8912 sound
