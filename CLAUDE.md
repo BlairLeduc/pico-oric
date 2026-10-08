@@ -10,7 +10,9 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0 is built** (`docs/design.md` §15). The record of each milestone
+**Status: M0 and M1 are built** (`docs/design.md` §15): the skeleton, and
+pico-atom's 6502 and VIA passing their tests here, with Dormann's and
+Clark's suites. The record of each milestone
 (what was verified, on which board, on what date, and what was not checked)
 is in `docs/milestones.md`. Add to it there.
 
@@ -71,6 +73,7 @@ and the **port layer, tools and build from pico-ace**, the newer of the two.
 # host: src/core/ with the system compiler, no Pico SDK, under CTest
 cmake -S . -B build/host -DPICO_ORIC_HOST=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/host -j
+tools/fetch-test-suites.sh           # Dormann's binary, and Clark's built with ca65
 ctest --test-dir build/host --output-on-failure
 
 # firmware: the newest SDK and toolchain under ~/.pico-sdk, unless

@@ -20,6 +20,16 @@ jobs:
       - name: Build
         run: cmake --build build/host -j
 
+      # Dormann's suite is GPL and not committed; Clark's is assembled
+      # from test/asm/ with ca65. Without them test_m6502_functional
+      # skips, and a skipped functional test is an unverified CPU
+      # (design.md §5.4), so CI fetches them every run.
+      - name: Install cc65
+        run: sudo apt-get update && sudo apt-get install -y cc65
+
+      - name: Fetch the 6502 test suites
+        run: tools/fetch-test-suites.sh
+
       - name: Test
         run: ctest --test-dir build/host --output-on-failure --no-tests=error -j 4
 

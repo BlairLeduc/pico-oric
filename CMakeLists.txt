@@ -11,8 +11,11 @@ cmake_minimum_required(VERSION 3.18)
 option(PICO_ORIC_HOST "Build the portable core and its host tests, with no Pico SDK" OFF)
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
-# M0 has no core sources yet: the core is its headers until M1 adds m6502.c.
 set(PICO_ORIC_CORE_SOURCES
+    src/core/bus.c
+    src/core/m6502.c
+    src/core/oric.c
+    src/core/via6522.c
 )
 
 set(PICO_ORIC_WARNINGS -Wall -Wextra -Werror)
