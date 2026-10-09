@@ -8,8 +8,10 @@ and done-when criteria; this file keeps the full record.
 `src/port/snapio.*`; the Snapshots page in `menu.c`; `test_snapshot`,
 `test_snapshot_rom`, `snap_util.h`), built 2026-10-09 (Pico SDK 2.3.1,
 arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
-(RP2350B, chip rev 2) the same day; the owner's check of the page on
-the PicoCalc's keyboard is outstanding. The format is pico-ace's with the
+(RP2350B, chip rev 2) the same day, **done** 2026-10-09. **By the
+owner** on a Pico 2 W, 2026-10-09, from the PicoCalc's own keyboard: a
+game loaded from tape, a snapshot saved while playing it, the PicoCalc
+power-cycled, the snapshot loaded, and the game played on. The format is pico-ace's with the
 Oric's fields (design.md §10.6): "PORCSNAP", a 320-byte state section,
 then all 64 KiB of `oric_t.ram`, 65,876 bytes for either RAM fit. Besides
 §10.6's fields it carries the CPU's delayed I, the VIA's input latches,
@@ -67,8 +69,8 @@ goes from 30 % to 61 %: M8's event-by-event path, not this milestone's.
 **Measured**: save 281 ms, load 142 ms, refusal 78 ms (the check pass
 alone). The image is 140.4 KB of text and 208.8 KB of bss (M10: 133.4
 and 207.1). The state and a 256-byte piece are static in `snapshot.c`,
-not on core 1's 2 KiB stack. **Not checked:** the page and its keys on
-the PicoCalc's own keyboard, by the owner; the `.new` recovery after a
+not on core 1's 2 KiB stack. **Not checked:** Delete, and a refusal, from
+the PicoCalc's own keyboard (over the UART only); the `.new` recovery after a
 cut publish, and a load with the card pulled between the passes (both
 pico-ace's code, unchanged), on the board; a full card.
 

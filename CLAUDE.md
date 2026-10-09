@@ -30,9 +30,9 @@ over the UART; the owner's check of every page and key is outstanding.
 **M10 (tape by trap) is done**: checked on the host against both ROMs'
 own routines, CSAVEd files loaded by Oricutron, archive games loaded
 and run on the board, and tapes loaded by the owner. **M11 (snapshots) is
-built**: checked on the host against both ROMs and our own, and saved,
-loaded and refused by name on the board over the UART; the owner's check
-of the page on the PicoCalc's keyboard is outstanding.
+done**: checked on the host against both ROMs and our own, saved, loaded
+and refused by name on the board over the UART, and a game saved, the
+PicoCalc power-cycled and the game played on by the owner.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
