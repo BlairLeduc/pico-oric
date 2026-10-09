@@ -23,6 +23,14 @@
 #define TEXT_COLS ((int)ORIC_SCREEN_COLS)
 #define TEXT_ROWS ((int)ORIC_SCREEN_ROWS)
 
+/* Oric attributes (§2.5): ink, then paper. Each takes a cell, which
+ * shows as the paper in force. */
+#define INK_RED     0x01
+#define INK_GREEN   0x02
+#define INK_YELLOW  0x03
+#define INK_WHITE   0x07
+#define PAPER_BLUE  0x14
+
 /* A blank page in `charset`, the standard set's 128 glyphs (font.h):
  * white on black, every cell a space. */
 void textpage_clear(oric_frame_t *f, const uint8_t charset[ORIC_CHARSET_BYTES]);
@@ -32,6 +40,11 @@ void textpage_put(oric_frame_t *f, int row, int col, const char *s, bool inverse
 
 /* A whole row: the text, then blanks to the edge, all in one video. */
 void textpage_line(oric_frame_t *f, int row, const char *s, bool inverse);
+
+/* A title bar: the row on blue paper in white ink, as the Oric's own
+ * status row is drawn. The attributes take the first two cells, so the
+ * text should start with two spaces. */
+void textpage_title(oric_frame_t *f, int row, const char *s);
 
 /* The page's text as the Oric shows it, a row of 40 bytes. */
 uint8_t *textpage_row(oric_frame_t *f, int row);

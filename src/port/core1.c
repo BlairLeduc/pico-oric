@@ -1,8 +1,8 @@
 /* core1.c — core 1's loop: the panel, the southbridge, the card and the
  * log (design.md §4.3, §4.5, §7, §9.1, §10).
  *
- * pico-ace's loop, renamed, with the Oric's boot: the ROM comes off the
- * card (§10.2). The menu, the park and the tape arrive with M9 and M10.
+ * pico-ace's loop, renamed, with the Oric's boot: the settings and the
+ * ROM come off the card (§10.7, §10.2). The tape's park arrives with M10.
  */
 
 #include "core1.h"
@@ -19,7 +19,10 @@
 #include "kbd.h"
 #include "lcd.h"
 #include "log.h"
+#include "menu.h"
+#include "park.h"
 #include "roms.h"
+#include "settingsio.h"
 #include "southbridge.h"
 #include "status.h"
 
@@ -30,8 +33,32 @@
 #define BAT_POLL_US  5000000u
 #define TEMP_POLL_US 1000000u
 
-/* The missing-ROM page, core 1's own frame (roms.h). */
+/* A note stays on the status line this long (core1_note). */
+#define NOTE_US      3000000u
+
+/* Core 1's own frame: the missing-ROM page (roms.h) before the guest
+ * starts, the menu's (menu.h) once it runs. */
 static oric_frame_t s_page;
+
+static char     s_note[ORIC_TEXT_COLS + 1];
+static uint32_t s_note_until;
+
+void core1_note(const char *text) {
+    snprintf(s_note, sizeof s_note, "%s", text);
+    s_note_until = time_us_32() + NOTE_US;
+    display_status(s_note);
+}
+
+/* The status line at the foot (§12): the running ROM's problem, if it
+ * has one, while the line is on (M10, M14: the tape and the disc); or a
+ * note, until it has been up for NOTE_US. Drawn only when it changes. */
+static void draw_status(void) {
+    if (s_note[0]) {
+        if ((int32_t)(time_us_32() - s_note_until) < 0) return;
+        s_note[0] = 0;
+    }
+    display_status(g_ui.status ? menu_rom_problem() : "");
+}
 
 /* The perf line at the top (design.md §7.5, §14), as pico-ace has it:
  * core 0's last second, and core 1's longest present and dropped
@@ -50,13 +77,12 @@ static void draw_perf(uint32_t present_max_us, uint32_t dropped) {
     display_perf(text);
 }
 
-/* The boot's ROM off the card (design.md §10.2), with core 0 waiting, as
- * every card job will be (§4.5); then the emulator's font, and the page
- * if the machine cannot start. */
-static void boot_rom(void) {
-    display_status("");
-    card_roms(&g_boot.job, g_boot.want, g_boot.image);
-
+/* The emulator's font from the job's ROM, and the page if the machine
+ * cannot start (design.md §7.6, §10.2). The menu is told what the job
+ * loaded, which is what the guest will run, the page's RETURN taking the
+ * other machine's. */
+static void show_rom(void) {
+    menu_init(&g_boot.settings, &s_page, g_boot.job.loaded, g_boot.job.loaded_known);
     uint8_t font[ORIC_CHARSET_BYTES];
     roms_charset(&g_boot.job, g_boot.image, font);
     display_init(font);
@@ -65,13 +91,36 @@ static void boot_rom(void) {
         roms_page(&g_boot.job, g_boot.want, g_boot.ram, font, &s_page);
         display_invalidate();
         display_present(&s_page, NULL);
-    } else if (!g_boot.job.loaded_known) {
-        /* The status row names the first problem (§12). */
-        char text[ORIC_TEXT_COLS + 1];
-        snprintf(text, sizeof text, "%s: unrecognised image",
-                 romset_images[g_boot.job.loaded].file);
-        display_status(text);
     }
+}
+
+/* The boot's card job (design.md §10.7, §10.2), with core 0 waiting, as
+ * every card job is (§4.5): the settings, the machine they name, and its
+ * ROM; then the settings into g_ui, and the page if the machine cannot
+ * start. */
+static void boot_card(void) {
+    display_status("");
+    oric_config_t cfg;
+    card_boot(&g_boot.settings, &g_boot.job, &cfg, g_boot.image);
+    g_boot.want = cfg.rom;
+    g_boot.ram = cfg.ram;
+
+    const settings_t *st = &g_boot.settings;
+    g_ui.volume = st->volume;
+    g_ui.perf_line = st->perf;
+    g_ui.status = st->status;
+    g_ui.fast_tape = st->fast_tape;
+    /* The file's backlight, or the panel's own as the southbridge has it
+     * (hardware-notes.md §6): register values step by 16, 16-240. */
+    uint8_t r[2];
+    if (st->backlight) {
+        g_ui.backlight = st->backlight;
+        (void)sb_write(SB_REG_BKL, (uint8_t)(g_ui.backlight * 16u), NULL);
+    } else if (sb_read(SB_REG_BKL, r) == SB_OK && r[1] >= 16u) {
+        g_ui.backlight = r[1] / 16u > 15u ? 15u : r[1] / 16u;
+    }
+
+    show_rom();
 }
 
 /* The card went in or out with the missing-ROM page up: the guest has
@@ -81,7 +130,8 @@ static void boot_rom_again(void) {
     g_boot.busy = true;
     __dmb();
     if (!g_boot.claimed) {
-        boot_rom();
+        card_roms(&g_boot.job, g_boot.want, g_boot.image);
+        show_rom();
         __dmb();
         g_boot.generation++;
     }
@@ -109,9 +159,13 @@ void core1_main(void) {
     g_bringup.lcd_us = time_us_32() - t0;
     board_temp_init();
 
-    /* 3. The card's ROM. */
+    /* 3. The card's settings and ROM, before the machine, because `rom`
+     *    and `ram` are the machine (design.md §10.7). Core 0 is waiting,
+     *    so this is a job at a boundary like any parked one (§4.5); the
+     *    card is optional for the settings, and without one the defaults
+     *    stand. */
     t0 = time_us_32();
-    boot_rom();
+    boot_card();
     g_bringup.card_us = time_us_32() - t0;
     (void)card_poll();   /* the slot's level as the job found it */
 
@@ -137,12 +191,14 @@ void core1_main(void) {
 
         log_pump();
 
-        /* Once the guest runs, a card that goes in is only noted: card
-         * work waits for the park (M9, card.h). */
-        if (card_poll()) {
+        /* The guest parked: its job, a step a loop. Otherwise the slot:
+         * once the guest runs, a card that goes in is only noted, and
+         * card work waits for a park (card.h). */
+        if (!park_serve() && card_poll()) {
             log_core1("  card         : %s\n", card_present() ? "in" : "out");
             if (!g_boot.claimed) boot_rom_again();
         }
+        if (g_boot.claimed) draw_status();
 
         now = time_us_32();
         if (now - sec_start >= 1000000u) {

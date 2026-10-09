@@ -4,6 +4,80 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M9, menu and settings** (`src/core/settings.*`, `shot.*`, `status.*`;
+`src/port/menu.*`, `park.*`, `settingsio.*`, `shotio.*`, `card.*`,
+`core0.c`, `core1.c`, `main.c`, `handoff.*`, `display.*`;
+`test_settings`, `test_shot`, `test_status`; `tools/uart-hold.sh`),
+built 2026-10-08 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2) and run on the
+Plus 2 W `7458DC82A89AAC12` (RP2350B, chip rev 2) the same day, **not yet
+done**: the owner's check of every page and key is outstanding. pico-ace's
+settings, rewriter, park, menu and screenshots, renamed, with the Oric's
+keys (design.md §10.7) and pico-atom's eight items in its order (§12):
+Tapes, Discs and Snapshots say they are not in this firmware yet; Setup
+has the status line, the perf line, backlight, volume, keys (standard
+only until M15) and fast tape (kept for M10); the Machine page stages ROM
+and RAM, shows the Microdisc as off until M14, and applies them by a
+power-on that core 0 does, with the ROM checked on the card first and
+refused, naming its file, if it is missing or unrecognised; Reset is the
+RESET line and Alt+K still the NMI. Core 1's boot job now reads
+`/oric/pico-oric.cfg` before it chooses the ROM, and
+`PICO_ORIC_BOOT_ROM` and `_RAM` win over the file. A value this firmware
+cannot act on yet (`microdisc = on`, a layout, a boot tape or disc) is
+kept for the save and named as the first problem. The build option
+`PICO_ORIC_PERF_LINE` is gone: the file's `perf` replaces it, and the
+perf line is off by default, as the siblings have it. **Checked on the
+host:** `test_settings`, pico-ace's test with the Oric's keys, every key
+and value, the refusals, and the rewriter's columns, comments, line
+endings and second save; `test_shot`, a frame drawn by the ULA's row
+generator, encoded as a BMP and read back pixel for pixel, the red paper
+attribute where it belongs; the BMP opens in macOS's own reader the right
+way up (`out/m9/shot-test.png`). **Checked on the board, driven over the
+UART** (`out/m9/*.log`): the menu opens (RS) and draws in 16.1–16.3 ms;
+Save settings writes the file through `.new` and a rename (59 bytes, then
+80, then 99), and the UART's hold (GS) reads it back with no problem;
+Setup's perf line and volume change; F5's Machine page, the ROM to 1.0 and
+the RAM to 16K, Apply: basic10.rom read and hashed, the machine powered on
+as the Oric-1 16K and Ready at 1,078,282 cycles, M7's figure; F6 from the
+guest writes `/oric/shots/SHOT0001.bmp`, 307,254 bytes in 938 ms; pause
+(US) dims the backlight and a key resumes it; F10's About reads the card's
+ROMs afresh. `PRINT FRE(0)` typed after all of it ran. Rebooted, the file
+chose the Oric-1 16K, volume 7, perf line on, Ready at the same cycle
+count; saved again unchanged, it stayed 99 bytes. Real-time ratio 1.000,
+no dropped snapshots, no I²C errors, idle core 0 29.4 % on the Oric-1 16K.
+**Found on the board:** the first save wrote `backlight = 2`, nothing
+having set it: the panel's level, read at boot, went into the file, as
+pico-ace's does. EL §8.7 keeps the file's backlight unless the user set
+one, so the save now writes it only once the Setup page has changed it.
+**Measured:** menu open to drawn 16.1–16.3 ms; the screenshot 938 ms; the
+settings read at boot 7.1–8.1 ms; the image 123.1 KB of text and 195.3 KB
+of bss. **Not checked:** every page and key on the PicoCalc's own
+keyboard, Alt+M, Alt+H, Alt+P and Alt+K among them, which is the owner's
+check; the Machine page refusing a ROM missing from the card, or
+unrecognised, which needs the card changed; the screenshot opening on a
+computer, and the file's text as edited, which need the card read on one;
+the 60 Hz rate and the timer-paced build on the board (both build).
+**By the owner** on a Pico 2 W, the release build, 2026-10-08: the
+menus work as expected. At the owner's request the menu then took the
+missing-ROM page's colours: the title and key rows on blue paper in white
+ink (`textpage_title`, the attributes now in `textpage.h` for both), and
+About's OK, ?? and -- in that page's green, yellow and red. Looked at in a
+host render of the page before flashing; on the board the About page
+opens and draws in 16.7 ms. By the owner's eye on a Pico 2 W, the same day: the
+colours look good.
+**Review fixes** (Codex's review of PR #9, 2026-10-08). Three findings,
+all taken. (1) A refused `backlight = 16` saved with no backlight set was
+rewritten as `backlight = 0`, which the parser refuses too, while the
+rewrite said OK: 0 is "leave it", which no line can say. Such a line is
+now made a comment; `test_settings` has the case, which failed before
+the change. (2) Pause assumed Alt was held, so paused by the UART's US a
+plain `p` did not resume and `m` opened the menu; it now starts from
+whether Alt was down when asked. On the board, US then `p` resumed. (3) A
+save that fixed a bad line left the old problem named by the menu and
+About until a reboot; the save now says afresh what the file it wrote
+holds, values this firmware cannot act on yet included, which moved from
+core 1 into `settingsio.c`. Not checked on the board: (1) and (3) need a
+bad line planted in the card's file. pico-ace has (1) and (2) as well.
+
 **M8, AY audio** (`src/core/ay8912.*`, `pcm.*`; `src/port/audio.*`,
 `core0.c`, `main.c`; `test_audio`, `test_audio_rom`, `test_audio_port`,
 `ay_model.h`, `test/host/sdk_sim/`), built 2026-10-08 (Pico SDK 2.3.1,

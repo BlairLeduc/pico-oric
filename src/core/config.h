@@ -112,6 +112,12 @@
 #define ORIC_ROM_DIR     "/oric/roms" /* §10.1                              */
 #define ORIC_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
+/* The settings file (§10.7; EL §8.7), read whole, and its longest line:
+ * "boot_tape = " and a path. */
+#define ORIC_SETTINGS_FILE_MAX 2048u
+#define ORIC_SETTINGS_LINE_MAX (ORIC_PATH_MAX + 32u)
+#define ORIC_KEYMAP_NAME_LEN    16u  /* a layout's name (§9.4)              */
+
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */

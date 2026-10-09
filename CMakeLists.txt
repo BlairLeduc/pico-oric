@@ -22,6 +22,8 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/m6502.c
     src/core/oric.c
     src/core/romset.c
+    src/core/settings.c
+    src/core/shot.c
     src/core/sha1.c
     src/core/snappool.c
     src/core/status.c
@@ -207,8 +209,12 @@ else()
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
+        src/port/menu.c
+        src/port/park.c
         src/port/roms.c
         src/port/sd.c
+        src/port/settingsio.c
+        src/port/shotio.c
         src/port/southbridge.c
         src/port/storage.c
         src/port/textpage.c
@@ -234,14 +240,6 @@ else()
         target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_RAM=${PICO_ORIC_BOOT_RAM})
     endif()
 
-    # The perf line at the panel's top (design.md §7.5), until M9's Setup
-    # page and settings file can turn it on and off.
-    option(PICO_ORIC_PERF_LINE "Draw the perf line above the guest" ON)
-    if (PICO_ORIC_PERF_LINE)
-        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_PERF_LINE=1)
-    else()
-        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_PERF_LINE=0)
-    endif()
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})
     target_link_libraries(pico-oric
         pico_oric_fatfs

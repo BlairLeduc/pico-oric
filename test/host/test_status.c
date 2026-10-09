@@ -56,5 +56,10 @@ int main(void) {
     CHECK(strcmp(trimmed(), "C0 0% 0.00x  LCD 0.0ms  Drop 0  UR 0 0  0Hz") == 0, "before the first "
           "second: [%s]", line);
 
+    /* ---- Paused --------------------------------------------------------- */
+    status_paused_format(line);
+    CHECK(strlen(line) == ORIC_TEXT_COLS && strncmp(trimmed(), "Paused", 6) == 0,
+          "the paused line: '%s'", trimmed());
+
     TEST_DONE();
 }

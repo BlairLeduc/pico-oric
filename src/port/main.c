@@ -2,10 +2,11 @@
  *
  * Core 0 owns the 6502 and the machine; core 1 owns the LCD, the
  * southbridge, the card and the log's way out (§4.3). main() sets the
- * clock, logs the banner, names the machine (the Atmos 48K by default,
- * §18 item 3, or PICO_ORIC_BOOT_ROM and _RAM), starts core 1 and waits
- * while it brings up the panel and loads that machine's ROM off the card
- * (§10.2), then powers the machine on and becomes core 0's loop. Without
+ * clock, logs the banner, starts core 1 and waits while it brings up the
+ * panel, reads the card's settings, names the machine from them (the
+ * Atmos 48K by default, §18 item 3; PICO_ORIC_BOOT_ROM and _RAM over the
+ * file, handoff.h) and loads its ROM off the card (§10.2), then powers
+ * the machine on and becomes core 0's loop. Without
  * the ROM, core 1 shows the page that says why, and reads the card again
  * when one goes in; with the other machine's ROM there, RETURN starts
  * that machine instead.
@@ -31,24 +32,12 @@
 #include "oric.h"
 #include "pico_oric_version.h"
 #include "roms.h"
+#include "settingsio.h"
 
 /* The guest lives in .bss, not the heap: src/core/ has no allocator, and
  * keeping it static is what makes the §3.3 budget a link-time fact. */
 static oric_t      g_oric;
 static keymatrix_t g_keys;   /* core 0's, like g_oric */
-
-/* The machine a build boots (§4.1): PICO_ORIC_BOOT_ROM 10 or 11 and
- * PICO_ORIC_BOOT_RAM 16 or 48, over the default. M9's settings file
- * comes between the two. */
-static void boot_config(oric_config_t *cfg) {
-    oric_config_default(cfg);
-#ifdef PICO_ORIC_BOOT_ROM
-    cfg->rom = PICO_ORIC_BOOT_ROM == 10 ? ROM_BASIC10 : ROM_BASIC11;
-#endif
-#ifdef PICO_ORIC_BOOT_RAM
-    cfg->ram = PICO_ORIC_BOOT_RAM == 16 ? ORIC_RAM_16K : ORIC_RAM_48K;
-#endif
-}
 
 /* Whether RETURN came, from the keyboard or the UART. */
 static bool return_pressed(void) {
@@ -113,10 +102,6 @@ int main(void) {
                "not be the ones this build assumes\n");
     }
 
-    oric_config_t cfg;
-    boot_config(&cfg);
-    g_boot.want = cfg.rom;
-    g_boot.ram = cfg.ram;
     keymatrix_init(&g_keys);
     handoff_init();
 
@@ -138,6 +123,25 @@ int main(void) {
                (unsigned long)(g_boot.ready_us / 1000u), (unsigned long)(g_boot.ready_us % 1000u),
                (unsigned long)g_bringup.lcd_us, (unsigned long)g_bringup.card_us);
 
+    /* The machine core 1 named from the settings (handoff.h). */
+    const settings_t *st = &g_boot.settings;
+    const char *err = settingsio_error();
+    log_printf("  settings     : card %s, file %s%s%s, %lu us; rom %s, ram %s, microdisc %s, "
+               "volume %u, perf %s, status %s, backlight %u, layout %s, fast_tape %s, "
+               "boot_tape %s, boot_disc %s; booting the %s%s\n",
+               card_state_str(g_boot.job.state), settingsio_state_str(settingsio_state()),
+               err[0] ? ": " : "", err, (unsigned long)g_boot.job.settings_us,
+               settings_rom_str(st->rom), settings_ram_str(st->ram), st->microdisc ? "on" : "off",
+               st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
+               st->layout[0] ? st->layout : "standard", st->fast_tape ? "on" : "off",
+               st->boot_tape[0] ? st->boot_tape : "none", st->boot_disc[0] ? st->boot_disc : "none",
+               roms_machine_name(g_boot.want, g_boot.ram),
+               g_boot.want != st->rom || g_boot.ram != st->ram ? " (the build's, over the file)" : "");
+    oric_config_t cfg;
+    oric_config_default(&cfg);
+    cfg.rom = g_boot.want;
+    cfg.ram = g_boot.ram;
+
     /* Returns at once when the ROM is already here. */
     bool page = g_boot.job.loaded != cfg.rom;
     cfg.rom = wait_for_rom();
@@ -148,11 +152,14 @@ int main(void) {
         keymatrix_init(&g_keys);
     }
 
-    /* oric_init powered on with the socket empty; power on again with
-     * the ROM in it, for the reset vector (oric.h). */
-    oric_init(&g_oric, &cfg);
-    oric_load_rom(&g_oric, g_boot.image, ORIC_ROM_SIZE);
-    oric_power_on(&g_oric);
+    /* Audio last in bring-up order (hardware-notes.md §10), on core 0,
+     * whose IRQ the refill is, and after core 1's LCD has claimed its
+     * fixed DMA channel; before the power-on, which gives the pcm the
+     * rate the PWM really has. */
+#if PICO_ORIC_AUDIO
+    audio_init();
+#endif
+    core0_power_on(&g_oric, &cfg, g_boot.image);
     log_printf("  guest        : %s, ROM %s%s, %lu cycles a field at %lu Hz, "
                "hot code in SRAM to tier %u (hot.h)\n",
                roms_machine_name(cfg.rom, cfg.ram), romset_images[cfg.rom].file,
@@ -160,14 +167,9 @@ int main(void) {
                (unsigned long)oric_field_cycles(&g_oric), (unsigned long)ORIC_CPU_HZ,
                (unsigned)PICO_ORIC_RAM_TIER);
 
-    /* Audio last in bring-up order (hardware-notes.md §10), on core 0,
-     * whose IRQ the refill is, and after core 1's LCD has claimed its
-     * fixed DMA channel. The pcm takes the rate the PWM really has. */
 #if PICO_ORIC_AUDIO
-    audio_init();
     uint32_t rate_num, rate_den;
     audio_rate(&rate_num, &rate_den);
-    oric_audio_set_rate(&g_oric, rate_num, rate_den);
     log_printf("  audio        : PWM GP26/GP27, %lu/%lu Hz (%lu.%02lu kHz), "
                "%u cycles per %u samples, tones below TP %u averaged, ring %u slots, "
                "queue %u\n",

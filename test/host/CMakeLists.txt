@@ -10,6 +10,8 @@ set(PICO_ORIC_HOST_TESTS
     test_m6502_behaviour
     test_m6502_cycles
     test_m6502_decimal
+    test_settings
+    test_shot
     test_skeleton
     test_snappool
     test_status

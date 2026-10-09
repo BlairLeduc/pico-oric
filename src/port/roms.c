@@ -8,13 +8,6 @@
 #include "font.h"
 #include "textpage.h"
 
-/* Oric attributes (§2.5): ink, then paper. */
-#define INK_RED     0x01
-#define INK_GREEN   0x02
-#define INK_YELLOW  0x03
-#define INK_WHITE   0x07
-#define PAPER_BLUE  0x14
-
 const char *roms_machine_name(rom_id_t rom, oric_ram_t ram) {
     if (rom == ROM_BASIC10) return ram == ORIC_RAM_16K ? "Oric-1 16K" : "Oric-1 48K";
     return ram == ORIC_RAM_16K ? "Atmos 16K" : "Atmos 48K";
@@ -59,9 +52,7 @@ void roms_page(const card_job_t *job, rom_id_t want, oric_ram_t ram,
 
     /* The title on blue, as the Oric's own status row is drawn. */
     snprintf(s, sizeof s, "  pico-oric: no ROM for the %s", roms_machine_name(want, ram));
-    textpage_line(f, 0, s, false);
-    textpage_row(f, 0)[0] = PAPER_BLUE;
-    textpage_row(f, 0)[1] = INK_WHITE;
+    textpage_title(f, 0, s);
 
     int row = 3;
     if (job->state != CARD_MOUNTED) {

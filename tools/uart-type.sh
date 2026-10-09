@@ -5,7 +5,7 @@
 #   tools/uart-type.sh $'10 PRINT "HI"\rRUN\r'
 #
 # The firmware turns each received byte into the PicoCalc key events for
-# it (keymap_picocalc_text, called from uart_keys in src/port/main.c), so a
+# it (keymap_picocalc_text, called from uart_keys in src/port/core0.c), so a
 # hardware run can be driven from the machine capturing it. Characters type
 # as themselves, the shifted ones inside Shift as the PicoCalc sends them;
 # CR and LF are Enter, BS and DEL Backspace, ESC is Esc, the other

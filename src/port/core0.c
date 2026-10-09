@@ -1,9 +1,9 @@
 /* core0.c — core 0's loop: the guest (design.md §4.3, §11.1, §14).
  *
  * pico-ace's loop, renamed, paced on the audio queue (M8), or with
- * PICO_ORIC_AUDIO=OFF on the timer, the control for audio's cost. The
- * park and the menu (M9) and the tape (M10) are left out, each marked
- * where it will go.
+ * PICO_ORIC_AUDIO=OFF on the timer, the control for audio's cost, and
+ * parked between fields for the menu, pause, screenshots and the UART's
+ * hold (M9). The tape (M10) is left out, marked where it will go.
  */
 
 #include "core0.h"
@@ -20,6 +20,9 @@
 #include "handoff.h"
 #include "kbd.h"
 #include "log.h"
+#include "park.h"
+#include "roms.h"
+#include "settingsio.h"
 #include "southbridge.h"
 #include "ula.h"
 
@@ -36,6 +39,11 @@
  * (tools/uart-screen.sh), so a run driven over the UART can read back
  * what the panel shows. */
 #define UART_SCREEN_DUMP 0x1Cu
+/* RS opens the menu and US pauses, as Alt+M and Alt+P do; while either
+ * is up the UART's bytes are its keys (park.c). GS is the hold
+ * (park.h). */
+#define UART_MENU  0x1Eu
+#define UART_PAUSE 0x1Fu
 
 /* The screen's text rows: #BB80, 28 of 40 (§2.2). */
 static uint8_t screen_byte(const oric_t *m, unsigned row, unsigned col) {
@@ -70,18 +78,20 @@ static void dump_screen(const oric_t *m) {
  * hardware run can be driven from the workstation that captures it
  * (§15.2 M6, tools/uart-type.sh). A byte is taken only while keymatrix
  * has room for its events and their releases, so a fast sender loses
- * characters in the UART's FIFO rather than in the replay. */
-static void uart_keys(keymatrix_t *k, const oric_t *m) {
+ * characters in the UART's FIFO rather than in the replay. True when
+ * the byte was GS, a request to park (park.h). */
+static bool uart_keys(keymatrix_t *k, const oric_t *m) {
 #if PICO_ORIC_UART
-    if (k->q_len + k->n_open + 2u * ORIC_KEY_TEXT_EVENTS > ORIC_KEY_EVENT_QUEUE) return;
+    if (k->q_len + k->n_open + 2u * ORIC_KEY_TEXT_EVENTS > ORIC_KEY_EVENT_QUEUE) return false;
     int ch = getchar_timeout_us(0);
-    if (ch == PICO_ERROR_TIMEOUT) return;
+    if (ch == PICO_ERROR_TIMEOUT) return false;
     if (ch == UART_SCREEN_DUMP) {
         dump_screen(m);
-        return;
+        return false;
     }
-    /* M9: GS holds the guest for a card job, RS opens the menu and US
-     * pauses, as pico-ace's do. */
+    if (ch == UART_HOLD) return true;
+    if (ch == UART_MENU) { k->menu_request = true; k->menu_page = KM_PAGE_MAIN; return false; }
+    if (ch == UART_PAUSE) { k->pause_request = true; return false; }
     picocalc_event_t ev[ORIC_KEY_TEXT_EVENTS];
     unsigned n = keymap_picocalc_text((uint8_t)ch, ev);
     for (unsigned i = 0; i < n; i++) keymatrix_event(k, ev[i].state, ev[i].code);
@@ -89,6 +99,7 @@ static void uart_keys(keymatrix_t *k, const oric_t *m) {
     (void)k;
     (void)m;
 #endif
+    return false;
 }
 
 /* The ROM's prompt anywhere on the text screen: the boot reaching it,
@@ -106,18 +117,59 @@ static bool ready_shown(const oric_t *m) {
 }
 
 /* The keys that ask the emulator rather than the guest for something
- * (design.md §12). Alt+K presses the reset button, which is NMI: the
- * ROM's warm start, program kept (§2.1). */
-static void requests(keymatrix_t *k, oric_t *m) {
+ * (design.md §12): the menu, pause and a screenshot park the guest at
+ * the next boundary; Alt+K presses the reset button, which is NMI: the
+ * ROM's warm start, program kept (§2.1). Returns the park, or
+ * PARK_NONE. */
+static uint32_t requests(keymatrix_t *k, oric_t *m) {
+    uint32_t why = PARK_NONE;
     if (k->reset_request) {
         oric_nmi(m);
         log_printf("  keys         : the reset button (NMI)\n");
     }
-    /* M9: the menu, pause and screenshots park the guest. */
-    if (k->menu_request || k->pause_request || k->shot_request)
-        log_printf("  keys         : %s is not in this firmware yet (M9)\n",
-                   k->menu_request ? "the menu" : k->pause_request ? "pause" : "the screenshot");
+    if (k->menu_request) why = PARK_MENU;
+    else if (k->pause_request) why = PARK_PAUSE;
+    else if (k->shot_request) why = PARK_SHOT;
     k->reset_request = k->pause_request = k->menu_request = k->shot_request = false;
+    return why;
+}
+
+/* The machine powered on as cfg with the ROM in `image` (design.md
+ * §6.3): oric_init empties the socket, so the ROM goes in and the
+ * machine powers on again, for the reset vector (oric.h). The AY's
+ * samples take the PWM's real rate. */
+void core0_power_on(oric_t *m, const oric_config_t *cfg, const uint8_t image[ORIC_ROM_SIZE]) {
+    oric_init(m, cfg);
+    oric_load_rom(m, image, ORIC_ROM_SIZE);
+    oric_power_on(m);
+#if PICO_ORIC_AUDIO
+    uint32_t rate_num, rate_den;
+    audio_rate(&rate_num, &rate_den);
+    oric_audio_set_rate(m, rate_num, rate_den);
+#endif
+}
+
+/* What the menu changed, applied by the core that owns it (EL §2.5).
+ * True if the machine was powered on again. */
+static bool apply_ui(oric_t *m) {
+#if PICO_ORIC_AUDIO
+    audio_set_volume(g_ui.volume * 32u);
+#endif
+    if (g_ui.reset) {
+        g_ui.reset = false;
+        oric_reset(m);
+        log_printf("  menu         : reset (the RESET line)\n");
+    }
+    if (g_ui.restart) {
+        oric_config_t cfg = g_ui.restart_cfg;
+        g_ui.restart = false;
+        core0_power_on(m, &cfg, g_boot.image);
+        log_printf("  menu         : powered on as the %s, ROM %s, %lu cycles a field\n",
+                   roms_machine_name(cfg.rom, cfg.ram),
+                   romset_images[cfg.rom].file, (unsigned long)oric_field_cycles(m));
+        return true;
+    }
+    return false;
 }
 
 /* The heartbeat's battery and die: "87%, 31 C", "87% charging, 31 C",
@@ -131,6 +183,19 @@ static const char *power_text(void) {
     if (b >= 0) snprintf(bat, sizeof bat, "%u%%%s", (unsigned)(b & 0x7F), b & 0x80 ? " charging" : "");
     if (t != INT32_MIN) snprintf(die, sizeof die, "%ld C", (long)t);
     snprintf(text, sizeof text, "%s, %s", bat, die);
+    return text;
+}
+
+/* The card and what it gave the boot, for the heartbeat: the slot now,
+ * the settings file's state and first problem (§15.2 M9), and the parks
+ * since boot. */
+static const char *card_text(void) {
+    static char text[128];
+    const char *err = settingsio_error();
+    snprintf(text, sizeof text, "card %s (%lu changes), cfg %s%s%s, parks %lu (max %lu us)",
+             card_present() ? "in" : "out", (unsigned long)card_changes(),
+             settingsio_state_str(settingsio_state()), err[0] ? ": " : "", err,
+             (unsigned long)g_park_stats.parks, (unsigned long)g_park_stats.max_us);
     return text;
 }
 
@@ -189,6 +254,12 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     window_start(&sec, m, late);
     uint32_t fields60 = 0;   /* since boot */
     bool ready = false;
+    uint32_t why = PARK_NONE;
+    unsigned page = 0;
+    bool alt = false;
+    uint32_t start_us = power_on_us;   /* the guest's power-on, for Ready */
+    park_init(m);
+    (void)apply_ui(m);
 
     for (;;) {
         uint64_t now;
@@ -208,18 +279,45 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         }
 #endif
 
-        /* M9: between two fields is the one place the guest parks
-         * (§4.5), and the windows start again after it. */
+        /* Between two fields: the one place the guest parks (§4.5).
+         * Guest time does not pass, so the schedule and the measuring
+         * windows start again from now: a window across the park would
+         * count its silence as consumed samples. After a hold, the menu
+         * or a pause the keys start again from none held: theirs were not
+         * the guest's. A screenshot's are, and their releases wait in the
+         * ring for it. M10: a tape request parks first. */
+        if (why != PARK_NONE) {
+            uint32_t parked = park(why, page, alt);
+            if (why != PARK_SHOT) keymatrix_init(k);
+            why = PARK_NONE;
+            if (apply_ui(m)) {
+                ready = false;
+                start_us = time_us_32();
+            }
+            window_start(&hb, m, late);
+            window_start(&sec, m, late);
+#if PICO_ORIC_AUDIO
+            audio_stats(&au_last, true);
+            hb_events = m->ay.events;
+#else
+            sched_us = time_us_64() + 1000u;
+            sched_cycles = 0;
+#endif
+            log_printf("  park         : %lu us parked\n", (unsigned long)parked);
+        }
 
         uint32_t t_busy = time_us_32();
 
         /* Keys first, so the matrix the guest scans this field is the
          * one the events describe (§9.1). */
-        uart_keys(k, m);
+        bool hold = uart_keys(k, m);
         uint8_t state, code;
         while (kbd_pop(&state, &code)) keymatrix_event(k, state, code);
         keymatrix_field(k, m);
-        requests(k, m);
+        page = k->menu_page;
+        alt = k->alt;
+        why = requests(k, m);
+        if (hold) why = PARK_HOLD;
 
         /* The ULA's choice for this field (§11.1). */
         bool hz60 = !(m->ula_mode & ULA_MODE_50HZ);
@@ -237,7 +335,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         if (!ready && ready_shown(m)) {
             ready = true;
             uint32_t at = time_us_32();
-            uint32_t guest_us = at - power_on_us;
+            uint32_t guest_us = at - start_us;
             log_printf("  boot         : Ready at field %lu, %llu cycles and %lu.%03lu ms after "
                        "the guest's power-on, %lu.%03lu ms after the board's reset; core 1 "
                        "ready at %lu.%03lu ms (card %s, mount %lu us, ROM read %lu us)\n",
@@ -336,7 +434,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        "late %lu (+%lu), slips %lu | "
                        "%lu presents (%lu full, %lu dropped), last %lu us, max %lu us | "
                        "keys %lu (%lu lost), polls %lu (longest %lu us), i2c errors %lu | "
-                       "undoc %lu (last #%02X at #%04X), log dropped %u, battery %s, card %s\n",
+                       "undoc %lu (last #%02X at #%04X), log dropped %u, battery %s, %s\n",
                        (unsigned long)m->fields, (unsigned long)fields60,
                        (unsigned long)(rt1000 / 1000u), (unsigned long)(rt1000 % 1000u),
                        (unsigned long)late, (unsigned long)(late - hb.late),
@@ -348,7 +446,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        (unsigned long)(kbd_overflows() + k->dropped),
                        (unsigned long)g_c1.polls, (unsigned long)g_c1.poll_max_us,
                        (unsigned long)sb_error_count(), (unsigned long)m->cpu.undoc_count,
-                       (unsigned)m->cpu.undoc_op, (unsigned)m->cpu.undoc_pc, log_dropped(), power_text(), card_present() ? "in" : "out");
+                       (unsigned)m->cpu.undoc_op, (unsigned)m->cpu.undoc_pc, log_dropped(), power_text(), card_text());
             log_printf("  perf         : tier %u, %lu MHz, core 0 busy %s%%, guest %s%% of wall, "
                        "headroom %lu.%02lux, %s host cycles/insn, %s cycles/insn, "
                        "%llu insns, %lu fields at %u Hz, snapshot %s%%, "

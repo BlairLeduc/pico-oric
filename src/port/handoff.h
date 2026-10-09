@@ -5,8 +5,7 @@
  * core keeps for the other's heartbeat and perf line. Each counter is a
  * 32-bit word with one writer, so a torn read is not possible.
  *
- * Copied from pico-ace and renamed. The settings, the SWD block and the
- * menu's state are left for M9 and M15.
+ * Copied from pico-ace and renamed. The SWD block is left for M15.
  */
 #ifndef PICO_ORIC_HANDOFF_H
 #define PICO_ORIC_HANDOFF_H
@@ -19,6 +18,7 @@
 #include "config.h"
 #include "oric.h"
 #include "romset.h"
+#include "settings.h"
 #include "snappool.h"
 
 extern snappool_t g_pool;
@@ -73,8 +73,10 @@ extern bringup_t g_bringup;
  * `busy` to clear, and from then on job and image are its own.
  * `generation` counts the jobs, so core 0 knows to look again. */
 typedef struct {
-    rom_id_t   want;         /* the machine's ROM: main()'s               */
+    rom_id_t   want;         /* the machine's ROM: the settings' and the
+                                build's (boot_machine)                    */
     oric_ram_t ram;          /* and its RAM, for the missing-ROM page     */
+    settings_t settings;     /* what the card's file said, over the defaults */
     card_job_t job;          /* what the card had, and which was loaded   */
     uint8_t    image[ORIC_ROM_SIZE];   /* job.loaded's bytes              */
     uint32_t   ready_us;     /* core 1's bring-up done, since boot        */
@@ -98,13 +100,29 @@ typedef struct {
 
 extern volatile core0_perf_t g_c0;
 
-/* What the menu will change (design.md §12), until M9 brings the menu
- * and the settings file. Core 1 reads it to draw the perf line. */
+/* What the menu changes (design.md §12), written by core 1 while the
+ * guest is parked and applied by core 0 when it has the machine back
+ * (EL §2.5). Core 1 reads perf_line and status to draw the lines. */
 typedef struct {
-    volatile bool perf_line;   /* the top line (status.h)             */
+    volatile unsigned volume;      /* 0-8, as settings_t has it            */
+    volatile bool     perf_line;   /* the top line (status.h)              */
+    volatile bool     status;      /* the bottom line                      */
+    volatile unsigned backlight;   /* 1-15 as the Setup page has it; 0 unread */
+    volatile bool     fast_tape;   /* the trap, or the signal (M10)        */
+    volatile bool     reset;       /* the menu's Reset: core 0 clears it   */
+    /* The Machine page's Apply (§12): power on as restart_cfg, with the
+     * ROM core 1 has left in g_boot.image. Core 0 clears it. */
+    volatile bool     restart;
+    oric_config_t     restart_cfg;
 } ui_t;
 
 extern ui_t g_ui;
+
+/* The machine a boot starts (design.md §10.7): the defaults, then the
+ * settings file's ROM and RAM, then the build's PICO_ORIC_BOOT_ROM and
+ * PICO_ORIC_BOOT_RAM, which win over the file (EL §8.7), so that a run
+ * driven over the UART knows what it booted. */
+void boot_machine(const settings_t *s, oric_config_t *cfg);
 
 /* The board, identified by main() before core 1 starts. */
 extern board_info_t g_board;

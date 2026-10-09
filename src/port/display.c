@@ -129,3 +129,21 @@ void display_perf(const char *text) {
 void display_status(const char *text) {
     draw_line(&s_status, text);
 }
+
+const uint8_t *display_font(void) {
+    return s_font;
+}
+
+void display_panel_row(unsigned y, uint16_t *px) {
+    for (unsigned x = 0; x < ORIC_PANEL_W; x++) px[x] = 0x0000;
+    if (y >= ORIC_SCREEN_Y && y < ORIC_SCREEN_Y + SCREEN_H) {
+        /* Invalidated, the cells are still what was last sent; before
+         * the first present they are zero, black on black. */
+        ula_row(s_shadow.cell[y - ORIC_SCREEN_Y], 0, ORIC_SCREEN_COLS - 1u,
+                ula_palette_rgb565, px + ORIC_SCREEN_X);
+    } else if (y >= s_perf.y && y < s_perf.y + ORIC_GLYPH_H) {
+        text_row(&s_perf, y - s_perf.y, px);
+    } else if (y >= s_status.y && y < s_status.y + ORIC_GLYPH_H) {
+        text_row(&s_status, y - s_status.y, px);
+    }
+}
