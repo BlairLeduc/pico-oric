@@ -9,7 +9,7 @@
  * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
  * M8 the AY's sound, box-filtered into PCM a field at a time (§8); M10
- * the tape's traps (§10.3).
+ * the tape's traps (§10.3); M11 the restore after a snapshot (§10.6).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -65,7 +65,8 @@ typedef struct oric_s {
     ay8912_t  ay;
 
     /* The request the CPU is stalled on, and the ROM's table (tape.h).
-     * Not saved by a snapshot: a request is served before the field ends. */
+     * A snapshot saves only the trap's carry-over, the kept header: a
+     * request is served before the field ends (snapshot.h). */
     tape_t    tape;
 
     /* The AY's level as PCM (§8.2), drained by the port once a field
@@ -123,6 +124,14 @@ void oric_power_on(oric_t *m);
 
 /* The RESET line: the CPU, the VIA and the AY, RAM kept (§4.2, §6.3). */
 void oric_reset(oric_t *m);
+
+/* After a snapshot load has stored the chips' fields (snapshot.h): no
+ * tape request, every key up and the lines driven again from the
+ * restored registers, the IRQ line from the VIA's flags among them, the
+ * AY's derived state rebuilt, and the sound
+ * restarted from the restored clock and level (§10.6). The samples not
+ * yet drained, the rate and the DC blocker are the port's, and stay. */
+void oric_restored(oric_t *m);
 
 /* The reset button under the case, which is NMI (§2.1). */
 void oric_nmi(oric_t *m);

@@ -1080,6 +1080,25 @@ fields), the AY's registers and every internal counter, the ULA's mode and
 blink counter, all 64 KiB of RAM, and from M14 the WD1793 and Microdisc
 latches with the drive's head position.
 
+As built in M11 (`snapshot.h`): "PORCSNAP", version 1, a 320-byte state
+section and then `oric_t.ram` whole, the overlay included, so a file is
+65,876 bytes for either RAM fit. Beside the fields above it carries the
+CPU's delayed I (§5.1), the VIA's input latches and lines with T2 and the
+shift clock synced, the AY's bus and every generator's next tick and
+period, the budget, and the tape trap's kept header, since a field
+boundary can fall between a trapped CSAVE's header and its data (§10.3).
+What follows from other state is worked out on load rather than stored:
+the IRQ lines from the VIA's flags, which generators the AY steps and
+which it averages from its registers and the port's rate, and the AY's
+and keyboard's wiring from the VIA's outputs. The NMI line's level and
+RESET pending are not stored: both are low at every boundary. A state is
+refused, before anything changes, for another ROM (by SHA-1), the other
+RAM fit, a Microdisc (from M14), another field shape, or while the CPU is
+stalled on a tape request; the refusal names the machine a state needs.
+Loading releases every key and restarts the sample grid at the restored
+clock; the samples not yet drained, the rate and the DC blocker are the
+port's and stay.
+
 **No community snapshot format is imported**: the Oric archive is tapes and
 discs (§17).
 

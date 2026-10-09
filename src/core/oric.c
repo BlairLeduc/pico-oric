@@ -153,6 +153,17 @@ void oric_reset(oric_t *m) {
     m6502_reset(&m->cpu, m);
 }
 
+void oric_restored(oric_t *m) {
+    m->tape.op = TAPE_NONE;
+    memset(m->keys, 0, sizeof m->keys);
+    pcm_restart(&m->pcm, (uint32_t)m->cpu.cycles);
+    /* Which generators are stepped and which averaged follows from the
+     * registers and the port's rate, so it is worked out, not loaded. */
+    ay8912_set_average(&m->ay, m->pcm.num, m->pcm.den);
+    pcm_set_level(&m->pcm, (uint32_t)m->cpu.cycles, ay8912_level(&m->ay));
+    wire(m);
+}
+
 void oric_nmi(oric_t *m) {
     /* A press is one falling edge on /NMI; the CPU latches it (§5.2). */
     m6502_set_nmi(&m->cpu, true);

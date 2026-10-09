@@ -5,8 +5,8 @@
  * same order, the same function keys, the same rows on each page, and
  * Esc going back a page, or to the guest from the main page or a page a
  * key opened. The Oric has every page the Atom has, so the Discs page is
- * back, on F2. The Discs and Snapshots pages say they are not in this
- * firmware yet until M14 and M11 fill them. The Machine page
+ * back, on F2. The Discs page says it is not in this firmware yet until
+ * M14 fills it. The Machine page
  * stages the ROM and the RAM (§12), and the text is in the Oric's own
  * character set, which has lower case.
  */
@@ -30,6 +30,7 @@
 #include "sd.h"
 #include "settingsio.h"
 #include "shotio.h"
+#include "snapio.h"
 #include "southbridge.h"
 #include "status.h"
 #include "storage.h"
@@ -70,6 +71,11 @@ enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_COUNT };
 enum { T_EJECT, T_PLAY, T_REWIND, T_NEW, T_FIRST };
 #define TAPE_ROWS (ROW_STATUS - 1 - (ROW_TOP + 1))
 
+/* The Snapshots page, as pico-ace's less its .ace files (§10.6): the
+ * slot, chosen with < > on any of its rows, the three things to do with
+ * it, then every slot's state. */
+enum { N_SLOT, N_SAVE, N_LOAD, N_DELETE, N_COUNT };
+
 /* The Machine page (§12): the ROM, the RAM and the Microdisc staged, and
  * the power-on that applies them. */
 enum { M_ROM, M_RAM, M_DISC, M_APPLY, M_COUNT };
@@ -79,6 +85,7 @@ static oric_frame_t *s_scr;       /* core 1's page frame (menu_init)  */
 static rom_id_t      s_rom;       /* the running ROM                  */
 static bool          s_bkl_set;   /* the Setup page set the backlight */
 static bool          s_rom_known; /* and it is its image              */
+static unsigned      s_slot;      /* the Snapshots page's, kept between openings */
 
 /* The Machine page's and About's look at the card. */
 static card_job_t s_job;
@@ -100,6 +107,9 @@ static struct {
 
     unsigned n_tapes;
     int      tape_sel, tape_top;
+
+    int      snap_sel;
+    bool     used[SNAPIO_SLOTS];
 
     int        machine_sel;
     rom_id_t   st_rom;        /* staged: applied only by a power-on */
@@ -186,6 +196,26 @@ static void draw_tapes(void) {
         }
         textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.tape_sel);
     }
+}
+
+static void draw_snaps(void) {
+    char line[TEXT_COLS + 1];
+    static const char *const rows[N_COUNT] = { NULL, " Save", " Load", " Delete" };
+    for (int i = 0; i < N_COUNT; i++) {
+        if (i == N_SLOT) snprintf(line, sizeof line, " Slot            < %u >", s_slot + 1u);
+        else snprintf(line, sizeof line, "%s", rows[i]);
+        textpage_line(s_scr, ROW_TOP + i, line, i == s.snap_sel);
+    }
+    /* Every slot's state, the chosen one marked. */
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) {
+        snprintf(line, sizeof line, "%cSlot %u: %s", i == s_slot ? '*' : ' ', i + 1u,
+                 !s.card ? "no card" : s.used[i] ? "saved" : "empty");
+        textpage_line(s_scr, ROW_TOP + N_COUNT + 1 + (int)i, line, false);
+    }
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 2 + (int)SNAPIO_SLOTS,
+                  " In " SNAPIO_STATE_DIR "/. A state loads only", false);
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 3 + (int)SNAPIO_SLOTS,
+                  " into the machine it was saved on.", false);
 }
 
 /* A page whose contents a later milestone brings (§15.2 M9). */
@@ -381,7 +411,7 @@ static void draw(void) {
     };
     static const char *const keys[] = {
         [P_MAIN] = "  Arrows  Enter  Esc resumes", [P_TAPES] = "  Enter inserts  Esc back",
-        [P_DISCS] = "  Esc back",                  [P_SNAPS] = "  Esc back",
+        [P_DISCS] = "  Esc back",                  [P_SNAPS] = "  < > slot  Enter  Esc back",
         [P_SETUP] = "  < > changes  Esc back",     [P_MACHINE] = "  < > stages  Enter  Esc back",
         [P_ABOUT] = "  Esc back",                  [P_HELP] = "  Esc resumes",
     };
@@ -392,7 +422,7 @@ static void draw(void) {
     switch (s.page) {
     case P_TAPES:   draw_tapes(); break;
     case P_DISCS:   draw_later("Discs", "/oric/discs/"); break;
-    case P_SNAPS:   draw_later("States", "/oric/states/"); break;
+    case P_SNAPS:   draw_snaps(); break;
     case P_SETUP:   draw_setup(); break;
     case P_MACHINE: draw_machine(); break;
     case P_ABOUT:   draw_about(); break;
@@ -417,6 +447,20 @@ static void open_tapes(void) {
     for (unsigned i = 0; i < s.n_tapes; i++)
         log_core1("  tapes        : %2u %s, %lu bytes, first \"%s\"%s\n", i + 1u, s_list[i].path,
                   (unsigned long)s_list[i].size, s_list[i].name, s_list[i].code ? ", code" : "");
+}
+
+static void refresh_slots(void) {
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) s.used[i] = s.card && snapio_exists(i);
+}
+
+static void open_snaps(void) {
+    refresh_slots();
+    s.page = P_SNAPS;
+    s.snap_sel = N_SAVE;
+    unsigned used = 0;
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) used += s.used[i];
+    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use\n", s_slot + 1u, used,
+              SNAPIO_SLOTS);
 }
 
 static void open_machine(void) {
@@ -471,6 +515,41 @@ static void save_settings(void) {
     say(err ? " Not saved: %.20s" : " Settings saved", err);
 }
 
+/* The state in the slot: on success the menu closes, and the guest
+ * resumes from it. A load whose second pass failed has left a machine
+ * part old and part new: it is not resumed, but powered on again as it
+ * is configured, with its own ROM (snapio.h). */
+static void snap_load(void) {
+    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K };
+    bool recovered, changed;
+    uint32_t us;
+    snap_status_t st = snapio_load(s.m, s_slot, &in, &recovered, &changed, &us);
+    log_core1("  snapshot     : load slot %u: %s%s, %lu us\n", s_slot + 1u, snapshot_status_str(st),
+              recovered ? " (from the unpublished .new)" : "", (unsigned long)us);
+    if (st == SNAP_OK) {
+        s.done = true;
+        return;
+    }
+    if (changed) {
+        log_core1("  snapshot     : failed after the machine had changed; powering on again\n");
+        memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
+        g_ui.restart_cfg = s.m->cfg;
+        g_ui.restart = true;
+        s.done = true;
+        return;
+    }
+    if (st == SNAP_IO && !s.used[s_slot]) {
+        snprintf(s.status, sizeof s.status, " Slot %u is empty", s_slot + 1u);
+    } else if ((st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM) && in.rom != ROM_UNKNOWN) {
+        /* Refused by name (§15.2 M11): the machine it needs. */
+        say(" Not loaded: needs the %.14s", roms_machine_name(in.rom, in.ram));
+        log_core1("  snapshot     : slot %u is the %s's, ROM %s\n", s_slot + 1u,
+                  roms_machine_name(in.rom, in.ram), romset_images[in.rom].file);
+    } else {
+        say(" Not loaded: %.24s", snapshot_status_str(st));
+    }
+}
+
 /* Apply and restart (§12): a power-on of the staged machine, or the
  * running one left as it is, and the status row says why. A new ROM is
  * checked on the card before anything is touched; core 0 does the
@@ -513,7 +592,7 @@ static void open_item(void) {
     switch (s.item) {
     case I_TAPES:   open_tapes(); break;
     case I_DISCS:   s.page = P_DISCS; break;
-    case I_SNAPS:   s.page = P_SNAPS; break;
+    case I_SNAPS:   open_snaps(); break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
     case I_RESET:   g_ui.reset = true; s.done = true; break;
@@ -563,6 +642,47 @@ static void key_tapes(uint8_t c) {
     }
     if (s.tape_sel < s.tape_top) s.tape_top = s.tape_sel;
     if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+}
+
+static void key_snaps(uint8_t c) {
+    switch (c) {
+    case PICOCALC_KEY_UP:   if (s.snap_sel > 0) s.snap_sel--; break;
+    case PICOCALC_KEY_DOWN: if (s.snap_sel < N_COUNT - 1) s.snap_sel++; break;
+    case PICOCALC_KEY_LEFT:
+    case PICOCALC_KEY_RIGHT:
+        s_slot = (s_slot + (c == PICOCALC_KEY_RIGHT ? 1u : SNAPIO_SLOTS - 1u)) % SNAPIO_SLOTS;
+        s.status[0] = 0;
+        break;
+    case PICOCALC_KEY_ENTER:
+        if (!s.card) { say(" No card", ""); break; }
+        s.status[0] = 0;
+        if (s.snap_sel == N_SAVE) {
+            say(" Saving...", "");
+            draw();
+            uint32_t us;
+            snap_status_t st = snapio_save(s.m, s_slot, &us);
+            log_core1("  snapshot     : save slot %u: %s, %lu us\n", s_slot + 1u,
+                      snapshot_status_str(st), (unsigned long)us);
+            if (st == SNAP_OK) snprintf(s.status, sizeof s.status, " Saved in slot %u", s_slot + 1u);
+            else say(" Not saved: %.24s", snapshot_status_str(st));
+            refresh_slots();
+        } else if (s.snap_sel == N_LOAD) {
+            say(" Loading...", "");
+            draw();
+            s.status[0] = 0;
+            snap_load();
+        } else if (s.snap_sel == N_DELETE) {
+            bool gone = snapio_delete(s_slot);
+            log_core1("  snapshot     : delete slot %u: %s\n", s_slot + 1u,
+                      gone ? "deleted" : "nothing there");
+            say(gone ? " Deleted" : " Nothing to delete", "");
+            refresh_slots();
+        }
+        break;
+    case PICOCALC_KEY_ESC:
+        s.page = P_MAIN;
+        break;
+    }
 }
 
 static void key_main(uint8_t c) {
@@ -683,8 +803,8 @@ static void keys(void) {
         case P_SETUP:   key_setup(c); break;
         case P_MACHINE: key_machine(c); break;
         case P_TAPES:   key_tapes(c); break;
+        case P_SNAPS:   key_snaps(c); break;
         case P_DISCS:
-        case P_SNAPS:
         case P_ABOUT:
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
