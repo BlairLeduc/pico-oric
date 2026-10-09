@@ -202,6 +202,15 @@ static void decline(oric_t *m, const char *why) {
     log_core1("  tape         : declined: %s\n", why);
 }
 
+/* A CLOAD the deck cannot answer: back to Ready, program kept, rather
+ * than the real machine's wait for a signal (tape.h, the owner's choice
+ * 2026-10-09). */
+static void give_up(oric_t *m, const char *why) {
+    oric_tape_give_up(m);
+    g_tape_stats.declined++;
+    log_core1("  tape         : given up: %s; the reset button\n", why);
+}
+
 /* CLOAD's name chooses a file, if the card has one of that name; with
  * the deck empty, the first tape whose first header has the name. */
 static void choose_tape(const tape_t *t) {
@@ -223,14 +232,15 @@ static void serve_find(oric_t *m, const tape_t *t) {
     log_core1("  tape         : CLOAD \"%s\"%s\n", (const char *)t->want, t->slow ? ",S" : "");
     choose_tape(t);
     if (!s_path[0]) {
-        say(" No tape for CLOAD", "");
-        decline(m, "no tape, and no file by that name");
+        if (t->want[0]) say(" No tape has %.16s", (const char *)t->want);
+        else say(" No tape in the deck", "");
+        give_up(m, "no tape, and no file by that name");
         return;
     }
     if (open_read(&s_f, s_path) != FR_OK) {
         g_tape_stats.errors++;
         say(" Cannot open %.24s", base(s_path));
-        decline(m, "cannot open the tape");
+        give_up(m, "cannot open the tape");
         return;
     }
     tap_header_t h;
@@ -243,8 +253,12 @@ static void serve_find(oric_t *m, const tape_t *t) {
     }
     f_close(&s_f);
     if (r != TAP_FOUND) {
-        say(" End of tape %.24s", base(s_path));
-        decline(m, "end of the tape");
+        if (t->want[0])
+            snprintf(s_said, sizeof s_said, " %.16s is not on %.11s", (const char *)t->want,
+                     base(s_path));
+        else
+            say(" End of tape %.24s", base(s_path));
+        give_up(m, "end of the tape, twice");
         return;
     }
     uint16_t start = tap_start(h.raw), end = tap_end(h.raw);
@@ -264,7 +278,7 @@ static void serve_load(oric_t *m, const tape_t *t) {
         if (s_path[0]) f_close(&s_f);
         g_tape_stats.errors++;
         say(" Cannot read %.24s", base(s_path));
-        decline(m, "cannot read the tape");
+        give_up(m, "cannot read the tape");
         return;
     }
     uint32_t got_all = 0;
@@ -291,6 +305,7 @@ static void serve_load(oric_t *m, const tape_t *t) {
     if (!whole) {
         say(" Tape ended: %.24s", base(s_path));
         g_tape_stats.errors++;
+        give_up(m, "the file is cut short");
     }
     log_core1("  tape         : %s %lu of %lu bytes at #%04X from %s%s\n",
               verify ? "verified" : "loaded", (unsigned long)got_all, (unsigned long)len,
@@ -394,7 +409,8 @@ void tapeio_serve(oric_t *m, uint32_t *us) {
     if (!t) { *us = 0; return; }
     if (storage_mount() != 0) {
         say(" No card: tape not served", "");
-        decline(m, "no card");
+        if (t->op == TAPE_SAVE) decline(m, "no card");
+        else give_up(m, "no card");
     } else {
         if (t->op == TAPE_FIND) serve_find(m, t);
         else if (t->op == TAPE_LOAD) serve_load(m, t);

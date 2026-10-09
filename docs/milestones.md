@@ -8,8 +8,26 @@ and done-when criteria; this file keeps the full record.
 the Tapes page in `menu.c`, the tape's park, `boot_tape`; `test_tape`;
 `tools/trace-diff.py tape`), built 2026-10-08 (Pico SDK 2.3.1,
 arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
-(RP2350B, chip rev 2) the same day, **not yet done**: an archive game
-on the device is outstanding. Both ROMs' tape code read with da65
+(RP2350B, chip rev 2) the same day, **done** 2026-10-09.
+**By the owner** on a Pico 2 W, 2026-10-09: tapes load; but a
+`CLOAD"BOB"` with no BOB on the tape went round the tape and never
+stopped. As designed (EL §8.2): the deck rewound once, then declined,
+and the ROM waited for a signal on "Found B", its last message, until
+the reset button. At the owner's choice it now gives up instead
+(`oric_tape_give_up`): the end of the tape a second time, no tape, no
+card, or a file cut short presses the reset button, back to Ready with
+the program kept, and the status line says "BOB is not on TAPE01.tap".
+`test_tape` gives up on an empty deck and requires Ready and the
+program's bytes; with the reset button planted out it fails. On the
+board (`out/m10/bob2.log`): TAPE01 played twice, given up, Ready, and
+the program typed before ran. **Archive tapes**, put on the card by the
+owner and loaded on the Atmos 48K with `CLOAD""` from the Tapes page
+(`out/m10/archive.log`): SNAKE (BASIC, 696 bytes) to Ready; Frelon,
+three files, each autorun loader calling CLOAD for the next, to its
+title, "Pressez une touche pour jouer"; Oricium12, three files to 38,360
+bytes, to "PRESS A KEY"; demospace, 35,652 bytes, to its hires screen.
+No undocumented opcodes, no dropped snapshots; four heartbeats of 24
+read rt 0.999, around the long loads' parks, the rest 1.000. Both ROMs' tape code read with da65
 (design.md §16, now settled): the trap is on four steps per ROM (find a
 header, read the data, write the header, write the data) and resumes
 inside the ROM's own loop after the last byte, so "Searching..",
@@ -48,8 +66,7 @@ Oric-1 16K): the run loop's check costs 0.6 to 1.0 points of core 0,
 idle 29.3 % against the control's 28.7 %, compute 35.2 % against 34.2 %,
 scroll 33.5 % against 32.8 %, 3.5 to 5 host cycles an instruction. The
 image is 133.4 KB of text and 207.1 KB of bss (M9: 123.1 and 195.3), the
-Tapes page's 64-entry list most of the growth. **Not checked:** an
-archive game, which needs one on the card; the Tapes page and its keys
+Tapes page's 64-entry list most of the growth. **Not checked:** the Tapes page and its keys
 on the PicoCalc's own keyboard, and the status line's deck, by the
 owner; `boot_tape` and PICO_ORIC_BOOT_TAPE on the board; a save to a
 full card. **Left for M13:** fast tape off, which the Setup row keeps

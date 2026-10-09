@@ -413,6 +413,10 @@ static void open_tapes(void) {
     for (unsigned i = 0; i < s.n_tapes; i++)
         if (strcmp(s_list[i].path, tapeio_inserted()) == 0) s.tape_sel = T_FIRST + (int)i;
     s.tape_top = s.tape_sel >= TAPE_ROWS ? s.tape_sel - TAPE_ROWS + 1 : 0;
+    /* The list in the log too, for a check driven over the UART. */
+    for (unsigned i = 0; i < s.n_tapes; i++)
+        log_core1("  tapes        : %2u %s, %lu bytes, first \"%s\"%s\n", i + 1u, s_list[i].path,
+                  (unsigned long)s_list[i].size, s_list[i].name, s_list[i].code ? ", code" : "");
 }
 
 static void open_machine(void) {

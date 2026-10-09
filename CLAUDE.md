@@ -27,9 +27,9 @@ against a cycle-stepped model, on the board (paced on the audio queue,
 ten minutes without an underrun, the late path forced), and by the
 owner's ear. **M9 (menu and settings) is built** and run on the board
 over the UART; the owner's check of every page and key is outstanding.
-**M10 (tape by trap) is built**: checked on the host against both ROMs'
-own routines, CSAVEd files loaded by Oricutron, and run on the board
-over the UART; an archive game on the device is outstanding.
+**M10 (tape by trap) is done**: checked on the host against both ROMs'
+own routines, CSAVEd files loaded by Oricutron, archive games loaded
+and run on the board, and tapes loaded by the owner.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.

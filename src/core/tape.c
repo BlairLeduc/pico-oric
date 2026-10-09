@@ -176,6 +176,14 @@ void oric_tape_decline(oric_t *m) {
     t->declined++;
 }
 
+void oric_tape_give_up(oric_t *m) {
+    tape_t *t = &m->tape;
+    if (t->op != TAPE_NONE) t->declined++;
+    t->op = TAPE_NONE;
+    t->pass = false;
+    oric_nmi(m);
+}
+
 /* ---- load ---------------------------------------------------------------- */
 
 void oric_tape_found(oric_t *m, const tap_header_t *h) {

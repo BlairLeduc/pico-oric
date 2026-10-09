@@ -1008,7 +1008,12 @@ first bytes at the handler, and stands aside for any other ROM.
   serves both, since it deals in bytes.
 - **Find the file the user meant** (EL §8.2): an empty name loads the next
   file, as the ROM does; a name no file has plays the first `.tap` whose
-  first header carries it; the end of a tape rewinds once.
+  first header carries it; the end of a tape rewinds once. At the end a
+  second time, or with no tape to play, the emulator presses the reset
+  button (the ROM's warm start, program kept) and the status line names
+  the file not found, where the real machine and EL §8.2 would leave the
+  ROM waiting for a signal: the owner found the wait read as a hang
+  (2026-10-09).
 - A **`.tap` holds several files**; the deck keeps a position and plays on
   from it, as a recorder would.
 - **Tested** by running the ROM's own routine with only the byte-level

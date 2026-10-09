@@ -134,6 +134,12 @@ const tape_t *oric_tape_pending(const struct oric_s *m);
  * signal. */
 void oric_tape_decline(struct oric_s *m);
 
+/* No file answers a load, and the port will not leave the ROM waiting
+ * for a signal: the request goes, and the reset button is pressed, the
+ * ROM's warm start, program kept (§2.1). The owner's choice over the
+ * real machine's wait (2026-10-09). */
+void oric_tape_give_up(struct oric_s *m);
+
 /* Serving TAPE_FIND with the next header on the tape. */
 void oric_tape_found(struct oric_s *m, const tap_header_t *h);
 

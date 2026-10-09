@@ -63,6 +63,10 @@ static void deck_put(deck_t *d, const uint8_t *p, size_t n) {
     d->len += n;
 }
 
+/* The port's choice at a find no file answers: decline it, and the ROM
+ * waits for a signal; or give up, back to Ready (tape.h). */
+static bool s_give_up;
+
 static void serve(oric_t *m, deck_t *d) {
     const tape_t *t = oric_tape_pending(m);
     if (!t) return;
@@ -73,7 +77,8 @@ static void serve(oric_t *m, deck_t *d) {
         size_t skip;
         if (d->pos >= d->len ||
             tap_scan(d->buf + d->pos, d->len - d->pos, true, &h, &skip) != TAP_FOUND) {
-            oric_tape_decline(m);
+            if (s_give_up) oric_tape_give_up(m);
+            else oric_tape_decline(m);
             return;
         }
         d->pos += h.data_at;
@@ -396,11 +401,19 @@ static int machine(rom_id_t rom, oric_ram_t ram) {
           s_run.cpu.pc < 0xE800u, "%s: an empty deck: ended %d, declined %u, at #%04X", n,
           ended, (unsigned)(s_run.tape.declined - declined), s_run.cpu.pc);
 
-    /* g itself stands in CLOAD's set-up: the reset button brings it
-     * back to Ready, program kept (§2.1). */
-    oric_nmi(&g.m);
+    /* Given up instead, as tapeio does: back to Ready, program kept
+     * (§2.1). g itself stands in CLOAD's set-up. */
+    uint8_t prog_before[64];
+    memcpy(prog_before, &g.m.ram[0x0501], sizeof prog_before);
+    s_give_up = true;
+    ended = run_to(&g.m, NULL, r->cleanup, TRAPPED, r, &none, NULL, 2000000u);
+    s_give_up = false;
     guest_fields(&g, 50);
-    CHECK(guest_find_row(&g.m, "Ready", 0) >= 0, "%s: no Ready after the reset button", n);
+    CHECK(!ended && guest_find_row(&g.m, "Ready", 0) >= 0 &&
+          memcmp(prog_before, &g.m.ram[0x0501], sizeof prog_before) == 0 &&
+          (g.m.cpu.pc < 0xE400u || g.m.cpu.pc >= 0xE800u),
+          "%s: given up: no Ready, or the program lost, at #%04X", n, g.m.cpu.pc);
+    if (guest_find_row(&g.m, "Ready", 0) < 0) guest_dump(&g.m, stderr);
 
     /* A file cut short: what there is is loaded, and the loop waits for
      * the next byte. */

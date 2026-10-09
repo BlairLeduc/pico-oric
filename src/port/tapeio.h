@@ -15,9 +15,11 @@
  * appends to SQ.tap, making it if need be. A CLOAD whose name is a file
  * on the card plays that file whatever is in the deck; any other reads
  * the deck. When a CLOAD reaches the end of the tape it is rewound once,
- * so a program already passed is found; at the end a second time the
- * request is declined, and the ROM waits for a signal as the real
- * machine would, until the reset button.
+ * so a program already passed is found; at the end a second time, or
+ * with no tape, no card or a file cut short, the emulator presses the
+ * reset button and the status line says why: the ROM's warm start,
+ * program kept, where the real machine would wait for a signal
+ * (oric_tape_give_up).
  *
  * A save is appended through <file>.new and a rename (EL §8.6), the
  * file whole, header and data; a load that finds only the .new, a save
