@@ -37,3 +37,11 @@ void status_perf_format(const perf_line_t *p, char out[ORIC_TEXT_COLS + 1]) {
     memcpy(out, text, len);
     out[W] = 0;
 }
+
+void status_paused_format(char out[ORIC_TEXT_COLS + 1]) {
+    enum { W = ORIC_TEXT_COLS };
+    static const char text[] = "Paused: any key resumes";
+    memset(out, ' ', W);
+    memcpy(out, text, sizeof text - 1u);
+    out[W] = 0;
+}

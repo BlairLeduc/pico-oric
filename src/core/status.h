@@ -7,9 +7,9 @@
  * write can mix two seconds, which shows for a second and is harmless.
  *
  * Copied from pico-ace and adapted: the Oric's line carries the field
- * rate as well as the Ace's audio counters, which returned with M8. The
- * status line's own text, the tape and the disc, arrives with M10 and
- * M14.
+ * rate as well as the Ace's audio counters, which returned with M8, and
+ * the pause line with M9. The status line's own text, the tape and the
+ * disc, arrives with M10 and M14.
  */
 #ifndef PICO_ORIC_STATUS_H
 #define PICO_ORIC_STATUS_H
@@ -35,5 +35,9 @@ typedef struct {
  * its widest rather than pushing the rest off, and the gaps close to one
  * space when the counts have grown, so the last figure never goes. */
 void status_perf_format(const perf_line_t *p, char out[ORIC_TEXT_COLS + 1]);
+
+/* The status line while the guest is paused, whether or not the line
+ * is on (design.md §12). */
+void status_paused_format(char out[ORIC_TEXT_COLS + 1]);
 
 #endif /* PICO_ORIC_STATUS_H */

@@ -13,4 +13,8 @@
  * logs only through the ring. */
 void core0_run(oric_t *m, keymatrix_t *k) __attribute__((noreturn));
 
+/* Power the machine on as cfg with the ROM in `image`, at the audio's
+ * real rate: main()'s first power-on and the Machine page's restart. */
+void core0_power_on(oric_t *m, const oric_config_t *cfg, const uint8_t image[ORIC_ROM_SIZE]);
+
 #endif /* PICO_ORIC_CORE0_H */

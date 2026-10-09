@@ -44,4 +44,14 @@ void display_invalidate(void);
 void display_perf(const char *text);
 void display_status(const char *text);
 
+/* The emulator's font, as display_init was given it, for the pages core
+ * 1 draws itself (textpage.h). */
+const uint8_t *display_font(void);
+
+/* Row y of the whole panel as it shows now, ORIC_PANEL_W pixels of
+ * RGB565, regenerated from the shadow and the two lines rather than read
+ * back: the screenshot's source (shotio.h). Black where nothing is drawn,
+ * as lcd_init left it. */
+void display_panel_row(unsigned y, uint16_t *px);
+
 #endif /* PICO_ORIC_DISPLAY_H */

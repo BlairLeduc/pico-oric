@@ -9,7 +9,7 @@
  * The slot's card detect is polled from core 1's loop, and a change is
  * logged and counted. Before the guest starts, while the missing-ROM page
  * is up, a change runs the ROM job again (core1.c); once it runs, card
- * work comes from a park (M9), so until then a change is only logged.
+ * work comes from a park (park.h), and a change is only logged.
  */
 #ifndef PICO_ORIC_CARD_H
 #define PICO_ORIC_CARD_H
@@ -18,7 +18,10 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "oric.h"
 #include "romset.h"
+#include "settings.h"
+#include "sha1.h"
 
 typedef enum {
     CARD_NONE,          /* card detect says the slot is empty      */
@@ -42,10 +45,12 @@ typedef struct {
     unsigned     unknown;     /* of those, the ones no SHA-1 recognises   */
     romfile_t    rom[ROM_IMAGE_COUNT];    /* each known image              */
     char         path[ROM_IMAGE_COUNT][ORIC_PATH_MAX];  /* its file, if any */
+    uint8_t      digest[ROM_IMAGE_COUNT][SHA1_DIGEST_LEN];  /* that file's */
     uint32_t     read16k_us;  /* the longest 16 KiB file: open, read, hash */
     rom_id_t     loaded;      /* the BASIC ROM in the image; ROM_UNKNOWN  */
     bool         loaded_known;  /* its SHA-1, read again, is the image's  */
     uint32_t     load_us;     /* reading it into the image                */
+    uint32_t     settings_us; /* reading and parsing the settings file    */
 } card_job_t;
 
 /* The other machine's ROM: 1.1 for 1.0 and 1.0 for 1.1 (§10.2). */
@@ -61,6 +66,21 @@ rom_id_t card_other_basic(rom_id_t id);
  * other machine (§10.2). job->loaded says which, if either. Without a
  * usable card the job says so. */
 void card_roms(card_job_t *job, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]);
+
+/* card_roms with the card already mounted by the caller, as the menu has
+ * it: the job's mount fields are left as they are. */
+void card_roms_mounted(card_job_t *job, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]);
+
+/* The boot's job (design.md §10.7, §10.2): the settings file into *s, or
+ * the defaults without a card or a file; then the machine they and the
+ * build name into *cfg (boot_machine, handoff.h); then card_roms for its
+ * ROM, in one mount. */
+void card_boot(settings_t *s, card_job_t *job, oric_config_t *cfg,
+               uint8_t image[ORIC_ROM_SIZE]);
+
+/* The UART's hold (park.h): the settings file read again into *s, and
+ * the ROMs listed and hashed, loading none; everything logged. */
+void card_check(settings_t *s, card_job_t *job);
 
 /* The slot, debounced: true when card detect has settled at a new level
  * since the last call. Polled from core 1's loop. */

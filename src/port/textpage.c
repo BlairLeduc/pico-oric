@@ -44,3 +44,10 @@ void textpage_line(oric_frame_t *f, int row, const char *s, bool inverse) {
         r[col] = glyph(c, inverse);
     }
 }
+
+void textpage_title(oric_frame_t *f, int row, const char *s) {
+    if (row < 0 || row >= TEXT_ROWS) return;
+    textpage_line(f, row, s, false);
+    textpage_row(f, row)[0] = PAPER_BLUE;
+    textpage_row(f, row)[1] = INK_WHITE;
+}

@@ -10,8 +10,10 @@
 
 #include "config.h"
 #include "ff.h"
+#include "handoff.h"
 #include "log.h"
 #include "sd.h"
+#include "settingsio.h"
 #include "sha1.h"
 #include "storage.h"
 
@@ -85,12 +87,14 @@ static void one_rom(card_job_t *j, const FILINFO *fi) {
                 continue;
             j->rom[i] = ROMFILE_NAMED;
             memcpy(j->path[i], path, sizeof path);
+            memcpy(j->digest[i], d, sizeof d);
         }
     } else {
         /* The image itself wins over a file that only has its name. */
         if (j->rom[id] != ROMFILE_KNOWN) {
             j->rom[id] = ROMFILE_KNOWN;
             memcpy(j->path[id], path, sizeof path);
+            memcpy(j->digest[id], d, sizeof d);
         }
         what = romset_images[id].file;
     }
@@ -120,13 +124,15 @@ static bool load_rom(card_job_t *j, rom_id_t id, uint8_t image[ORIC_ROM_SIZE]) {
     return true;
 }
 
-void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
+/* A job's start: the slot, then the mount. False, with the job saying
+ * why, if there is no card to work on. */
+static bool begin(card_job_t *j) {
     memset(j, 0, sizeof *j);
     j->loaded = ROM_UNKNOWN;
     if (!sd_present()) {
         j->state = CARD_NONE;
         log_core1("  card         : no card\n");
-        return;
+        return false;
     }
 
     uint32_t t0 = time_us_32();
@@ -136,16 +142,27 @@ void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
         j->state = CARD_UNUSABLE;
         log_core1("  card         : no FAT volume (FatFs %d) after %lu us\n", j->fresult,
                   (unsigned long)j->mount_us);
-        return;
+        return false;
     }
     j->state = CARD_MOUNTED;
     log_core1("  card         : mounted in %lu us\n", (unsigned long)j->mount_us);
+    return true;
+}
+
+void card_roms_mounted(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
+    /* What the last look found goes; the mount stays. */
+    card_job_t was = *j;
+    memset(j, 0, sizeof *j);
+    j->state = CARD_MOUNTED;
+    j->fresult = was.fresult;
+    j->mount_us = was.mount_us;
+    j->settings_us = was.settings_us;
+    j->loaded = ROM_UNKNOWN;
 
     DIR dir;
     FRESULT fr = f_opendir(&dir, ORIC_ROM_DIR);
     if (fr != FR_OK) {
         log_core1("  card         : no %s (FatFs %d)\n", ORIC_ROM_DIR, (int)fr);
-        storage_unmount();
         return;
     }
     j->dir = true;
@@ -181,6 +198,37 @@ void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
                       (unsigned long)j->load_us);
         }
     }
+}
+
+void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
+    if (!begin(j)) return;
+    card_roms_mounted(j, want, image);
+    storage_unmount();
+}
+
+void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
+               uint8_t image[ORIC_ROM_SIZE]) {
+    if (!begin(j)) {
+        settingsio_none(s);
+        boot_machine(s, cfg);
+        return;
+    }
+    /* The settings first: `rom` says which ROM to load (§10.7). */
+    uint32_t t0 = time_us_32();
+    settingsio_load(s);
+    j->settings_us = time_us_32() - t0;
+    boot_machine(s, cfg);
+    card_roms_mounted(j, cfg->rom, image);
+    storage_unmount();
+}
+
+void card_check(settings_t *s, card_job_t *j) {
+    if (!begin(j)) {
+        settingsio_none(s);
+        return;
+    }
+    settingsio_load(s);
+    card_roms_mounted(j, ROM_BASIC11, NULL);
     storage_unmount();
 }
 

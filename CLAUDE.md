@@ -25,7 +25,9 @@ dropped snapshots, at 27–31 % of core 0 with the hot code in SRAM (tier 2,
 the default since M7). **M8 (AY audio) is done**: checked on the host
 against a cycle-stepped model, on the board (paced on the audio queue,
 ten minutes without an underrun, the late path forced), and by the
-owner's ear. The record of each milestone (what was verified, on
+owner's ear. **M9 (menu and settings) is built** and run on the board
+over the UART; the owner's check of every page and key is outstanding.
+The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -105,6 +107,8 @@ tools/flash.sh                       # reset halt + resume, never reset run (HW 
 tools/flash.sh build/bench-t2/pico-oric-bench.elf   # M2's bench; its counts must say "= host"
 tools/uart-type.sh 'PRINT 2+2\r'      # type at the guest
 tools/uart-screen.sh                 # the guest's text screen into the capture
+tools/uart-hold.sh                   # park for a card check; again to resume
+tools/uart-type.sh $'\x1e'           # RS opens the menu, US pauses; ^P ^N ^B ^F its arrows
 tools/perf-run.sh build/pico/pico-oric.elf out/m7/t0   # §14's workloads, one boot each
 tools/perf-summary.sh out/m7/t0                         # one line per workload
 

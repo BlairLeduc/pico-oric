@@ -11,8 +11,20 @@ boot_report_t g_boot;
 bringup_t g_bringup;
 volatile core1_stats_t g_c1 = { .sb_version = -1, .battery = -1, .temp_c = INT32_MIN };
 volatile core0_perf_t  g_c0;
-ui_t g_ui = { .perf_line = PICO_ORIC_PERF_LINE };
+ui_t g_ui = { .volume = 8u, .status = true, .fast_tape = true };
 board_info_t g_board;
+
+void boot_machine(const settings_t *s, oric_config_t *cfg) {
+    oric_config_default(cfg);
+    cfg->rom = s->rom;
+    cfg->ram = s->ram;
+#ifdef PICO_ORIC_BOOT_ROM
+    cfg->rom = PICO_ORIC_BOOT_ROM == 10 ? ROM_BASIC10 : ROM_BASIC11;
+#endif
+#ifdef PICO_ORIC_BOOT_RAM
+    cfg->ram = PICO_ORIC_BOOT_RAM == 16 ? ORIC_RAM_16K : ORIC_RAM_48K;
+#endif
+}
 
 void handoff_init(void) {
     snappool_init(&g_pool);
