@@ -8,6 +8,13 @@ PC/A/X/Y/S/P/cycles traces line by line:
     tools/trace-diff.py run [--rom 1.0|1.1] [--ram 16|48]
                             [--keys 'PRINT 2+2\\n'] [--cycles N]
     tools/trace-diff.py diff OURS.trace REF.trace
+    tools/trace-diff.py tape FILE.tap [--rom 1.0|1.1] [--ram 16|48]
+                             [--keys 'CLOAD""\\n'] [--then 'RUN\\n'] [--wait S]
+
+`tape` runs Oricutron alone with FILE.tap in its deck, played as a signal
+through the ROM's own routines (its tape traps off), types --keys, waits
+--wait seconds of guest time, types --then, and prints its screen: the
+check that a tape this project wrote loads elsewhere (§15.2 M10).
 
 `run` finds the ROM in roms/ (or $PICO_ORIC_ROMS) by SHA-1, as the tests
 do, and writes out/trace/{ours,ref}.trace and keys.txt. Build the two
@@ -98,9 +105,8 @@ def cell_for(rom, table, ch):
     sys.exit("trace-diff: no key for %r in this ROM" % ch)
 
 
-def keyscript(rom, table, text):
+def keyscript(rom, table, text, t=BOOT):
     lines = ["# written by trace-diff.py from %r" % text]
-    t = BOOT
     for ch in text:
         row, col, shifted = cell_for(rom, table, ch)
         if shifted:
@@ -255,6 +261,23 @@ IO_OPS = {"AD", "AE", "AC", "8D", "8E", "8C", "2C", "0D", "2D", "4D", "6D", "CD"
           "1D", "19", "3D", "39", "5D", "59", "7D", "79", "DD", "D9", "FD", "F9"}
 
 
+def tape(args):
+    rom = find_rom(args.rom)
+    base, _, table = ROMS[args.rom]
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / (base + ".rom")).write_bytes(rom)
+    ks, t = keyscript(rom, table, args.keys)
+    then, end = keyscript(rom, table, args.then, t + int(args.wait * 1000000))
+    (OUT / "tape-keys.txt").write_text(ks + "".join(then.splitlines(True)[1:]))
+    mach = "o16k" if args.ram == 16 else ("oric1" if args.rom == "1.0" else "atmos")
+    cmd = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach, "-q", "-s",
+           "-t", str(Path(args.tap).resolve()), "-c", str(end + 2 * FIELD),
+           "-k", str(OUT / "tape-keys.txt")]
+    print("ROM %s, %dK, %s: %r, %g s, %r" % (args.rom, args.ram, args.tap, args.keys,
+                                             args.wait, args.then))
+    return subprocess.call(cmd, stdout=subprocess.DEVNULL)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -266,10 +289,21 @@ def main():
     d = sub.add_parser("diff")
     d.add_argument("ours")
     d.add_argument("ref")
+    t = sub.add_parser("tape")
+    t.add_argument("tap")
+    t.add_argument("--rom", choices=sorted(ROMS), default="1.1")
+    t.add_argument("--ram", type=int, choices=(16, 48), default=48)
+    t.add_argument("--keys", default='CLOAD""\\n')
+    t.add_argument("--then", default="RUN\\n")
+    t.add_argument("--wait", type=float, default=10.0)
     args = p.parse_args()
     if args.cmd == "run":
         args.keys = args.keys.encode().decode("unicode_escape")
         sys.exit(run(args))
+    if args.cmd == "tape":
+        args.keys = args.keys.encode().decode("unicode_escape")
+        args.then = args.then.encode().decode("unicode_escape")
+        sys.exit(tape(args))
     sys.exit(diff(args.ours, args.ref))
 
 

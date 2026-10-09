@@ -8,14 +8,13 @@
  * drains, so audio neither underruns nor loses its pacing, and guest
  * time does not pass.
  *
- * Four reasons: the UART's hold, which runs the card job; the menu; pause
- * (menu.h); and a screenshot (shotio.h). The menu and pause own the
+ * Five reasons: the UART's hold, which runs the card job; a tape request
+ * (tapeio.h); the menu; pause (menu.h); and a screenshot (shotio.h). The menu and pause own the
  * keyboard while they last, so core 0 leaves the key ring to core 1 for
  * them; a hold's keys are not the guest's either, and core 0 drops them;
  * a screenshot's wait for the guest.
  *
- * Copied from pico-ace and renamed, less its tape's park, which returns
- * with M10.
+ * Copied from pico-ace and renamed.
  */
 #ifndef PICO_ORIC_PARK_H
 #define PICO_ORIC_PARK_H
@@ -27,7 +26,7 @@
 
 #define PARK_NONE 0u
 #define PARK_HOLD  1u  /* GS over the UART, until a second GS (tools/uart-hold.sh) */
-/* M10: 2u, PARK_TAPE, a tape block or a recording to write. */
+#define PARK_TAPE  2u  /* a tape request: a header, data, or a file to write (tapeio.h) */
 #define PARK_MENU  3u  /* Alt+M, Alt+H or a function key (§12)          */
 #define PARK_PAUSE 4u  /* Alt+P                                           */
 #define PARK_SHOT  5u  /* F6: the panel to the card, then straight back   */

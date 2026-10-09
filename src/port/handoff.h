@@ -108,7 +108,7 @@ typedef struct {
     volatile bool     perf_line;   /* the top line (status.h)              */
     volatile bool     status;      /* the bottom line                      */
     volatile unsigned backlight;   /* 1-15 as the Setup page has it; 0 unread */
-    volatile bool     fast_tape;   /* the trap, or the signal (M10)        */
+    volatile bool     fast_tape;   /* the trap, or the signal (M13)        */
     volatile bool     reset;       /* the menu's Reset: core 0 clears it   */
     /* The Machine page's Apply (§12): power on as restart_cfg, with the
      * ROM core 1 has left in g_boot.image. Core 0 clears it. */

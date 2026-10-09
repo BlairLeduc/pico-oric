@@ -4,6 +4,86 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M10, tape by trap** (`src/core/tap.*`, `tape.*`; `src/port/tapeio.*`;
+the Tapes page in `menu.c`, the tape's park, `boot_tape`; `test_tape`;
+`tools/trace-diff.py tape`), built 2026-10-08 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day, **done** 2026-10-09.
+**By the owner** on a Pico 2 W, 2026-10-09: tapes load; but a
+`CLOAD"BOB"` with no BOB on the tape went round the tape and never
+stopped. As designed (EL §8.2): the deck rewound once, then declined,
+and the ROM waited for a signal on "Found B", its last message, until
+the reset button. At the owner's choice it now gives up instead
+(`oric_tape_give_up`): the end of the tape a second time, no tape, no
+card, or a file cut short presses the reset button, back to Ready with
+the program kept, and the status line says "BOB is not on TAPE01.tap".
+`test_tape` gives up on an empty deck and requires Ready and the
+program's bytes; with the reset button planted out it fails. On the
+board (`out/m10/bob2.log`): TAPE01 played twice, given up, Ready, and
+the program typed before ran. **Archive tapes**, put on the card by the
+owner and loaded on the Atmos 48K with `CLOAD""` from the Tapes page
+(`out/m10/archive.log`): SNAKE (BASIC, 696 bytes) to Ready; Frelon,
+three files, each autorun loader calling CLOAD for the next, to its
+title, "Pressez une touche pour jouer"; Oricium12, three files to 38,360
+bytes, to "PRESS A KEY"; demospace, 35,652 bytes, to its hires screen.
+No undocumented opcodes, no dropped snapshots; four heartbeats of 24
+read rt 0.999, around the long loads' parks, the rest 1.000. Both ROMs' tape code read with da65
+(design.md §16, now settled): the trap is on four steps per ROM (find a
+header, read the data, write the header, write the data) and resumes
+inside the ROM's own loop after the last byte, so "Searching..",
+"Found", the name compare and looking on, the type checks, the re-link,
+autorun and verify's message are the ROM's. It stands aside unless the
+ROM is a stock image by SHA-1 and its page is ROM. **Checked on the
+host** (`test_tape`, all four machines): from one copy at the tape
+set-up, the ROM's own CSAVE, the ROM with only its byte routines hooked,
+and the trap leave the same RAM below the ROM (less page #03 and the
+stack below SP, tape.h's deliberate differences) and registers at the
+clean-up, and the trap's file is the ROM's bytes; fast and slow; CLOAD
+by name past a first file with a 22-character name and a `#16 #24` in
+its data, and nameless; 1.1's verify, clean and with a changed line;
+an empty deck (declined, the ROM waits); a file cut short (the ROM's
+loop waits at the byte after). **Planted bugs**, twenty-three in three
+rounds: fifteen caught; of the eight that passed, seven marked dead code
+(what the byte routines leave in A, V, N, Z and C, and X, Y and `#2F`
+after the header write, all of which the ROM overwrites before reading
+them), now removed, and one a gap (`#02B1` already zero), now covered
+and caught. The test's own sync hook first took one `#16` where the ROM
+wants four, and synced on OTHER's data. **In Oricutron**: each machine's
+trapped save, written by `test_tape --write`, CLOADed by Oricutron
+(`002279f`) from the signal through its ROM's own routines, its traps
+off, and RUN printed TAPE OK in all four; the same tape cut after its
+header, the control, never returned from CLOAD. **On the board**, over
+the UART (`out/m10/board1.log`, `board2.log`): the Oric-1 16K CSAVEd
+M10TEST.tap (a 112 ms park), CLOADed it by name after NEW (35 ms and
+24 ms parks) and ran it; the Atmos 48K, from the menu's New tape,
+CSAVEd A and B,S onto TAPE03, rewound, CLOAD"B",S passed over A and ran
+B, CLOAD"B",V said "0 Verify errors detected" after rewinding once, and
+the 1.0 save loaded and ran in 1.1. A CLOAD"B" on a tape without it
+rewound once and was declined, and the ROM then waits on CB1 at 54.9 %
+of core 0. Real-time ratio 1.000, no dropped snapshots, no underruns
+throughout. **Measured** (`out/m10/tape`, `notape`, one sitting, the
+Oric-1 16K): the run loop's check costs 0.6 to 1.0 points of core 0,
+idle 29.3 % against the control's 28.7 %, compute 35.2 % against 34.2 %,
+scroll 33.5 % against 32.8 %, 3.5 to 5 host cycles an instruction. The
+image is 133.4 KB of text and 207.1 KB of bss (M9: 123.1 and 195.3), the
+Tapes page's 64-entry list most of the growth. **Not checked:** the Tapes page and its keys
+on the PicoCalc's own keyboard, and the status line's deck, by the
+owner; `boot_tape` and PICO_ORIC_BOOT_TAPE on the board; a save to a
+full card. **Left for M13:** fast tape off, which the Setup row keeps
+and which does nothing yet: the trap serves either way.
+**Review fixes** (Codex's review of PR #10, 2026-10-09). Two findings,
+both taken. (1) With the deck empty, a CLOAD's name was matched against
+16 bytes of a longer header name for both ROMs, and the tape put in the
+deck; only 1.1 keeps 16 bytes of a name off tape, and 1.0, which keeps
+it all, rejects it, so that tape would stand in the deck unable to
+answer. The match now takes the ROM's own count. Settled by execution in
+`test_tape`: `CLOAD"OTHER WITH A LON"` against `OTHER WITH A LONG NAME`
+loads in 1.1 and is passed over in 1.0, on all four machines; with 15
+characters both pass it over. (2) A file name too long for a path of
+`ORIC_PATH_MAX` was listed, and searched, under a cut path that opens
+nothing; it is now skipped, and the list logs it. Not checked on the
+board: neither case is on the card.
+
 **M9, menu and settings** (`src/core/settings.*`, `shot.*`, `status.*`;
 `src/port/menu.*`, `park.*`, `settingsio.*`, `shotio.*`, `card.*`,
 `core0.c`, `core1.c`, `main.c`, `handoff.*`, `display.*`;

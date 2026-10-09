@@ -118,6 +118,12 @@
 #define ORIC_SETTINGS_LINE_MAX (ORIC_PATH_MAX + 32u)
 #define ORIC_KEYMAP_NAME_LEN    16u  /* a layout's name (§9.4)              */
 
+/* The longest name a .tap header may carry (§10.3). Both ROMs take 16
+ * characters from CLOAD and CSAVE; 1.1 stores 16 of a longer name read
+ * off tape and 1.0 all of it. Anything longer is taken as no header. */
+#define ORIC_TAP_NAME_MAX       64u
+#define ORIC_TAPE_LIST_MAX      64u  /* .tap files the Tapes page lists     */
+
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */

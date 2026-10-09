@@ -27,6 +27,8 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/sha1.c
     src/core/snappool.c
     src/core/status.c
+    src/core/tap.c
+    src/core/tape.c
     src/core/ula.c
     src/core/via6522.c
 )
@@ -132,6 +134,15 @@ else()
     # The core library needs it too: that is where the marked functions are.
     target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_RAM_TIER=${PICO_ORIC_RAM_TIER})
 
+    # The tape trap's check in the run loop (design.md §10.3); OFF is the
+    # control M10 measures its cost against, and no tape is served.
+    option(PICO_ORIC_TAPE "The tape trap's check in the run loop" ON)
+    if (PICO_ORIC_TAPE)
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_TAPE_TRAP=1)
+    else()
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_TAPE_TRAP=0)
+    endif()
+
     get_filename_component(PICO_ORIC_TOOLCHAIN_BIN ${CMAKE_C_COMPILER} DIRECTORY)
     find_program(PICO_ORIC_SIZE arm-none-eabi-size HINTS ${PICO_ORIC_TOOLCHAIN_BIN} REQUIRED)
 
@@ -217,6 +228,7 @@ else()
         src/port/shotio.c
         src/port/southbridge.c
         src/port/storage.c
+        src/port/tapeio.c
         src/port/textpage.c
     )
     pico_oric_firmware(pico-oric)
@@ -238,6 +250,12 @@ else()
             message(FATAL_ERROR "PICO_ORIC_BOOT_RAM is 16 or 48, not ${PICO_ORIC_BOOT_RAM}")
         endif()
         target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_RAM=${PICO_ORIC_BOOT_RAM})
+    endif()
+    # A tape in the deck at boot, over the file's boot_tape: a name in
+    # /oric/tapes/ or a path (design.md §10.7).
+    set(PICO_ORIC_BOOT_TAPE "" CACHE STRING "tape in the deck at boot, empty for the file's")
+    if (PICO_ORIC_BOOT_TAPE)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_TAPE="${PICO_ORIC_BOOT_TAPE}")
     endif()
 
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})

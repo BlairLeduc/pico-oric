@@ -3,7 +3,7 @@
  * pico-ace's loop, renamed, paced on the audio queue (M8), or with
  * PICO_ORIC_AUDIO=OFF on the timer, the control for audio's cost, and
  * parked between fields for the menu, pause, screenshots and the UART's
- * hold (M9). The tape (M10) is left out, marked where it will go.
+ * hold (M9), and for a tape request (M10).
  */
 
 #include "core0.h"
@@ -285,11 +285,15 @@ void core0_run(oric_t *m, keymatrix_t *k) {
          * count its silence as consumed samples. After a hold, the menu
          * or a pause the keys start again from none held: theirs were not
          * the guest's. A screenshot's are, and their releases wait in the
-         * ring for it. M10: a tape request parks first. */
-        if (why != PARK_NONE) {
-            uint32_t parked = park(why, page, alt);
-            if (why != PARK_SHOT) keymatrix_init(k);
-            why = PARK_NONE;
+         * ring for it, as a tape request's do. A tape request goes first,
+         * then whatever the keys asked for. */
+        while (why != PARK_NONE || oric_tape_pending(m)) {
+            uint32_t w = oric_tape_pending(m) ? PARK_TAPE : why;
+            uint32_t parked = park(w, page, alt);
+            if (w != PARK_TAPE) {
+                if (w != PARK_SHOT) keymatrix_init(k);
+                why = PARK_NONE;
+            }
             if (apply_ui(m)) {
                 ready = false;
                 start_us = time_us_32();
@@ -303,7 +307,8 @@ void core0_run(oric_t *m, keymatrix_t *k) {
             sched_us = time_us_64() + 1000u;
             sched_cycles = 0;
 #endif
-            log_printf("  park         : %lu us parked\n", (unsigned long)parked);
+            log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
+                       (unsigned long)parked);
         }
 
         uint32_t t_busy = time_us_32();
@@ -378,7 +383,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         /* Blocks while the queue is full: this is the throttle, on the
          * PWM wrap, which shares clk_sys with nothing that drifts (EL
          * §6.3). The conversion to compare words inside is not counted
-         * as busy; it is ~731 short loops a field. M10: turbo tops the
+         * as busy; it is ~731 short loops a field. M13: turbo tops the
          * queue up with silence instead, never blocking (EL §9.3). */
         audio_push(pcm, n);
 #endif

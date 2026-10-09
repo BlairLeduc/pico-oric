@@ -5,8 +5,8 @@
  * same order, the same function keys, the same rows on each page, and
  * Esc going back a page, or to the guest from the main page or a page a
  * key opened. The Oric has every page the Atom has, so the Discs page is
- * back, on F2. The Tapes, Discs and Snapshots pages say they are not in
- * this firmware yet until M10, M14 and M11 fill them. The Machine page
+ * back, on F2. The Discs and Snapshots pages say they are not in this
+ * firmware yet until M14 and M11 fill them. The Machine page
  * stages the ROM and the RAM (§12), and the text is in the Oric's own
  * character set, which has lower case.
  */
@@ -33,6 +33,7 @@
 #include "southbridge.h"
 #include "status.h"
 #include "storage.h"
+#include "tapeio.h"
 #include "textpage.h"
 
 /* The keyboard at the live loop's 30 Hz, which also feeds the MCU's 2.5 s
@@ -62,6 +63,13 @@ enum { I_TAPES, I_DISCS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_ABOUT, 
  * and the keys, then fast tape. */
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_COUNT };
 
+/* The Tapes page, as pico-ace's: four things to do with the deck, then
+ * the card's tapes, which the cursor moves on to. Play is the signal's
+ * (M13), for a loader that never calls the ROM: until then CLOAD plays
+ * the tape through the trap. */
+enum { T_EJECT, T_PLAY, T_REWIND, T_NEW, T_FIRST };
+#define TAPE_ROWS (ROW_STATUS - 1 - (ROW_TOP + 1))
+
 /* The Machine page (§12): the ROM, the RAM and the Microdisc staged, and
  * the power-on that applies them. */
 enum { M_ROM, M_RAM, M_DISC, M_APPLY, M_COUNT };
@@ -75,6 +83,8 @@ static bool          s_rom_known; /* and it is its image              */
 /* The Machine page's and About's look at the card. */
 static card_job_t s_job;
 
+static tapeio_entry_t s_list[ORIC_TAPE_LIST_MAX];
+
 static struct {
     oric_t  *m;
     bool     card;
@@ -87,6 +97,9 @@ static struct {
     int      battery;         /* SB_REG_BAT's byte, -1 if unread */
 
     int      setup_sel;
+
+    unsigned n_tapes;
+    int      tape_sel, tape_top;
 
     int        machine_sel;
     rom_id_t   st_rom;        /* staged: applied only by a power-on */
@@ -119,6 +132,11 @@ static const char *on_off(bool v) {
     return v ? "on" : "off";
 }
 
+static const char *base(const char *path) {
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
 static const char *ram_name(oric_ram_t ram) {
     return ram == ORIC_RAM_16K ? "16K" : "48K";
 }
@@ -133,12 +151,41 @@ static void draw_main(void) {
     for (int i = 0; i < I_COUNT; i++)
         textpage_line(s_scr, ROW_TOP + i, items[i], i == s.item);
 
+    /* The deck, as pico-ace's main page shows it, and the machine. */
     char line[TEXT_COLS + 1];
-    /* M10: the deck, as pico-ace's main page shows it. */
+    const char *in = tapeio_inserted();
+    snprintf(line, sizeof line, " Tape in: %.29s", in[0] ? base(in) : "none");
+    textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     snprintf(line, sizeof line, " Machine: %s, ROM %s",
              roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), settings_rom_str(s.m->cfg.rom));
-    textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
-    textpage_line(s_scr, ROW_TOP + I_COUNT + 2, " Keys: standard", false);
+    textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
+    textpage_line(s_scr, ROW_TOP + I_COUNT + 3, " Keys: standard", false);
+}
+
+static void draw_tapes(void) {
+    char line[TEXT_COLS + 1];
+    textpage_line(s_scr, ROW_TOP, !s.card ? " No card"
+                                : s.n_tapes ? " File                 First file"
+                                : " No tapes in /oric/tapes/", false);
+    for (int r = 0; r < TAPE_ROWS; r++) {
+        int i = s.tape_top + r;
+        line[0] = 0;
+        if (i == T_EJECT) {
+            snprintf(line, sizeof line, " (Eject)");
+        } else if (i == T_PLAY) {
+            snprintf(line, sizeof line, " (Play: CLOAD plays the tape)");
+        } else if (i == T_REWIND) {
+            snprintf(line, sizeof line, " (Rewind)");
+        } else if (i == T_NEW) {
+            snprintf(line, sizeof line, " (New tape)");
+        } else if (i < T_FIRST + (int)s.n_tapes) {
+            const tapeio_entry_t *e = &s_list[i - T_FIRST];
+            bool here = strcmp(e->path, tapeio_inserted()) == 0;
+            snprintf(line, sizeof line, "%c%-20.20s %-16.16s", here ? '*' : ' ', base(e->path),
+                     e->name[0] ? e->name : "(empty)");
+        }
+        textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.tape_sel);
+    }
 }
 
 /* A page whose contents a later milestone brings (§15.2 M9). */
@@ -333,7 +380,7 @@ static void draw(void) {
         [P_ABOUT] = "  Pico-Oric: About",       [P_HELP] = "  Pico-Oric: Keys",
     };
     static const char *const keys[] = {
-        [P_MAIN] = "  Arrows  Enter  Esc resumes", [P_TAPES] = "  Esc back",
+        [P_MAIN] = "  Arrows  Enter  Esc resumes", [P_TAPES] = "  Enter inserts  Esc back",
         [P_DISCS] = "  Esc back",                  [P_SNAPS] = "  Esc back",
         [P_SETUP] = "  < > changes  Esc back",     [P_MACHINE] = "  < > stages  Enter  Esc back",
         [P_ABOUT] = "  Esc back",                  [P_HELP] = "  Esc resumes",
@@ -343,7 +390,7 @@ static void draw(void) {
     textpage_title(s_scr, 0, title[s.page]);
     draw_battery();
     switch (s.page) {
-    case P_TAPES:   draw_later("Tapes", "/oric/tapes/"); break;
+    case P_TAPES:   draw_tapes(); break;
     case P_DISCS:   draw_later("Discs", "/oric/discs/"); break;
     case P_SNAPS:   draw_later("States", "/oric/states/"); break;
     case P_SETUP:   draw_setup(); break;
@@ -358,6 +405,19 @@ static void draw(void) {
 }
 
 /* ---- opening the pages ------------------------------------------------------ */
+
+static void open_tapes(void) {
+    s.n_tapes = s.card ? tapeio_list(s_list, ORIC_TAPE_LIST_MAX) : 0;
+    s.page = P_TAPES;
+    s.tape_sel = T_EJECT;
+    for (unsigned i = 0; i < s.n_tapes; i++)
+        if (strcmp(s_list[i].path, tapeio_inserted()) == 0) s.tape_sel = T_FIRST + (int)i;
+    s.tape_top = s.tape_sel >= TAPE_ROWS ? s.tape_sel - TAPE_ROWS + 1 : 0;
+    /* The list in the log too, for a check driven over the UART. */
+    for (unsigned i = 0; i < s.n_tapes; i++)
+        log_core1("  tapes        : %2u %s, %lu bytes, first \"%s\"%s\n", i + 1u, s_list[i].path,
+                  (unsigned long)s_list[i].size, s_list[i].name, s_list[i].code ? ", code" : "");
+}
 
 static void open_machine(void) {
     s.page = P_MACHINE;
@@ -401,8 +461,11 @@ static void save_settings(void) {
      * keeps what it has unless the Setup page set one, and 0 keeps the
      * file's (settings.h; EL §8.7). */
     if (s_bkl_set) out.backlight = g_ui.backlight;
-    /* M10, M14, M15: the deck's tape, the drive's disc and the layout as
-     * they are; until then, as the file has them. */
+    /* The deck's tape, if the menu or boot_tape put it there. M14, M15:
+     * the drive's disc and the layout as they are; until then, as the
+     * file has them. */
+    settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "",
+                       out.boot_tape);
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
     say(err ? " Not saved: %.20s" : " Settings saved", err);
@@ -413,7 +476,8 @@ static void save_settings(void) {
  * checked on the card before anything is touched; core 0 does the
  * power-on with the image left in g_boot.image (handoff.h). */
 static void apply_machine(void) {
-    /* M10: refused while a recording is not on the card yet (EL §10). */
+    /* M13: refused while a recording is not on the card yet (EL §10).
+     * The trap writes each CSAVE before the guest runs on. */
     oric_config_t cfg = s.m->cfg;
     cfg.rom = s.st_rom;
     cfg.ram = s.st_ram;
@@ -447,7 +511,7 @@ static void apply_machine(void) {
 static void open_item(void) {
     s.status[0] = 0;
     switch (s.item) {
-    case I_TAPES:   s.page = P_TAPES; break;
+    case I_TAPES:   open_tapes(); break;
     case I_DISCS:   s.page = P_DISCS; break;
     case I_SNAPS:   s.page = P_SNAPS; break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
@@ -459,6 +523,47 @@ static void open_item(void) {
 }
 
 /* ---- keys ------------------------------------------------------------------- */
+
+static void key_tapes(uint8_t c) {
+    int last = T_FIRST + (int)s.n_tapes - 1;
+    switch (c) {
+    case PICOCALC_KEY_UP:   if (s.tape_sel > 0) s.tape_sel--; break;
+    case PICOCALC_KEY_DOWN: if (s.tape_sel < last) s.tape_sel++; break;
+    case PICOCALC_KEY_ENTER:
+        if (s.tape_sel == T_EJECT) {
+            (void)tapeio_insert(NULL);
+            say(" Tape ejected", "");
+        } else if (s.tape_sel == T_PLAY) {
+            say(" CLOAD plays the tape", "");
+            return;
+        } else if (s.tape_sel == T_REWIND) {
+            if (!tapeio_inserted()[0]) { say(" The deck is empty", ""); return; }
+            tapeio_rewind();
+            say(" Rewound", "");
+            return;
+        } else if (s.tape_sel == T_NEW) {
+            if (!s.card) { say(" No card", ""); return; }
+            const char *err = tapeio_new();
+            if (err) { say(" No new tape: %.18s", err); return; }
+            say(" In: %.14s, CSAVE onto it", base(tapeio_inserted()));
+            s.n_tapes = tapeio_list(s_list, ORIC_TAPE_LIST_MAX);
+            return;
+        } else {
+            const tapeio_entry_t *e = &s_list[s.tape_sel - T_FIRST];
+            const char *err = tapeio_insert(e->path);
+            if (err) { say(" Not inserted: %.16s", err); return; }
+            if (e->name[0]) say(" In: CLOAD\"%.16s\"", e->name);
+            else say(" In the deck: %.24s", base(e->path));
+        }
+        s.page = P_MAIN;
+        return;
+    case PICOCALC_KEY_ESC:
+        s.page = P_MAIN;
+        return;
+    }
+    if (s.tape_sel < s.tape_top) s.tape_top = s.tape_sel;
+    if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+}
 
 static void key_main(uint8_t c) {
     switch (c) {
@@ -506,7 +611,8 @@ static void key_setup(uint8_t c) {
         say(" No layouts in this firmware yet", "");
         break;
     case D_FAST:
-        /* M10: the deck takes it (tapeio_mode). */
+        /* M13: the deck takes it, off playing the signal. Until then
+         * the trap serves CLOAD and CSAVE either way (tapeio.h). */
         g_ui.fast_tape = !g_ui.fast_tape;
         log_core1("  menu         : fast tape %s\n", on_off(g_ui.fast_tape));
         break;
@@ -576,7 +682,7 @@ static void keys(void) {
         switch (s.page) {
         case P_SETUP:   key_setup(c); break;
         case P_MACHINE: key_machine(c); break;
-        case P_TAPES:
+        case P_TAPES:   key_tapes(c); break;
         case P_DISCS:
         case P_SNAPS:
         case P_ABOUT:
@@ -598,8 +704,11 @@ void menu_run(oric_t *m, unsigned page, bool alt) {
     s.alt = alt;       /* Alt+M or Alt+H has it held; the function keys do not */
 
     s.card = sd_present() && storage_mount() == 0;
-    if (!s.card) say(" No card", "");
-    /* The first problem (§12): the running ROM, then the settings file. */
+    if (!s.card) say(" No card: no tapes", "");
+    /* The tape's last word, then the first problem (§12): the running
+     * ROM, then the settings file. */
+    const char *t = tapeio_said();
+    if (!s.status[0] && t[0]) say("%s", t);
     if (!s.status[0] && !s_rom_known)
         say(" %.18s: unrecognised image", romset_images[m->cfg.rom].file);
     if (!s.status[0] && settingsio_error()[0]) say(" %.38s", settingsio_error());

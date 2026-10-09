@@ -7,6 +7,12 @@
 #include "bus.h"
 #include "hot.h"
 
+/* The firmware's PICO_ORIC_TAPE=OFF compiles the trap's check out, the
+ * control for its cost (§15.2 M10). */
+#ifndef PICO_ORIC_TAPE_TRAP
+#define PICO_ORIC_TAPE_TRAP 1
+#endif
+
 void oric_config_default(oric_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     /* The Atmos 48K (§18 item 3). */
@@ -18,6 +24,7 @@ void oric_config_default(oric_config_t *cfg) {
     cfg->lines_60hz = 264;
     /* MAME's 32 and Brown's, against Oricutron's 16 (§16: disputed). */
     cfg->blink_fields = 32;
+    cfg->tape_traps = true;
 }
 
 static void map_open(oric_t *m, unsigned first_page, unsigned last_page) {
@@ -140,6 +147,7 @@ void oric_reset(oric_t *m) {
      * to confirm from the schematic). */
     via6522_reset(&m->via);
     ay8912_reset(&m->ay, m->cpu.cycles, &m->pcm);
+    tape_reset(m);
     wire(m);
     m6502_set_nmi(&m->cpu, false);
     m6502_reset(&m->cpu, m);
@@ -192,6 +200,7 @@ bool oric_load_rom(oric_t *m, const uint8_t *data, size_t len) {
         m->page[p].write = NULL;
         m->page_flags[p] = PAGE_ROM;
     }
+    tape_rom_loaded(m, data, len);
     return true;
 }
 
@@ -216,8 +225,17 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
      * the chip is doing (§3.2, via6522.h), and up to the cycle of any
      * access to it part-way through one (bus.c). */
     while (done < cycles) {
-        uint32_t c = m6502_step(m);
-        n++;
+        uint32_t c;
+        if (PICO_ORIC_TAPE_TRAP && __builtin_expect(tape_pc_lo[m->cpu.pc & 0xFFu], 0) &&
+            tape_at(m)) {
+            /* Stalled on a tape request, like a 6502 with RDY low: the
+             * rest of the run passes with no instruction (§10.3). */
+            c = cycles - done;
+            m->cpu.cycles += c;
+        } else {
+            c = m6502_step(m);
+            n++;
+        }
         done += c;
         /* Less what an access to page #03 already brought it through. */
         via6522_tick(&m->via, c - m->via_early);

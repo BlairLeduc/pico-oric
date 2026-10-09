@@ -8,7 +8,8 @@
  * the ROM socket, page #03's decode and the run loop. M3 wires the VIA to
  * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
- * M8 the AY's sound, box-filtered into PCM a field at a time (§8).
+ * M8 the AY's sound, box-filtered into PCM a field at a time (§8); M10
+ * the tape's traps (§10.3).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -22,6 +23,7 @@
 #include "m6502.h"
 #include "pcm.h"
 #include "romset.h"
+#include "tape.h"
 #include "ula.h"
 #include "via6522.h"
 
@@ -52,12 +54,19 @@ typedef struct {
     uint16_t   lines_50hz;     /* 312                                           */
     uint16_t   lines_60hz;     /* 264                                           */
     uint16_t   blink_fields;   /* 32: fields per blink phase (§16: disputed)    */
+    /* The tape's traps (tape.h). The port may change it at any boundary;
+     * off, CLOAD and CSAVE are the ROM's alone. */
+    bool       tape_traps;
 } oric_config_t;
 
 typedef struct oric_s {
     m6502_t   cpu;
     via6522_t via;
     ay8912_t  ay;
+
+    /* The request the CPU is stalled on, and the ROM's table (tape.h).
+     * Not saved by a snapshot: a request is served before the field ends. */
+    tape_t    tape;
 
     /* The AY's level as PCM (§8.2), drained by the port once a field
      * with oric_audio_drain. Not the chip's state: RESET leaves it. */

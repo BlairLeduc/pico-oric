@@ -318,7 +318,7 @@ All estimates, against 520 KiB. Every fixed capacity lives in
 | Guest RAM, 64 KiB (48 K + 16 K overlay) | 64 K | statically sized for the largest machine |
 | ROM, the one in use | 16 K | loaded from the card at power-on (§10.2) |
 | Microdisc EPROM | 8 K | only from M14 |
-| Tape image buffer | 64 K | decompressed `.tap`, and the recorder's output |
+| Tape image buffer | 64 K | the signal's `.tap` and the recorder's output, from M13. The trap (M10) holds none: it reads the card a sector at a time |
 | Frame snapshots, 3 × (`#9800–#BFFF` + status) | 31 K | §4.4 |
 | Presenter shadow: decoded cells, 224 × 40 × 2 B | 17.5 K | §7.3 |
 | Two RGB565 line buffers, 240 px | 1 K | |
@@ -332,7 +332,7 @@ All estimates, against 520 KiB. Every fixed capacity lives in
 This is pico-atom's size, not the Ace's. SRAM is comfortable on an RP2350,
 and impossible on an RP2040's 264 KB (§17). The two big buffers trade
 against each other: if SRAM gets tight, the tape buffer shrinks first (the
-archive's largest `.tap` sets its floor, found in M10).
+archive's largest `.tap` sets its floor, to find in M12's corpus run).
 
 ---
 
@@ -422,8 +422,9 @@ the drop counter on the heartbeat. A snapshot is:
 | status: field number, tape position, disc activity, flags | ~16 |
 
 `oric_frame_t` in `ula.h` holds the first three and the field number. The
-rest of the status arrives with what it reports: the tape's with M10, the
-disc's with M14. M7 had nothing to put there.
+rest of the status arrives with what it reports: the tape's with M13, the
+disc's with M14. M7 had nothing to put there. The trap's tape (M10) needs
+no room in it: core 1 serves the deck, so the status line reads it there.
 
 The window holds everything the ULA can fetch in either mode: both
 character-set locations, the hires bitmap and the text screen. Copying all
@@ -1007,7 +1008,12 @@ first bytes at the handler, and stands aside for any other ROM.
   serves both, since it deals in bytes.
 - **Find the file the user meant** (EL §8.2): an empty name loads the next
   file, as the ROM does; a name no file has plays the first `.tap` whose
-  first header carries it; the end of a tape rewinds once.
+  first header carries it; the end of a tape rewinds once. At the end a
+  second time, or with no tape to play, the emulator presses the reset
+  button (the ROM's warm start, program kept) and the status line names
+  the file not found, where the real machine and EL §8.2 would leave the
+  ROM waiting for a signal: the owner found the wait read as a hang
+  (2026-10-09).
 - A **`.tap` holds several files**; the deck keeps a position and plays on
   from it, as a recorder would.
 - **Tested** by running the ROM's own routine with only the byte-level
@@ -1579,8 +1585,8 @@ date, in this table when it changes.
 | AY counters | count up to the period, act, start again from 0; tone and noise period 0 = 1; noise LFSR 17 bits, bit 0 XOR bit 3 in, shifting every second noise period; envelope a step every 2·EP ticks, EP 0 twice as fast as 1; RESET: counts 0, LFSR 1, shape 0 | data manual; MAME's `ay8910.cpp` | medium, 2026-10-08 (M8). The frequencies are the data manual's (`f = 1 MHz / 16 TP`, `/ 16 NP`, `/ 256 EP`), and PING and a MUSIC scale measured off the output agree with them to 1 part in 10⁶ (`test_audio_rom`). The rest is MAME's, which says it rests on the die and on measurements: counting up rather than down, period 0, the LFSR's taps and the envelope's period 0. On a period shortened below the count, MAME subtracts the period until it is below it, toggling each time; `ay8912.c` acts once and starts from 0, reading MAME's own description ("counts up from 0 until the counter becomes greater or equal to the period"). Only a program that rewrites periods faster than they run can tell |
 | AY tick phase | ticks at cycles that are multiples of 8, counted from power-on | none | low, 2026-10-08 (M8). The chip divides its clock by 8 internally, in a phase no program can read; the choice moves every event by at most 7 µs |
 | RND seed from zeroed RAM | | ROMs, executed | **settled** 2026-10-08: the seed is the ROM's, not RAM's. Both ROMs give `.270011996`, `.139756248`, `.690102028` for the first three `RND(1)` after every power-on, however long the machine idles first (`test_boot`). Zeroed RAM does not stick it, and nothing needs seeding |
-| Tape routines (each ROM) | | ROMs, read and executed | read 2026-10-08, to execute in M10. 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0 |
-| `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | medium-high |
+| Tape routines (each ROM) | | ROMs, read and executed | **settled** 2026-10-08 (M10, `test_tape`). Read: 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`, clean-up `#E93D` / `#E804`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0. The trap's four steps, from the routines that call these: find a header `#E4AC` / `#E4B2`, read the data `#E4E0` / `#E4EB`, write the header `#E607` / `#E57B`, write the data `#E62E` / `#E5A7` (tape.c has their variables). Executed on all four machines: the ROM's own save, the ROM with only these byte routines hooked, and the trap leave the same machine at the clean-up, fast and slow; a find wants a `#16` and three more, starting over on any other byte |
+| `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | **settled** 2026-10-08 by execution (M10): the header in tape order is two unused bytes, the type (`#00` BASIC, `#80` code, bit 6 an array, which 1.1's CLOAD passes over), autorun, end and start addresses high byte first, one unused byte; 1.1 stores it from `#02B0` down, 1.0 from `#66` down. The data runs from start to end inclusive, one byte if the end is below the start (both ROMs' loops). The trap's file equals, byte for byte, what the ROM's own byte routine writes after its leader (`test_tape`); the leader is four `#16`s, as Oricutron writes, which reads three or more |
 | Tape bit timings, fast and slow | | ROM's T1 writer, counted and executed | to find in M13 |
 | Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13 |
 | Microdisc control/status bits | | Microdisc schematic; EPROM and Sedoric, read | low |
