@@ -71,6 +71,18 @@ on the PicoCalc's own keyboard, and the status line's deck, by the
 owner; `boot_tape` and PICO_ORIC_BOOT_TAPE on the board; a save to a
 full card. **Left for M13:** fast tape off, which the Setup row keeps
 and which does nothing yet: the trap serves either way.
+**Review fixes** (Codex's review of PR #10, 2026-10-09). Two findings,
+both taken. (1) With the deck empty, a CLOAD's name was matched against
+16 bytes of a longer header name for both ROMs, and the tape put in the
+deck; only 1.1 keeps 16 bytes of a name off tape, and 1.0, which keeps
+it all, rejects it, so that tape would stand in the deck unable to
+answer. The match now takes the ROM's own count. Settled by execution in
+`test_tape`: `CLOAD"OTHER WITH A LON"` against `OTHER WITH A LONG NAME`
+loads in 1.1 and is passed over in 1.0, on all four machines; with 15
+characters both pass it over. (2) A file name too long for a path of
+`ORIC_PATH_MAX` was listed, and searched, under a cut path that opens
+nothing; it is now skipped, and the list logs it. Not checked on the
+board: neither case is on the card.
 
 **M9, menu and settings** (`src/core/settings.*`, `shot.*`, `status.*`;
 `src/port/menu.*`, `park.*`, `settingsio.*`, `shotio.*`, `card.*`,
