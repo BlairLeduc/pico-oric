@@ -64,6 +64,13 @@ typedef struct {
 void pcm_init(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t cpu_hz,
               uint32_t rate_num, uint32_t rate_den);
 
+/* A new rate, from a sample starting at `now`, as pcm_init takes it.
+ * Everything else is kept: the level, the DC blocker's state, and the
+ * samples not yet drained, in place (no copy, and nothing on the stack:
+ * the device's main stack is 2 KiB). */
+void pcm_set_rate(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t cpu_hz,
+                  uint32_t rate_num, uint32_t rate_den);
+
 /* The guest's clock jumped (a power-on, or from M11 a state restored):
  * the next sample starts at `now`. The rate, the level, the DC blocker's
  * state and the samples not yet drained are kept. */

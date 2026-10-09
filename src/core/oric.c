@@ -255,18 +255,9 @@ uint32_t ORIC_HOT2(oric_run_field)(oric_t *m) {
 void oric_audio_set_rate(oric_t *m, uint32_t rate_num, uint32_t rate_den) {
     pcm_t *p = &m->pcm;
     ay8912_advance(&m->ay, m->cpu.cycles, p);
-    /* pcm_init starts the stream again: keep what is waiting, and the
-     * DC blocker as it is, so the change makes no step. */
-    int16_t keep[ORIC_AUDIO_BUF_LEN];
-    size_t n = pcm_drain(p, keep, ORIC_AUDIO_BUF_LEN);
-    bool dc_block = p->dc_block;
-    int32_t hp_x = p->hp_x, hp_y = p->hp_y;
-    pcm_init(p, (uint32_t)m->cpu.cycles, AY_LEVEL_MAX, ORIC_CPU_HZ, rate_num, rate_den);
-    p->dc_block = dc_block;
-    p->hp_x = hp_x;
-    p->hp_y = hp_y;
-    memcpy(p->buf, keep, n * sizeof(keep[0]));
-    p->count = (uint32_t)n;
+    /* What is waiting and the DC blocker stay as they are, so the
+     * change makes no step. */
+    pcm_set_rate(p, (uint32_t)m->cpu.cycles, AY_LEVEL_MAX, ORIC_CPU_HZ, rate_num, rate_den);
     ay8912_set_average(&m->ay, p->num, p->den);
     p->level = ay8912_level(&m->ay);
 }

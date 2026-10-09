@@ -22,6 +22,12 @@ static uint64_t gcd64(uint64_t a, uint64_t b) {
 void pcm_init(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t cpu_hz,
               uint32_t rate_num, uint32_t rate_den) {
     memset(p, 0, sizeof(*p));
+    p->dc_block = true;
+    pcm_set_rate(p, now, level_max, cpu_hz, rate_num, rate_den);
+}
+
+void pcm_set_rate(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t cpu_hz,
+                  uint32_t rate_num, uint32_t rate_den) {
     if (rate_num == 0 || rate_den == 0 || cpu_hz == 0) {
         rate_num = ORIC_AUDIO_RATE_NUM;
         rate_den = ORIC_AUDIO_RATE_DEN;
@@ -53,9 +59,7 @@ void pcm_init(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t cpu_hz,
     p->level_max = level_max;
     uint64_t whole = num * level_max;
     p->scale = (((uint64_t)PCM_FULL_SCALE << 32) + whole / 2u) / whole;
-
-    p->start = now;
-    p->dc_block = true;
+    pcm_restart(p, now);
 }
 
 void pcm_restart(pcm_t *p, uint32_t now) {

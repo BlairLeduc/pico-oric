@@ -300,7 +300,31 @@ static int test_envelope(void) {
     return 0;
 }
 
+/* A new rate keeps what is waiting in place, the level and the DC
+ * blocker (pcm_set_rate; oric_audio_set_rate at boot). */
+static int test_set_rate(void) {
+    pcm_t p;
+    pcm_init(&p, 0, 100, 0, 0, 0);
+    p.level = 100;
+    pcm_advance(&p, 2000);
+    uint32_t n = p.count;
+    int16_t first = p.buf[0], last = p.buf[n - 1];
+    int32_t hp_x = p.hp_x, hp_y = p.hp_y;
+    pcm_set_rate(&p, 2000, 100, 1000000u, 48000u, 1u);
+    CHECK(n > 50u && p.count == n && p.buf[0] == first && p.buf[n - 1] == last,
+          "a new rate lost the %u samples waiting (%u left)", n, p.count);
+    CHECK(p.level == 100u && p.dc_block && p.hp_x == hp_x && p.hp_y == hp_y,
+          "a new rate reset the level or the DC blocker");
+    CHECK(p.num == 125u && p.den == 6u, "1 MHz at 48 kHz is 125/6 cycles, got %u/%u", p.num,
+          p.den);
+    /* At the new rate, from 2,000: 48 samples in the next 1,000 cycles. */
+    pcm_advance(&p, 3000);
+    CHECK(p.count == n + 48u, "%u samples at the new rate, want 48", p.count - n);
+    return 0;
+}
+
 int main(void) {
+    if (test_set_rate()) return 1;
     if (test_model()) return 1;
     if (test_envelope()) return 1;
     TEST_DONE();
