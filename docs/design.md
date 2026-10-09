@@ -254,7 +254,7 @@ measurements beside them where it made one (EL §14.4):
 | Guest instructions per second | ~250–290 k | 1 MHz at a mean 3.5–4 cycles per instruction | 308–320 k: 3.13–3.25 cycles per instruction (the bench's programs, not the ROM's) |
 | 6502 alone | 26–42 % of core 0 | the two lines above | 29.2–30.0 %, with the VIA's countdown tick |
 | VIA (countdown ticks, EL §3.4) | 1–3 % | pico-atom's VIA after its countdown rewrite | in the line above |
-| AY synthesis (§8) | 1–4 % | work per edge, not per sample; ultrasonic tones averaged | |
+| AY synthesis (§8) | 1–4 % | work per edge, not per sample; ultrasonic tones averaged | M8, with core 1 presenting: **1.8 points** on §14's sound workload (34.8 % against 33.0 % with synthesis stubbed, 7,248 events a second), 0.1 at idle |
 | ULA mode scan (§7.4) | ≤ 1 % | 8,960 byte tests a field | |
 | Field snapshot copy, 10 KiB | < 0.2 % | one `memcpy` at field end | |
 | **Whole machine** | **~35–50 % of core 0** | pico-atom's whole machine at 1 MHz measured 35–46 % | projected **~30–35 %** |
@@ -284,6 +284,18 @@ and the interpreter in flash pays for that on every workload. The ROM's
 own code ran 3.19 (compute) to 3.80 (idle) cycles per instruction. The
 perf line cost nothing measurable. **Decided 2026-10-08 (owner): tier 2
 is the firmware's default.** M12 measures again with audio.
+
+**Measured with audio (M8, 2026-10-08).** Paced on the audio queue, the
+same board and tier 2, one boot each: idle 29.0 %, the sound workload
+34.8 %, scrolling at 60 Hz 32.8 %. In the same sitting the timer's pacing
+(`PICO_ORIC_AUDIO=OFF`) read 27.8 % and 33.8 %, and a build with the AY's
+synthesis stubbed 28.9 % and 33.0 %: the synthesis costs 1.8 points where
+it works hardest and nothing at idle. The audio path's own cost, the
+refill IRQ and the queue, is below what one boot each resolves: 1.1 points
+at idle (stub against timer), but the timer's build read 0.8 above the
+stub's on the sound workload. At idle it shows in host cycles per
+instruction (157.7 against 163.7) rather than in its own code, as EL §6.3
+found on the Ace.
 
 **Core 1's budget.** A full 240×224 present is 53,760 pixels: by scaling
 HW §4.7's measured 11.48 ms for 256×192, about **12.6 ms** (estimate). The
@@ -767,6 +779,28 @@ what that does to short notes (pico-logo `sound-design.md` §6). On the AY,
 a fast envelope is itself a waveform (the "buzzer" timbre games use), so
 every step is an event.
 
+**As built (M8)**: `ay8912.c` keeps, for each of the five generators (three
+tones, the noise, the envelope), the tick at which it next acts and its
+period in ticks, a tick being eight cycles at a multiple of 8 (§16). The
+counters are MAME's account of the chip: each counts up and acts when its
+count reaches its period, then starts again from 0; a period of 0 is 1;
+the noise flips a prescaler and the LFSR shifts every second time; the
+envelope steps every `2·EP` ticks, `EP = 0` being twice as fast as 1. A
+write stamped at a cycle acts before that cycle's tick. `ay8912_advance`
+runs from event to event through only the generators the level depends
+on (a tone on a channel that can sound, the noise if a channel takes it,
+the envelope if a channel follows it and it is not holding), handing each
+new level to `pcm.c`, pico-ace's beeper generalised from a bit to a level;
+the rest are caught up by arithmetic, the LFSR fourteen shifts at a time,
+when next they matter. A write to port A, which every keyboard scan makes,
+does not wake the generators. Tones with `TP` below `⌈num / 8·den⌉`, 4 at
+2,048/75 cycles a sample, are averaged. Against the cycle-stepped model
+(§8.5), the stepped path equals it on every sample; the averaged one
+differs sample by sample by the alias it removes, up to 5,134 of 32,767,
+and through a 64-sample (1.7 ms) average by at most 109 with tones alone
+and 206 with noise or a fast envelope ticking in step with them: a change
+of level lands somewhere in a half period the mean cannot know.
+
 ### 8.3 Volume and mixing
 
 The AY's volume is logarithmic, about 3 dB a step at the top and flattening
@@ -777,12 +811,32 @@ pico-logo's lessons apply as stated there: fix headroom by construction
 setting a multiply after the mix. The Oric is mono; both ears get the same
 sample.
 
+**As built (M8)**: the table is Matthew Westcott's measurement of an
+AY-3-8912's sixteen levels (§16, §19), as millivolts above level 0: 0, 15,
+22, 31, 45, 66, 91, 152, 189, 310, 426, 560, 735, 913, 1,173 and 1,433. A
+channel high contributes twice its level's figure (so that an averaged
+tone's half is exact), the three are summed, and `pcm.c` scales the sum so
+that all three at level 15, held, is 32,767 before the DC blocker; the
+blocker's output for an input in `[0, M]` stays in `[-M, M]`, so nothing
+wraps. One channel at 15 is a square of ±5,461 once blocked, and reaches
+the PWM at ±170 of its 1,024 at full volume. The volume is the port's
+multiply, `audio_set_volume`, from M9's menu.
+
 ### 8.4 Plumbing and pacing
 
 pico-ace's `audio.c` as it is (EL §6.2, §6.3): chained DMA, the PCM queue,
 pacing core 0 on the queue, PCM underruns and late refills counted
 separately, muted still consumes. The samples per field follow the field's
 length, 50 or 60 Hz, through the rational period, with no special case.
+
+**As built (M8)**: `src/port/audio.*` is pico-ace's, renamed. Core 0 drains
+the field's samples after the snapshot and pushes them, and the push
+blocks while the queue is full; `PICO_ORIC_AUDIO=OFF` builds the timer's
+pacing instead, the control for audio's cost. The heartbeat's audio line
+carries the samples consumed a second, the queue, both counters, the
+pcm's own overflow, the AY's events a second and its register writes (the
+keyboard scan's to port A among them, about 270 a second); the perf line
+carries the two counters as `UR`.
 
 ### 8.5 Tests
 
@@ -798,6 +852,23 @@ length, 50 or 60 Hz, through the rational period, with no special case.
   port, which must not move the output.
 - **A host test that hears the engine** (pico-logo's lesson): it compiles
   the port's refill path on the host and reads the ring the DMA would play.
+
+As built (M8): `test_audio` (no ROM) runs 100 random scripts against the
+model (`ay_model.h`), with long silences for the arithmetic catch-up, and
+all sixteen shapes, stepped and caught up in one jump, against the data
+manual's drawings as MAME transcribes them; its controls are the model with every write a tick
+late and a shape against its neighbour's drawing, both of which must fail.
+`test_audio_rom` boots each ROM a step at a time from power-on, logs every
+write with its stamp, types `PING`, `SHOOT`, `EXPLODE`, `ZAP` and `MUSIC`
+with the ROM's own key clicks, and holds every sample since power-on to
+the model; measures PING (`TP` 24, 2,604.167 Hz) and a twelve-note `MUSIC`
+scale off the output; and checks that two seconds at the prompt, with the
+scan writing port A throughout, leave the output flat, with PING in the
+same window as the control. `test_audio_port` builds `src/port/audio.c`
+against `test/host/sdk_sim/`, whose DMA reads the ring as the hardware
+does, and finds every pushed sample in it, twice, at the AY's pitch; then
+the queue run dry, an IRQ held past its deadline (three late refills, as
+EL §6.4 found on the board, and playback on), mute and the volume.
 
 ---
 
@@ -1503,8 +1574,10 @@ date, in this table when it changes.
 | ROM character set | the ROM copies a table into `#B400` | ROMs, read and executed | **settled** 2026-10-08 (M4, `test_font`): 96 glyphs from space, at `#FC70` in 1.0 and `#FC78` in 1.1, each ending where the key table begins, and identical in the two ROMs; both copy them to `#B500–#B7FF` and do not write `#B400–#B4FF` (the attribute codes), which holds `#55` after boot. The alternate set at `#B800` is built by code, differently: 1.0 writes rows such as `#F0`/`#0F`, 1.1 `#38`/`#07`. `font_from_rom` expands the table |
 | Wait states | none | schematic; ULA documentation | medium-high. Brown: the CPU and the ULA take the two halves of each 1 µs cycle (the CPU's share as of a 1.5 MHz clock, hence a 2 MHz 6502A); BN0130 shows RDY tied high; the service manual's waveform shows the ULA's 1 MHz output (pin 14) high for 33 % of each microsecond |
 | AY clock | 1 MHz | schematic | high |
-| AY volume table | measured, ~3 dB steps | a cited measurement of the 8910/8912 | medium |
-| Oric's AY mix and output filter | three channels summed, mono | schematic | medium |
+| AY volume table | measured, ~3 dB steps | a cited measurement of the 8910/8912 | medium-high, 2026-10-08 (M8): Matthew Westcott's voltages for an AY-3-8912's sixteen levels, channel C held high by the mixer, measured in a Spectrum 128 and placed by him in the public domain (comp.sys.sinclair, December 2001; quoted in MAME's `ay8910.cpp`): 1.147 to 2.58 V, about 3 dB a step at the top. `ay8912.c` takes each level's height above level 0. A measurement of the part under another machine's load, not the Oric's |
+| Oric's AY mix and output filter | three channels summed, mono | schematic | medium-high, 2026-10-08 (M8): the service manual (§3, p. 16) says IC4's current output is converted to a voltage by R4 and attenuated by R2 and R3 into the LM386 (gain 20); its sound-fault test (p. 31) probes IC4's pins 1, 4 and 5, the three channels, for ZAP's 0 to 800 mV pulses. BN0130 shows the three pins tied to one node, loaded by R4 (about 1 kΩ, a poor scan), with C5 (10 nF) across the divider and C4 coupling it to the amplifier. Summed, so mono; `ay8912.c` sums linearly, which a shared load does not quite do, and leaves out the first-order roll-off near the top of the band |
+| AY counters | count up to the period, act, start again from 0; tone and noise period 0 = 1; noise LFSR 17 bits, bit 0 XOR bit 3 in, shifting every second noise period; envelope a step every 2·EP ticks, EP 0 twice as fast as 1; RESET: counts 0, LFSR 1, shape 0 | data manual; MAME's `ay8910.cpp` | medium, 2026-10-08 (M8). The frequencies are the data manual's (`f = 1 MHz / 16 TP`, `/ 16 NP`, `/ 256 EP`), and PING and a MUSIC scale measured off the output agree with them to 1 part in 10⁶ (`test_audio_rom`). The rest is MAME's, which says it rests on the die and on measurements: counting up rather than down, period 0, the LFSR's taps and the envelope's period 0. On a period shortened below the count, MAME subtracts the period until it is below it, toggling each time; `ay8912.c` acts once and starts from 0, reading MAME's own description ("counts up from 0 until the counter becomes greater or equal to the period"). Only a program that rewrites periods faster than they run can tell |
+| AY tick phase | ticks at cycles that are multiples of 8, counted from power-on | none | low, 2026-10-08 (M8). The chip divides its clock by 8 internally, in a phase no program can read; the choice moves every event by at most 7 µs |
 | RND seed from zeroed RAM | | ROMs, executed | **settled** 2026-10-08: the seed is the ROM's, not RAM's. Both ROMs give `.270011996`, `.139756248`, `.690102028` for the first three `RND(1)` after every power-on, however long the machine idles first (`test_boot`). Zeroed RAM does not stick it, and nothing needs seeding |
 | Tape routines (each ROM) | | ROMs, read and executed | read 2026-10-08, to execute in M10. 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0 |
 | `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | medium-high |
@@ -1607,7 +1680,11 @@ To obtain and record (with revision or date) before transcribing constants:
   best source for the matrix, tape routines, key timing and system
   variables (EL §14.2).
 - **GI AY-3-8910/8912 data manual**: registers, periods, envelope shapes;
-  and a measured volume table.
+  and a measured volume table. *Not yet obtained (M8):* the register masks,
+  the frequency formulas and the shapes' table were taken as MAME's
+  `ay8910.cpp` (BSD-3-Clause, read 2026-10-08) states and transcribes them,
+  and checked by executing the ROMs' sounds; the volume table is Matthew
+  Westcott's measurement, quoted there (§16).
 - **MOS/Rockwell 6522 datasheet**: as pico-atom used.
 - **Microdisc schematic**, **WD1793 datasheet**, the **Microdisc EPROM** and
   **Sedoric**, read for register use. *Obtained 2026-10-08:* the Oric

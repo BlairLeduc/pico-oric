@@ -1,8 +1,9 @@
 /* core0.c — core 0's loop: the guest (design.md §4.3, §11.1, §14).
  *
- * pico-ace's loop, renamed, on the timer's pacing: audio (M8), the park
- * and the menu (M9) and the tape (M10) are left out, each marked where
- * it will go.
+ * pico-ace's loop, renamed, paced on the audio queue (M8), or with
+ * PICO_ORIC_AUDIO=OFF on the timer, the control for audio's cost. The
+ * park and the menu (M9) and the tape (M10) are left out, each marked
+ * where it will go.
  */
 
 #include "core0.h"
@@ -14,6 +15,7 @@
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
 
+#include "audio.h"
 #include "card.h"
 #include "handoff.h"
 #include "kbd.h"
@@ -24,9 +26,11 @@
 /* The heartbeat's period (design.md §14). */
 #define HEARTBEAT_US 5000000u
 
+#if !PICO_ORIC_AUDIO
 /* A field this far behind its deadline is not caught up: the schedule
  * starts again from now, and the slip is counted (EL §6.3). */
 #define SLIP_US 60000u
+#endif
 
 /* FS, which no key sends, asks for the screen as text in the log
  * (tools/uart-screen.sh), so a run driven over the UART can read back
@@ -164,14 +168,21 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     const uint32_t clk_mhz = clock_get_hz(clk_sys) / 1000000u;
     /* main() powered the guest on just before this (main.c). */
     const uint32_t power_on_us = time_us_32();
-    uint32_t late = 0, slips = 0;
-
+    uint32_t late = 0, slips = 0;   /* the timer's pacing; 0 on audio */
+#if PICO_ORIC_AUDIO
+    /* A field's samples, drained after it and pushed to the queue. */
+    static int16_t pcm[ORIC_AUDIO_BUF_LEN];
+    audio_stats_t au_last;
+    audio_stats(&au_last, true);
+    uint32_t hb_events = m->ay.events;
+#else
     /* The schedule: the field that starts after `sched_cycles` guest
      * cycles is due at sched_us plus their duration, worked out from the
      * cycle count each time, so neither the rounding nor the 50/60 Hz
      * choice accumulates (EL §6.3). */
     uint64_t sched_us = time_us_64() + 1000u;   /* the first field on time */
     uint64_t sched_cycles = 0;
+#endif
 
     window_t hb, sec;
     window_start(&hb, m, late);
@@ -180,8 +191,10 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     bool ready = false;
 
     for (;;) {
+        uint64_t now;
+#if !PICO_ORIC_AUDIO
         uint64_t due = sched_us + sched_cycles * 1000000u / ORIC_CPU_HZ;
-        uint64_t now = time_us_64();
+        now = time_us_64();
         if (now < due) {
             /* Core 0's own alarm: sleeping here interrupts nothing. */
             sleep_until(from_us_since_boot(due));
@@ -193,6 +206,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                 sched_cycles = 0;
             }
         }
+#endif
 
         /* M9: between two fields is the one place the guest parks
          * (§4.5), and the windows start again after it. */
@@ -212,7 +226,11 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         uint32_t t_run = time_us_32();
         uint32_t ran = oric_run_field(m);
         uint32_t run_us = time_us_32() - t_run;
+#if PICO_ORIC_AUDIO
+        (void)ran;
+#else
         sched_cycles += ran;
+#endif
         if (hz60) fields60++;
 
         /* Boot time to the prompt, from reset (§15.2 M7). */
@@ -254,9 +272,18 @@ void core0_run(oric_t *m, keymatrix_t *k) {
             }
             pool_publish(i);
         }
-        /* M8: the field's samples into the audio queue, which then paces. */
-
+#if PICO_ORIC_AUDIO
+        size_t n = oric_audio_drain(m, pcm, ORIC_AUDIO_BUF_LEN);
+#endif
         uint32_t busy = time_us_32() - t_busy;
+#if PICO_ORIC_AUDIO
+        /* Blocks while the queue is full: this is the throttle, on the
+         * PWM wrap, which shares clk_sys with nothing that drifts (EL
+         * §6.3). The conversion to compare words inside is not counted
+         * as busy; it is ~731 short loops a field. M10: turbo tops the
+         * queue up with silence instead, never blocking (EL §9.3). */
+        audio_push(pcm, n);
+#endif
         hb.run_us += run_us;
         sec.run_us += run_us;
         hb.busy_us += busy;
@@ -270,6 +297,12 @@ void core0_run(oric_t *m, keymatrix_t *k) {
             /* How many times real time the guest would run unpaced. */
             g_c0.head100 = (uint32_t)(cyc * 100u * 1000000u / ORIC_CPU_HZ / (sec.run_us + 1u));
             g_c0.hz = hz60 ? 60u : 50u;
+#if PICO_ORIC_AUDIO
+            audio_stats_t sec_au;
+            audio_stats(&sec_au, false);
+            g_c0.underruns = sec_au.underrun_samples;
+            g_c0.late_refills = sec_au.late_refills;
+#endif
             __dmb();
             g_c0.seconds++;
             window_start(&sec, m, late);
@@ -325,6 +358,30 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        hpi_s, cpi_s, (unsigned long long)insns, (unsigned long)fields,
                        hz60 ? 60u : 50u, take_s, (unsigned long)hb.scan_us,
                        (unsigned long)hb.scan_max_us, scan_s);
+#if PICO_ORIC_AUDIO
+            /* The consumed-sample rate against the microsecond timer is
+             * the control quantity: it is the PWM wrap, measured, and it
+             * must not move whatever the guest does (EL §6.3, §14). */
+            audio_stats_t au;
+            audio_stats(&au, true);
+            uint32_t rate = (uint32_t)((uint64_t)(au.consumed - au_last.consumed) *
+                                       1000000u / (wall + 1u));
+            uint32_t events = m->ay.events - hb_events;
+            log_printf("  audio        : %lu Hz consumed, queue %lu (low %lu), "
+                       "underrun samples %lu (+%lu), late refills %lu (+%lu), "
+                       "core overflow %lu, AY events %lu/s, AY writes %lu%s\n",
+                       (unsigned long)rate, (unsigned long)au.level,
+                       (unsigned long)au.low_water,
+                       (unsigned long)au.underrun_samples,
+                       (unsigned long)(au.underrun_samples - au_last.underrun_samples),
+                       (unsigned long)au.late_refills,
+                       (unsigned long)(au.late_refills - au_last.late_refills),
+                       (unsigned long)m->pcm.overflow,
+                       (unsigned long)((uint64_t)events * 1000000u / (wall + 1u)),
+                       (unsigned long)m->ay.writes, au.started ? "" : " (not started)");
+            au_last = au;
+            hb_events = m->ay.events;
+#endif
             window_start(&hb, m, late);
         }
     }

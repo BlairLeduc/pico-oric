@@ -2,6 +2,7 @@
 # system compiler and no Pico SDK. One binary per area; exit 77 is a skip.
 
 set(PICO_ORIC_HOST_TESTS
+    test_audio
     test_ay8912
     test_bus
     test_field
@@ -58,7 +59,7 @@ target_compile_options(pico_oric_guest PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(pico_oric_guest PRIVATE
     PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
 
-foreach(t test_boot test_font test_keyboard test_romset)
+foreach(t test_audio_rom test_boot test_font test_keyboard test_romset)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_oric_guest)
     target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
@@ -66,6 +67,7 @@ foreach(t test_boot test_font test_keyboard test_romset)
     add_test(NAME ${t} COMMAND ${t})
     set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77)
 endforeach()
+target_link_libraries(test_audio_rom PRIVATE m)
 
 # Our own test ROM (§13.3), assembled when cc65 is on the path, as CI
 # installs it. Without it test_test_rom reports skipped.
@@ -104,3 +106,14 @@ target_compile_options(test_golden PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(test_golden PRIVATE
     PICO_ORIC_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
 add_test(NAME test_golden COMMAND test_golden)
+
+# The port's audio path, heard (design.md §8.5): src/port/audio.c itself,
+# built against sdk_sim/'s stand-ins for the SDK, whose DMA reads the ring
+# as the hardware does.
+add_executable(test_audio_port test_audio_port.c ${CMAKE_SOURCE_DIR}/src/port/audio.c
+    sdk_sim/sdk_sim.c)
+target_link_libraries(test_audio_port PRIVATE pico_oric_core m)
+target_include_directories(test_audio_port BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk_sim
+    ${CMAKE_SOURCE_DIR}/src/port ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_audio_port PRIVATE ${PICO_ORIC_WARNINGS})
+add_test(NAME test_audio_port COMMAND test_audio_port)

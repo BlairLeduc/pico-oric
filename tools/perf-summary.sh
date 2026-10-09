@@ -7,10 +7,13 @@
 # Averages the `perf` heartbeats taken after the program was started
 # (perf-run.sh records where that was), dropping the first, which
 # straddles the start. Core 0 busy is the share that counts: the guest,
-# the keys and the snapshot, without the pacing wait. rt is the control
-# until M8: it must read 1.000 in every row. Presents and dropped
-# snapshots are their growth over the averaged windows, from the last
-# heartbeat before them; the longest present is since boot.
+# the keys and the snapshot, without the pacing wait. rt must read 1.000
+# in every row; from M8, on a build with audio, so must the samples
+# consumed a second read the PWM's rate, 36,621 Hz, whatever the guest
+# does (EL §6.3), and the underrun samples and late refills are their
+# growth over the windows. Presents and dropped snapshots are their
+# growth over the averaged windows, from the last heartbeat before them;
+# the longest present is since boot.
 #
 # Adapted from pico-ace's.
 set -euo pipefail
@@ -59,11 +62,25 @@ for dir in "$@"; do
                 if (k == 1 || b > bmax) bmax = b
                 if (m > mmax) mmax = m
             }
+            / audio .*consumed/ {
+                if (n <= start + 1) { u0 = num("underrun samples [0-9]+", 17, 0)
+                                      l0 = num("late refills [0-9]+", 13, 0); next }
+                hz = num("[0-9]+ Hz consumed", 0, 12)
+                ev = num("AY events [0-9]+", 10, 0)
+                u1 = num("underrun samples [0-9]+", 17, 0)
+                l1 = num("late refills [0-9]+", 13, 0)
+                sev += ev; ka++
+                if (ka == 1 || hz < hmin) hmin = hz
+                if (ka == 1 || hz > hmax) hmax = hz
+            }
             END {
                 if (!k) { printf "%-14s %-9s no steady heartbeats\n", dir, w; exit }
                 printf "%-14s %-9s n=%d  busy %5.1f%% (%.1f-%.1f)  guest %5.1f%%  %6.1f host cyc/insn  %4.2f cyc/insn  %7.0f insns  snap %.2f%%  scan %.0f us (max %d)  rt %.3f-%.3f  presents +%d (full +%d, dropped +%d), max %d us\n",
                        dir, w, k, sb / k, bmin, bmax, sg / k, sc / k, st / k, si / k, ss / k,
                        sm / k, mmax, rmin, rmax, p1 - p0, f1 - f0, d1 - d0, mx
+                if (ka)
+                    printf "%-14s %-9s audio: %d-%d Hz consumed, underrun samples +%d, late refills +%d, AY events %.0f/s\n",
+                           dir, w, hmin, hmax, u1 - u0, l1 - l0, sev / ka
             }' "$log"
     done
 done

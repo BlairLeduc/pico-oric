@@ -19,6 +19,7 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 
+#include "audio.h"
 #include "board.h"
 #include "card.h"
 #include "core0.h"
@@ -158,7 +159,26 @@ int main(void) {
                g_boot.job.loaded_known ? "" : " (UNRECOGNISED)",
                (unsigned long)oric_field_cycles(&g_oric), (unsigned long)ORIC_CPU_HZ,
                (unsigned)PICO_ORIC_RAM_TIER);
-    /* M8: audio, last in bring-up order (hardware-notes.md §10). */
+
+    /* Audio last in bring-up order (hardware-notes.md §10), on core 0,
+     * whose IRQ the refill is, and after core 1's LCD has claimed its
+     * fixed DMA channel. The pcm takes the rate the PWM really has. */
+#if PICO_ORIC_AUDIO
+    audio_init();
+    uint32_t rate_num, rate_den;
+    audio_rate(&rate_num, &rate_den);
+    oric_audio_set_rate(&g_oric, rate_num, rate_den);
+    log_printf("  audio        : PWM GP26/GP27, %lu/%lu Hz (%lu.%02lu kHz), "
+               "%u cycles per %u samples, tones below TP %u averaged, ring %u slots, "
+               "queue %u\n",
+               (unsigned long)rate_num, (unsigned long)rate_den,
+               (unsigned long)(rate_num / rate_den / 1000u),
+               (unsigned long)(rate_num / rate_den % 1000u / 10u),
+               (unsigned)g_oric.pcm.num, (unsigned)g_oric.pcm.den, (unsigned)g_oric.ay.avg_tp,
+               (unsigned)ORIC_DMA_RING_SLOTS, (unsigned)ORIC_PCM_QUEUE_LEN);
+#else
+    log_printf("  audio        : off; pacing on the microsecond timer\n");
+#endif
 
     core0_run(&g_oric, &g_keys);
 }

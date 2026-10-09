@@ -8,7 +8,7 @@
  * the ROM socket, page #03's decode and the run loop. M3 wires the VIA to
  * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
- * sound arrives with M8.
+ * M8 the AY's sound, box-filtered into PCM a field at a time (§8).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -20,6 +20,7 @@
 #include "ay8912.h"
 #include "config.h"
 #include "m6502.h"
+#include "pcm.h"
 #include "romset.h"
 #include "ula.h"
 #include "via6522.h"
@@ -57,6 +58,10 @@ typedef struct oric_s {
     m6502_t   cpu;
     via6522_t via;
     ay8912_t  ay;
+
+    /* The AY's level as PCM (§8.2), drained by the port once a field
+     * with oric_audio_drain. Not the chip's state: RESET leaves it. */
+    pcm_t     pcm;
 
     /* The keyboard: a bit per column, set while the key is down, for
      * each of the eight rows PB0-PB2 select (§2.3, §2.4). */
@@ -153,6 +158,15 @@ void oric_io_changed(oric_t *m);
 /* Before an access to page #03 part-way into an instruction: tick the
  * VIA through the instruction's cycles before the access (§5.3). */
 void oric_via_catch_up(oric_t *m);
+
+/* The port's sample rate, as the exact fraction rate_num / rate_den Hz
+ * (§8.4). The samples not yet drained are kept. oric_init starts at the
+ * nominal ORIC_AUDIO_RATE. */
+void oric_audio_set_rate(oric_t *m, uint32_t rate_num, uint32_t rate_den);
+
+/* Move up to `max` samples of the fields run so far out, oldest first.
+ * Returns how many. oric_run_field brings the AY to the field's end. */
+size_t oric_audio_drain(oric_t *m, int16_t *dst, size_t max);
 
 /* Read a guest address as the CPU would, without its side effects: page
  * #03 reads as the open bus. For tests and the presenter. */

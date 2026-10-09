@@ -6,10 +6,11 @@
 #include "oric.h"
 
 /* Run the machine a field at a time for ever: keys first, then the
- * field, then the snapshot. Until M8 brings audio, pace on time_us_64()
- * against an absolute field deadline, so that a late field does not
- * accumulate (EL §6.3). Core 1 must be up: from here on core 0 logs only
- * through the ring. */
+ * field, then the snapshot, then the field's samples into the audio
+ * queue, which paces it (EL §6.3). With PICO_ORIC_AUDIO=OFF, pace on
+ * time_us_64() against an absolute field deadline instead, so that a
+ * late field does not accumulate. Core 1 must be up: from here on core 0
+ * logs only through the ring. */
 void core0_run(oric_t *m, keymatrix_t *k) __attribute__((noreturn));
 
 #endif /* PICO_ORIC_CORE0_H */

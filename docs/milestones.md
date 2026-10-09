@@ -4,6 +4,72 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M8, AY audio** (`src/core/ay8912.*`, `pcm.*`; `src/port/audio.*`,
+`core0.c`, `main.c`; `test_audio`, `test_audio_rom`, `test_audio_port`,
+`ay_model.h`, `test/host/sdk_sim/`), built 2026-10-08 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day. The AY's three tones, noise and
+envelope as event times on its ÷8 tick, run from event to event through
+only the generators the level depends on and caught up by arithmetic
+otherwise; tones with `TP` below 4 averaged; Westcott's measured volume
+table; pico-ace's beeper generalised into `pcm.c`; pico-ace's `audio.c`
+renamed, and core 0 paced on its queue, with `PICO_ORIC_AUDIO=OFF` the
+timer's control (design.md §8). **Checked on the host:** the core equals an
+independent cycle-stepped model on every sample of 100 random scripts
+(9,195,946 samples, 6,939,801 events with every tone stepped), the model
+with every write a tick late failing as the control; averaged tones differ
+by at most 109 of 32,767 through a 1.7 ms average with tones alone, 206
+with noise or a fast envelope; all sixteen envelope shapes, stepped and
+caught up in one jump, follow the data manual's drawings as MAME
+transcribes them, and shape 10 does not pass as 14. Both ROMs booted from
+power-on a step at a time, with PING, SHOOT, EXPLODE, ZAP and `MUSIC
+1,4,10,15` typed (each key's click included), equal the model on every
+sample since power-on with every tone stepped, and with averaging on all
+but ZAP, which sweeps its period up from 0 and stays within the averaged
+bound (74 and 70). PING (`TP` 24) measures 2,604.166 Hz (1.0) and 2,604.167
+Hz (1.1) off the output against 2,604.167 computed, and does not pass as
+`TP` 25; the twelve notes of a `MUSIC` scale in octave 3 (`TP` 238 to 126)
+match their computed pitch to the third decimal. Two seconds at the
+prompt, the scan writing port A throughout, leave the output flat; PING
+in the same window does not. `test_audio_port` builds `audio.c` against a
+simulated DMA and finds 71,919 pushed samples in the ring as their compare
+words, each twice and none wrong, at 1,008.065 Hz for `TP` 62; a sample
+out of step fails; a dry queue counts underruns and plays silence; an IRQ
+held past its deadline counts 3 late refills and playback carries on;
+muted still consumes; half volume scales. **Found on the way:** the
+simulated DMA must reload a channel's count on every trigger, as the
+RP2350 datasheet's TRANS_COUNT says, for `audio.c`'s late path to behave
+as EL §6.4 measured on the board; hardware-notes §5.3 says a chain trigger
+reloads neither address nor count, and the owner is asked which stands. A
+write held on the bus restarts no envelope: wire() runs after every VIA
+access, so the rule is a new write or new data under one. **Checked on
+the board:** the Atmos 48K reaches Ready at 2,476,042 cycles, as in M7;
+PING, SHOOT, EXPLODE, ZAP and a twelve-note scale typed over the UART ran
+with zero underruns and late refills. **Measured** (`out/m8/summary.txt`,
+`soak.txt`, `late.txt`), tier 2, one boot each, core 0 busy: idle 29.0 %,
+§14's sound workload (`MUSIC`, `SOUND` with noise, `PLAY` with an
+envelope, 7,248 AY events a second) 34.8 %, scrolling at 60 Hz 32.8 %;
+with the synthesis stubbed in the same sitting, 28.9 % and 33.0 %, so the
+AY costs **1.8 points** where it works hardest; on the timer's pacing,
+27.8 % and 33.8 %. Samples consumed a second, the control quantity:
+36,623–36,624 at 50 and at 60 Hz, the PWM's 36,621.09 to within the count's
+128-sample granularity. **Ten minutes** on the sound workload (121
+windows): zero underrun samples, zero late refills, rt 1.000, no snapshot
+dropped, no I²C error. **The late path forced** (a scratch build masking
+core 0's interrupts for 9 ms every 250 fields, as EL §6.4's): each stall
+counted 2 or 3 late refills and lost about three halves of samples
+(36,546 Hz consumed), with no underrun and no storm, and playback carried
+on; the guest, paced on what was consumed, ran at 0.997–0.998. The image
+is 102.6 KB of text and 180.1 KB of bss. **Not checked:** how any of it
+sounds, which is the owner's ear on the device (PING, ZAP, SHOOT, EXPLODE
+and a `MUSIC` scale); the pitch on the board off the speaker (the host
+measured it through the core and through `audio.c`'s ring); the loudness,
+a channel at 15 being ±170 of the PWM's ±1,024 at full volume (M9 brings
+the volume); the build without the UART; the 16K machines and BASIC 1.0
+on the board with sound.
+**By the owner's ear** on a Pico 2 W, 2026-10-08: the sound commands
+(PING, SHOOT, EXPLODE, ZAP) and the `MUSIC` scale work.
+
 **M7, the Oric on the device** (`src/port/core0.*`, `core1.c`, `main.c`,
 `handoff.*`, `display.*`, `card.*`, `roms.*`, `textpage.*`;
 `src/core/status.*`; `test_status`; `tools/perf-run.sh`,

@@ -12,10 +12,12 @@
 # the machine's ROM.
 #
 # Measured in the mode that ships, with core 1 presenting while the guest
-# runs. Until M8 the guest is paced on the microsecond timer, and the
-# heartbeat's rt is the control: it must read 1.000 in every row. Every
-# program was run on the host first (test/host's guest harness), and none
-# returns to the prompt.
+# runs. From M8 the guest is paced on the audio queue, unless the build
+# says PICO_ORIC_AUDIO=OFF (the timer, the control for audio's cost); the
+# heartbeat's rt must read 1.000 in every row, and with audio, so must
+# the samples consumed a second read the PWM's rate. Every program was
+# run on the host first (test/host's guest harness), and none returns to
+# the prompt.
 #
 # Adapted from pico-ace's, which typed Forth.
 set -euo pipefail
