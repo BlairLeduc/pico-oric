@@ -77,7 +77,7 @@ at a defined point in the field (§7).
 
 **Non-goals for the first release**, each argued in §17: RP2040 boards, the
 300 MHz host clock, Jasmin and Telestrat, the printer, joystick interfaces,
-the vertical-sync modification, mid-frame raster effects, scaling,
+mid-frame raster effects, scaling,
 monochrome, `.wav` tapes.
 
 **What makes the Oric a good fit.** Its CPU and its timer chip are parts
@@ -222,7 +222,7 @@ has the consequences.
 ### 2.6 What the Oric does not have
 
 No video interrupt and no vertical-sync flag a program can read (a common
-owner's modification wires one to CB1; §17). No sound beyond the AY. No
+owner's modification wires one to CB1; M16). No sound beyond the AY. No
 disc without an add-on. No wait states: the ULA and the CPU are believed to
 take alternate halves of each cycle (§6.5).
 
@@ -1154,7 +1154,7 @@ between the three emulators finds everything where it was.
   M14; until then the page says it is not in this firmware yet), Snapshots
   (slot, save, load, delete), Setup (status line, perf line, backlight,
   volume, keys, fast tape), Machine (**ROM** 1.0/1.1, **RAM** 16K/48K,
-  **Microdisc** off/on from M14, all staged and applied by *Apply and
+  **Microdisc** off/on from M14, **VSync hack** off/on from M16, all staged and applied by *Apply and
   restart*, with a warning that the program is lost), Reset, Save settings,
   About.
 - **F1** Tapes, **F2** Discs, **F3** Snapshots, **F4** Setup, **F5**
@@ -1287,7 +1287,7 @@ too.
 
 ## 15. Milestones
 
-Sixteen milestones, M0–M15, each small enough to finish and check in a few
+Seventeen milestones, M0–M16, each small enough to finish and check in a few
 sittings. Each one ends with something that runs and something measured,
 records date, board and what was *not* verified (EL §14.3), has done-when
 criteria checkable by a test or on the panel, and lists what it leaves out.
@@ -1314,13 +1314,18 @@ The record of each, as built, goes in `docs/milestones.md`, started at M0.
                                            │
                M12 perf, corpus & soak ──► M13 signal tape
                                                 │
-                              M14 Microdisc ──► M15 finish
+                                  ┌─────────────┴──────────┐
+                           M14 Microdisc         M16 vsync modification
+                                  │                        │
+                                  └──────► M15 finish ◄────┘
 ```
 
 M3–M5 need no board and run alongside M2 and M6. **M7 is the one that
 matters.** Against the Ace's order, the card moves forward into M6–M7,
 because the ROMs are on it; and disc is added as M14, after the soak, so
-the emulator is complete and soaked without it.
+the emulator is complete and soaked without it. The vertical-sync
+modification was added later as M16, numbered last so that M14 and M15
+keep their names, and placed after M13 because both put a signal on CB1.
 
 ### 15.2 The milestones
 
@@ -1549,7 +1554,7 @@ by whether Sedoric's `INIT` works on a blank image).
 
 #### M15. Finish
 
-*Depends on:* M14.
+*Depends on:* M14 and M16.
 *Build:* built-in game layouts and `/oric/keymaps/`; status and perf lines
 complete; the release build with no UART and SWD counters; `README.md` with
 the ROM names, hashes and sources; the release soak.
@@ -1558,6 +1563,34 @@ the release soak passes on battery with counters read over SWD; CI green on
 both builds; the build runs on a second board (Pico 2 W).
 *Measured:* the release build's core 0 share and image size.
 *Leaves out:* §17.
+
+#### M16. The vertical-sync modification
+
+*Depends on:* M13, which puts the tape's signal on CB1 first. Runs
+alongside M14.
+*Build:* the owner's modification that wires the ULA's vertical sync to
+the tape input, and so to CB1 (§2.3, §2.6), as a Machine-page row,
+**VSync hack** off/on, kept in the settings file. With it on, CB1 is the
+sync, not the tape: two edges a field, scheduled as VIA events like the
+player's (§5.3), placed from the first active line (§16). Until something
+better is found, the pulse follows Oricutron's `ula.c`: low 12 µs after its
+field wraps, for 260 µs. The signal tape (M13) is disconnected while the
+row is on, and the Tapes page says so; the trap (M10) does not read CB1
+and keeps working. Snapshots record the row and refuse the other setting
+by name (§10.6). `trace-diff.py` passes `--vsynchack on` to Oricutron.
+*Done when:* §16's first-active-line row is settled from a primary source
+(the ULA documentation, and the schematic for where the modification
+takes its sync), with how and when; a host test catches CB1's two edges
+at the expected cycles in both field lengths, and a control that moves one
+edge by a cycle fails; a test program that waits on the CB1 interrupt
+traces line for line against Oricutron with the hack on, on all four
+machines; with it off, the existing trace diffs and goldens are unchanged;
+a title from M12's corpus that uses it (found by enabling the CB1
+interrupt outside the ROM's tape routines) runs on the board, and the
+owner has seen it.
+*Measured:* core 0 with the hack on against off, in one sitting.
+*Leaves out:* mid-field raster effects (§17), which many such demos draw:
+the presenter still shows one snapshot per field.
 
 ---
 
@@ -1586,7 +1619,7 @@ date, in this table when it changes.
 | T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | **settled** 2026-10-08: both ROMs load T1's latch with `#2710` in free-run mode and enable T1 alone (`IER` = `#40`), so the period is 10,002 cycles (latch + 2), 99.98 Hz; `test_boot` counts 99–100 handler entries a second, and the service manual's waveform for the VIA's IRQ (pin 21, measured on an Atmos) shows a pulse every 10 ms, low for 25–30 µs. The IRQ vector points at page 2 (`#0244` in 1.1, `#0228` in 1.0) |
 | VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | **settled** 2026-10-08 from BN0130: the AY's RESET (pin 16) and the VIA's RST (pin 34) are on the 6502's RST line (pin 40), with the expansion's `RESET` (PL2 4); SW1, marked RESET, pulls the 6502's NMI (pin 6) to 0 V against R6. Executed the same day: NMI warm-starts both ROMs (screen cleared, program kept), RESET cold-starts them |
 | Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium. 50 Hz: Brown measured 64 µs lines and the counter resets at 312; Oricutron agrees. **60 Hz disputed**: Brown resets at 260 lines (16,640 cycles), Oricutron runs 264 ("260 + 4 VSync"). Configuration until measured (`oric_config_t`) |
-| First active line; active lines | ?; 224 | ULA documentation | low-medium. Brown: the picture is lines 0–223 of the counter, with blanking and sync after (sync 4 lines long); Oricutron centres the picture instead (from line 44 at 50 Hz). Software cannot see the counter; it matters for the vertical-sync modification and T1-timed raster tricks |
+| First active line; active lines | ?; 224 | ULA documentation | low-medium. Brown: the picture is lines 0–223 of the counter, with blanking and sync after (sync 4 lines long); Oricutron centres the picture instead (from line 44 at 50 Hz). Software cannot see the counter; it matters for the vertical-sync modification and T1-timed raster tricks. To settle in M16 |
 | When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | **bounded** 2026-10-08 (M4): Oricutron's `ula.c` and MAME's `oric.cpp` (`screen_update_oric`, read at `e4c1c2b`) agree: the attribute's own cell shows paper, the fetch moves to the new mode's line from the next cell, and the mode lasts across lines and into the next field. `ula.c` does the same, and the `mode_split` golden equals Oricutron's drawing of it. Two emulators, not hardware: medium |
 | When a 50/60 Hz change alters the field | the next field | ULA documentation | low. Oricutron applies the frequency bit at its raster's wrap, so a change drawn in one frame lengthens the next; `oric_run_field` scans each frame at the field's end and applies what it finds to the next field (`test_field`, M4). Nothing settles which line the wrap is on |
 | Attribute groups | §2.5 | Oric Advanced User Guide; ULA documentation; executed | medium-high. Oricutron and MAME decode the four groups by bits 4–3 alike, and both ROMs start each line with `#17 #00` (paper white, ink black), executed in M4 |
@@ -1625,7 +1658,7 @@ Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
 | Telestrat, Pravetz 8D | dropped | different machines, not configurations of these two |
 | Printer (Centronics on PA) | dropped | no known software dependency; PA and PB4 are modelled as the VIA's pins, unconnected |
 | Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the M12 corpus shows titles that read only a joystick |
-| The vertical-sync modification (sync to CB1) | deferred | an owner's modification some demos use; cheap to add as a setting once the first active line is settled |
+| The vertical-sync modification (sync to CB1) | M16 | an owner's modification some demos use; cheap to add as a setting once the first active line is settled, which M16 does first |
 | Mid-field raster effects | deferred | the snapshot is one point in the field (§7). A per-line record is the path if a known title needs it |
 | Undocumented 6502 opcodes | decided by M12's corpus | EL §4.2: evidence first |
 | Scaled display | dropped | 240×224 fits 1:1 (EL §5.4) |
