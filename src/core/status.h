@@ -7,9 +7,9 @@
  * write can mix two seconds, which shows for a second and is harmless.
  *
  * Copied from pico-ace and adapted: the Oric's line carries the field
- * rate where the Ace's carried the audio counters, which return with M8.
- * The status line's own text, the tape and the disc, arrives with M10
- * and M14.
+ * rate as well as the Ace's audio counters, which returned with M8. The
+ * status line's own text, the tape and the disc, arrives with M10 and
+ * M14.
  */
 #ifndef PICO_ORIC_STATUS_H
 #define PICO_ORIC_STATUS_H
@@ -24,12 +24,16 @@ typedef struct {
                                in hundredths                              */
     uint32_t present_us;    /* the longest present in the second (§7.3)   */
     uint32_t dropped;       /* snapshots dropped in the second            */
+    uint32_t underruns;     /* underrun samples since boot (§8.4)         */
+    uint32_t late;          /* late refills since boot                    */
     uint32_t hz;            /* the last field's rate, 50 or 60 (§11.1)    */
 } perf_line_t;
 
 /* The perf line's text, ORIC_TEXT_COLS characters space-padded and a
- * NUL: `C0 31% 3.20x  LCD 12.6ms  Drop 0  50Hz`. A figure too wide is
- * shown at its widest rather than pushing the rest off. */
+ * NUL: `C0 31% 3.20x  LCD 12.6ms  Drop 0  UR 0 0  50Hz`, UR being the
+ * underrun samples and the late refills. A figure too wide is shown at
+ * its widest rather than pushing the rest off, and the gaps close to one
+ * space when the counts have grown, so the last figure never goes. */
 void status_perf_format(const perf_line_t *p, char out[ORIC_TEXT_COLS + 1]);
 
 #endif /* PICO_ORIC_STATUS_H */

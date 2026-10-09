@@ -13,6 +13,7 @@ option(PICO_ORIC_HOST "Build the portable core and its host tests, with no Pico 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_ORIC_CORE_SOURCES
     src/core/ay8912.c
+    src/core/pcm.c
     src/core/bus.c
     src/core/font.c
     src/core/font_fallback.c
@@ -111,6 +112,16 @@ else()
         set(PICO_ORIC_UART_ON 0)
     endif()
 
+    # PICO_ORIC_AUDIO=OFF paces on the microsecond timer and leaves the PWM
+    # pins alone, the control for audio's cost; ON, the default, paces on
+    # the audio queue (design.md §8.4, EL §6.3).
+    option(PICO_ORIC_AUDIO "Sound on GP26/GP27, and pacing on its queue" ON)
+    if (PICO_ORIC_AUDIO)
+        set(PICO_ORIC_AUDIO_ON 1)
+    else()
+        set(PICO_ORIC_AUDIO_ON 0)
+    endif()
+
     # How much of the core's hot path runs from SRAM (src/core/hot.h),
     # measured in M2 and M7 (design.md §3.2): tier 2 from M7. A build
     # directory configured before keeps its cached 0 until it is passed
@@ -184,6 +195,7 @@ else()
 
     # The emulator (design.md §15.2 M7).
     add_executable(pico-oric
+        src/port/audio.c
         src/port/board.c
         src/port/card.c
         src/port/core0.c
@@ -230,10 +242,13 @@ else()
     else()
         target_compile_definitions(pico-oric PRIVATE PICO_ORIC_PERF_LINE=0)
     endif()
+    target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})
     target_link_libraries(pico-oric
         pico_oric_fatfs
         hardware_dma
         hardware_i2c
+        hardware_irq
+        hardware_pwm
         hardware_spi
         hardware_sync
         pico_multicore

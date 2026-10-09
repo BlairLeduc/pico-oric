@@ -42,6 +42,8 @@ static void map_rw(oric_t *m, unsigned first_page, unsigned last_page, uint32_t 
 void oric_init(oric_t *m, const oric_config_t *cfg) {
     memset(m, 0, sizeof(*m));
     m->cfg = *cfg;
+    pcm_init(&m->pcm, 0, AY_LEVEL_MAX, 0, 0, 0);
+    ay8912_set_average(&m->ay, m->pcm.num, m->pcm.den);
 
     map_open(m, 0x00u, 0xFFu);
 
@@ -76,6 +78,8 @@ void oric_power_on(oric_t *m) {
     m->budget = 0;
     m->fields = 0;
     m6502_init(&m->cpu);
+    /* The cycle count starts again, and the next sample with it. */
+    pcm_restart(&m->pcm, (uint32_t)m->cpu.cycles);
     oric_reset(m);
 }
 
@@ -98,7 +102,9 @@ static void ORIC_HOT1(wire)(oric_t *m) {
     via6522_t *v = &m->via;
 
     ay_bus_t mode = (ay_bus_t)((v->cb2 ? 2u : 0u) | (v->ca2 ? 1u : 0u));
-    ay8912_bus(&m->ay, mode, via6522_pa_out(v));
+    /* Inside an instruction the count is still its start, which is
+     * where a write is stamped (EL §6.1). */
+    ay8912_bus(&m->ay, mode, via6522_pa_out(v), m->cpu.cycles, &m->pcm);
     via6522_set_pa(v, m->ay.driving ? m->ay.bus_out : 0xFFu);
 
     uint8_t row = (uint8_t)(via6522_pb_out(v) & 7u);
@@ -133,7 +139,7 @@ void oric_reset(oric_t *m) {
     /* The VIA and the AY are on the reset line with the CPU (§6.3; §16
      * to confirm from the schematic). */
     via6522_reset(&m->via);
-    ay8912_reset(&m->ay);
+    ay8912_reset(&m->ay, m->cpu.cycles, &m->pcm);
     wire(m);
     m6502_set_nmi(&m->cpu, false);
     m6502_reset(&m->cpu, m);
@@ -236,6 +242,7 @@ uint32_t ORIC_HOT2(oric_run_field)(oric_t *m) {
     uint32_t done = want > 0 ? oric_run(m, (uint32_t)want) : 0;
     m->budget = want - (int32_t)done;
     m->fields++;
+    ay8912_advance(&m->ay, m->cpu.cycles, &m->pcm);
 
     /* The frame about to be drawn starts in the mode the last one left;
      * what it leaves sets the next field's length, from the next field
@@ -243,6 +250,20 @@ uint32_t ORIC_HOT2(oric_run_field)(oric_t *m) {
     m->frame_mode = m->ula_mode;
     m->ula_mode = ula_scan_mode(oric_video_window(m), m->frame_mode);
     return done;
+}
+
+void oric_audio_set_rate(oric_t *m, uint32_t rate_num, uint32_t rate_den) {
+    pcm_t *p = &m->pcm;
+    ay8912_advance(&m->ay, m->cpu.cycles, p);
+    /* What is waiting and the DC blocker stay as they are, so the
+     * change makes no step. */
+    pcm_set_rate(p, (uint32_t)m->cpu.cycles, AY_LEVEL_MAX, ORIC_CPU_HZ, rate_num, rate_den);
+    ay8912_set_average(&m->ay, p->num, p->den);
+    p->level = ay8912_level(&m->ay);
+}
+
+size_t oric_audio_drain(oric_t *m, int16_t *dst, size_t max) {
+    return pcm_drain(&m->pcm, dst, max);
 }
 
 const uint8_t *oric_video_window(const oric_t *m) {

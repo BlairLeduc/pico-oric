@@ -116,4 +116,29 @@
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */
 
+/* ---- Audio (design.md §8; EL §6; hardware-notes.md §5) ---------------- */
+
+#define ORIC_PWM_TOP          2047u  /* 11 bits, 73.2 kHz carrier          */
+#define ORIC_PWM_OVERSAMPLE      2u  /* each frame written twice           */
+
+/* The nominal sample rate as a fraction, 150,000,000 / 4,096 Hz, which
+ * makes a sample 2,048/75 cycles (§8.4). The port recomputes it from
+ * clock_get_hz(clk_sys) and hands the real one to oric_audio_set_rate;
+ * this is what a host build runs at. */
+#define ORIC_AUDIO_RATE_NUM  150000000u
+#define ORIC_AUDIO_RATE_DEN  ((ORIC_PWM_TOP + 1u) * ORIC_PWM_OVERSAMPLE)
+
+/* Samples the core holds between drains: a 50 Hz field is 731.25, a
+ * 60 Hz one 618.75. The port drains after every field (§8.4). */
+#define ORIC_AUDIO_BUF_LEN    1024u
+
+#define ORIC_PCM_QUEUE_LEN    1024u  /* SPSC, ~28 ms (EL §6.2)             */
+#define ORIC_PCM_QUEUE_START   768u  /* start streaming at this depth      */
+
+/* Power-of-two AND aligned, with the hardware read wrap (HW §5.3). At
+ * oversample 2 a frame is two slots; a half is 3.5 ms of sound. */
+#define ORIC_DMA_FRAMES_PER_HALF 128u
+#define ORIC_DMA_SLOTS_PER_HALF  (ORIC_DMA_FRAMES_PER_HALF * ORIC_PWM_OVERSAMPLE)
+#define ORIC_DMA_RING_SLOTS      (ORIC_DMA_SLOTS_PER_HALF * 2u)
+
 #endif /* PICO_ORIC_CONFIG_H */

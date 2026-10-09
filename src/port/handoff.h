@@ -91,6 +91,8 @@ typedef struct {
     uint32_t seconds;        /* windows closed; 0 until the first        */
     uint32_t busy1000;       /* core 0 outside the pacing wait, of wall  */
     uint32_t head100;        /* times real time it would run unpaced     */
+    uint32_t underruns;      /* underrun samples since boot (§8.4)       */
+    uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t hz;             /* the last field's rate, 50 or 60          */
 } core0_perf_t;
 

@@ -42,7 +42,8 @@ static void draw_perf(uint32_t present_max_us, uint32_t dropped) {
     if (g_ui.perf_line && g_c0.seconds) {
         perf_line_t p = {
             .busy1000 = g_c0.busy1000, .head100 = g_c0.head100,
-            .present_us = present_max_us, .dropped = dropped, .hz = g_c0.hz,
+            .present_us = present_max_us, .dropped = dropped,
+            .underruns = g_c0.underruns, .late = g_c0.late_refills, .hz = g_c0.hz,
         };
         status_perf_format(&p, text);
     }

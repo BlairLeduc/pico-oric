@@ -53,38 +53,41 @@ int main(void) {
     /* ---- the chip alone ------------------------------------------------ */
     {
         ay8912_t ay;
-        ay8912_reset(&ay);
-        ay8912_bus(&ay, AY_BUS_LATCH, 1);
-        ay8912_bus(&ay, AY_BUS_WRITE, 0xFF);
-        ay8912_bus(&ay, AY_BUS_INACTIVE, 0);
+        pcm_t pcm;
+        pcm_init(&pcm, 0, AY_LEVEL_MAX, 0, 0, 0);
+        memset(&ay, 0, sizeof ay);
+        ay8912_reset(&ay, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_LATCH, 1, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_WRITE, 0xFF, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_INACTIVE, 0, 0, &pcm);
         CHECK(ay.reg[1] == 0x0F, "a coarse tone period keeps four bits, got %02X", ay.reg[1]);
-        ay8912_bus(&ay, AY_BUS_READ, 0);
+        ay8912_bus(&ay, AY_BUS_READ, 0, 0, &pcm);
         CHECK(ay.driving && ay.bus_out == 0x0F, "a read drives the register onto the bus");
-        ay8912_bus(&ay, AY_BUS_INACTIVE, 0);
+        ay8912_bus(&ay, AY_BUS_INACTIVE, 0, 0, &pcm);
         CHECK(!ay.driving, "inactive leaves the bus alone");
 
         /* A select code other than 0000 in the high nibble deselects
          * the chip: writes and reads are ignored until a good latch. */
-        ay8912_bus(&ay, AY_BUS_LATCH, 0x12);
-        ay8912_bus(&ay, AY_BUS_WRITE, 0x55);
+        ay8912_bus(&ay, AY_BUS_LATCH, 0x12, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_WRITE, 0x55, 0, &pcm);
         CHECK(ay.reg[2] == 0, "#12 is not register 2");
         CHECK(ay.reg[1] == 0x0F, "a deselected chip took a write to register 1: %02X", ay.reg[1]);
-        ay8912_bus(&ay, AY_BUS_READ, 0);
+        ay8912_bus(&ay, AY_BUS_READ, 0, 0, &pcm);
         CHECK(!ay.driving, "a deselected chip drove the bus");
-        ay8912_bus(&ay, AY_BUS_LATCH, 1);
-        ay8912_bus(&ay, AY_BUS_WRITE, 0x03);
+        ay8912_bus(&ay, AY_BUS_LATCH, 1, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_WRITE, 0x03, 0, &pcm);
         CHECK(ay.reg[1] == 0x03, "a good latch selects it again");
-        ay8912_bus(&ay, AY_BUS_INACTIVE, 0);
+        ay8912_bus(&ay, AY_BUS_INACTIVE, 0, 0, &pcm);
 
         /* Port A: the register while the mixer says output, else the pins. */
-        ay8912_bus(&ay, AY_BUS_LATCH, AY_PORT_A);
-        ay8912_bus(&ay, AY_BUS_WRITE, 0x3C);
+        ay8912_bus(&ay, AY_BUS_LATCH, AY_PORT_A, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_WRITE, 0x3C, 0, &pcm);
         ay.port_a_in = 0xA5;
         CHECK(ay8912_port_a(&ay) == 0xA5, "port A as an input shows its pins");
-        ay8912_bus(&ay, AY_BUS_READ, 0);
+        ay8912_bus(&ay, AY_BUS_READ, 0, 0, &pcm);
         CHECK(ay.bus_out == 0xA5, "reading port A as an input reads the pins");
-        ay8912_bus(&ay, AY_BUS_LATCH, AY_MIXER);
-        ay8912_bus(&ay, AY_BUS_WRITE, AY_MIXER_IOA_OUT);
+        ay8912_bus(&ay, AY_BUS_LATCH, AY_MIXER, 0, &pcm);
+        ay8912_bus(&ay, AY_BUS_WRITE, AY_MIXER_IOA_OUT, 0, &pcm);
         CHECK(ay8912_port_a(&ay) == 0x3C, "port A as an output shows the register");
     }
 

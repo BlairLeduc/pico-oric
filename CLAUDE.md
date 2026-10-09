@@ -10,7 +10,7 @@ at 1 MHz with a 16 KiB BASIC ROM (1.0 or 1.1), 16 or 48 KiB of RAM, a 6522
 VIA, an AY-3-8912 reached through the VIA, and a ULA drawing 240×224 in
 colour with serial attributes.
 
-**Status: M0–M7 are done** (`docs/design.md` §15): the skeleton, its
+**Status: M0–M8 are done** (`docs/design.md` §15): the skeleton, its
 banner checked on a Plus 2 W; pico-atom's 6502 and VIA passing their tests
 here, with Dormann's and Clark's suites; the gate, the 6502 at ~30 % of
 core 0 on the board (§3.2: 150 MHz is enough); the Oric on the host, both
@@ -22,7 +22,10 @@ sweeping both ROMs (§2.4) and the replay's pacing by executing them
 card's ROMs checked on a Plus 2 W; and the Oric on the device, all four
 machines booting from the card's ROMs in real time, presenting with no
 dropped snapshots, at 27–31 % of core 0 with the hot code in SRAM (tier 2,
-the default since M7). The record of each milestone (what was verified, on
+the default since M7). **M8 (AY audio) is done**: checked on the host
+against a cycle-stepped model, on the board (paced on the audio queue,
+ten minutes without an underrun, the late path forced), and by the
+owner's ear. The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -92,6 +95,7 @@ tools/build.sh                                          # build/pico/pico-oric.u
 tools/build.sh -DPICO_ORIC_UART=OFF build/pico-release  # the build that ships
 tools/build.sh -DPICO_ORIC_RAM_TIER=2 build/bench-t2    # one directory per tier
 tools/build.sh -DPICO_ORIC_BOOT_ROM=10 -DPICO_ORIC_BOOT_RAM=16 build/boot-10-16  # another machine
+tools/build.sh -DPICO_ORIC_AUDIO=OFF build/timer          # paced on the timer: audio's control
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
@@ -164,6 +168,12 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   (`bus_read_at`/`m6502_t.io_at`, slow path only), and the VIA runs two
   cycles behind the CPU at boundaries so the IRQ poll is the 6502's. Run the
   trace diff after touching either.
+- **The AY is brought up to date lazily, stamped at the writing
+  instruction's start** (design.md §8.2): a write to a sound register
+  advances it first, and so does the field's end. A write to port A, which
+  every keyboard scan makes, must not. Run `test_audio` and
+  `test_audio_rom` after touching `ay8912.c` or `pcm.c`: both hold every
+  sample to the cycle-stepped model in `ay_model.h`.
 - **There is no framebuffer, and no VRAM-byte diff.** A serial attribute
   changes every cell to its right without changing their bytes; the
   presenter's shadow holds **decoded cells** (design.md §7.3).
