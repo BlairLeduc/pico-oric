@@ -4,6 +4,57 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M10, tape by trap** (`src/core/tap.*`, `tape.*`; `src/port/tapeio.*`;
+the Tapes page in `menu.c`, the tape's park, `boot_tape`; `test_tape`;
+`tools/trace-diff.py tape`), built 2026-10-08 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day, **not yet done**: an archive game
+on the device is outstanding. Both ROMs' tape code read with da65
+(design.md §16, now settled): the trap is on four steps per ROM (find a
+header, read the data, write the header, write the data) and resumes
+inside the ROM's own loop after the last byte, so "Searching..",
+"Found", the name compare and looking on, the type checks, the re-link,
+autorun and verify's message are the ROM's. It stands aside unless the
+ROM is a stock image by SHA-1 and its page is ROM. **Checked on the
+host** (`test_tape`, all four machines): from one copy at the tape
+set-up, the ROM's own CSAVE, the ROM with only its byte routines hooked,
+and the trap leave the same RAM below the ROM (less page #03 and the
+stack below SP, tape.h's deliberate differences) and registers at the
+clean-up, and the trap's file is the ROM's bytes; fast and slow; CLOAD
+by name past a first file with a 22-character name and a `#16 #24` in
+its data, and nameless; 1.1's verify, clean and with a changed line;
+an empty deck (declined, the ROM waits); a file cut short (the ROM's
+loop waits at the byte after). **Planted bugs**, eighteen: eleven
+caught at first; of the seven that passed, six marked dead code (what
+the byte routines leave in A, V, N, Z and C, and X and Y after the
+header write, which the ROM overwrites before reading), now removed,
+and one a gap (`#02B1` already zero), now covered; then the rest
+caught. The test's own sync hook first took one `#16` where the ROM
+wants four, and synced on OTHER's data. **In Oricutron**: each machine's
+trapped save, written by `test_tape --write`, CLOADed by Oricutron
+(`002279f`) from the signal through its ROM's own routines, its traps
+off, and RUN printed TAPE OK in all four; the same tape cut after its
+header, the control, never returned from CLOAD. **On the board**, over
+the UART (`out/m10/board1.log`, `board2.log`): the Oric-1 16K CSAVEd
+M10TEST.tap (a 112 ms park), CLOADed it by name after NEW (35 ms and
+24 ms parks) and ran it; the Atmos 48K, from the menu's New tape,
+CSAVEd A and B,S onto TAPE03, rewound, CLOAD"B",S passed over A and ran
+B, CLOAD"B",V said "0 Verify errors detected" after rewinding once, and
+the 1.0 save loaded and ran in 1.1. A CLOAD"B" on a tape without it
+rewound once and was declined, and the ROM then waits on CB1 at 54.9 %
+of core 0. Real-time ratio 1.000, no dropped snapshots, no underruns
+throughout. **Measured** (`out/m10/tape`, `notape`, one sitting, the
+Oric-1 16K): the run loop's check costs 0.6 to 1.0 points of core 0,
+idle 29.3 % against the control's 28.7 %, compute 35.2 % against 34.2 %,
+scroll 33.5 % against 32.8 %, 3.5 to 5 host cycles an instruction. The
+image is 133.4 KB of text and 207.1 KB of bss (M9: 123.1 and 195.3), the
+Tapes page's 64-entry list most of the growth. **Not checked:** an
+archive game, which needs one on the card; the Tapes page and its keys
+on the PicoCalc's own keyboard, and the status line's deck, by the
+owner; `boot_tape` and PICO_ORIC_BOOT_TAPE on the board; a save to a
+full card. **Left for M13:** fast tape off, which the Setup row keeps
+and which does nothing yet: the trap serves either way.
+
 **M9, menu and settings** (`src/core/settings.*`, `shot.*`, `status.*`;
 `src/port/menu.*`, `park.*`, `settingsio.*`, `shotio.*`, `card.*`,
 `core0.c`, `core1.c`, `main.c`, `handoff.*`, `display.*`;

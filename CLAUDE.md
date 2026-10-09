@@ -27,6 +27,9 @@ against a cycle-stepped model, on the board (paced on the audio queue,
 ten minutes without an underrun, the late path forced), and by the
 owner's ear. **M9 (menu and settings) is built** and run on the board
 over the UART; the owner's check of every page and key is outstanding.
+**M10 (tape by trap) is built**: checked on the host against both ROMs'
+own routines, CSAVEd files loaded by Oricutron, and run on the board
+over the UART; an archive game on the device is outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -119,6 +122,9 @@ tools/trace/build-oricutron.sh out/oricutron     # corrects its errata, by name
 cmake --build build/host --target oric-trace
 tools/trace-diff.py run --rom 1.0 --ram 16 --keys 'PRINT 2+2\n'
 tools/render-diff.sh                             # the goldens, drawn by Oricutron's ULA (§7.7)
+build/host/test/host/test_tape --write out/m10/host-taps  # the trap's saves as .tap files
+tools/trace-diff.py tape out/m10/host-taps/atmos-48k.tap  # CLOADed by Oricutron, off the signal
+tools/build.sh -DPICO_ORIC_TAPE=OFF build/notape         # the trap's check out: its control
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every
@@ -178,6 +184,12 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   every keyboard scan makes, must not. Run `test_audio` and
   `test_audio_rom` after touching `ay8912.c` or `pcm.c`: both hold every
   sample to the cycle-stepped model in `ay_model.h`.
+- **The tape trap resumes inside the ROM's own loops** (design.md §10.3,
+  `tape.h`): a served step leaves the machine where the ROM is after its
+  last byte, and the ROM finishes. It sets only what the ROM goes on to
+  read; `test_tape` holds the rest to the ROM's own routines on all four
+  machines. Run it after touching `tape.c`, and plant a bug in anything
+  you add: one that passes marks dead code (EL §8.2).
 - **There is no framebuffer, and no VRAM-byte diff.** A serial attribute
   changes every cell to its right without changing their bytes; the
   presenter's shadow holds **decoded cells** (design.md §7.3).
