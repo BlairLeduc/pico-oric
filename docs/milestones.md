@@ -24,12 +24,12 @@ clean-up, and the trap's file is the ROM's bytes; fast and slow; CLOAD
 by name past a first file with a 22-character name and a `#16 #24` in
 its data, and nameless; 1.1's verify, clean and with a changed line;
 an empty deck (declined, the ROM waits); a file cut short (the ROM's
-loop waits at the byte after). **Planted bugs**, eighteen: eleven
-caught at first; of the seven that passed, six marked dead code (what
-the byte routines leave in A, V, N, Z and C, and X and Y after the
-header write, which the ROM overwrites before reading), now removed,
-and one a gap (`#02B1` already zero), now covered; then the rest
-caught. The test's own sync hook first took one `#16` where the ROM
+loop waits at the byte after). **Planted bugs**, twenty-three in three
+rounds: fifteen caught; of the eight that passed, seven marked dead code
+(what the byte routines leave in A, V, N, Z and C, and X, Y and `#2F`
+after the header write, all of which the ROM overwrites before reading
+them), now removed, and one a gap (`#02B1` already zero), now covered
+and caught. The test's own sync hook first took one `#16` where the ROM
 wants four, and synced on OTHER's data. **In Oricutron**: each machine's
 trapped save, written by `test_tape --write`, CLOADed by Oricutron
 (`002279f`) from the signal through its ROM's own routines, its traps
