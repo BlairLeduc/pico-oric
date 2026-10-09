@@ -4,6 +4,94 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M11, snapshots** (`src/core/snapshot.*`, `oric_restored`;
+`src/port/snapio.*`; the Snapshots page in `menu.c`; `test_snapshot`,
+`test_snapshot_rom`, `snap_util.h`), built 2026-10-09 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day, **done** 2026-10-09. **By the
+owner** on a Pico 2 W, 2026-10-09, from the PicoCalc's own keyboard: a
+game loaded from tape, a snapshot saved while playing it, the PicoCalc
+power-cycled, the snapshot loaded, and the game played on. The format is pico-ace's with the
+Oric's fields (design.md §10.6): "PORCSNAP", a 320-byte state section,
+then all 64 KiB of `oric_t.ram`, 65,876 bytes for either RAM fit. Besides
+§10.6's fields it carries the CPU's delayed I, the VIA's input latches,
+the AY's bus and every generator's next tick, and the tape trap's kept
+header, since a field boundary can fall between a trapped CSAVE's header
+and its data. **Checked on the host**: `test_snapshot` on our own test
+ROM, so CI runs it, and `test_snapshot_rom` on all four machines with a
+BASIC program playing the AY's tones, noise and envelope while it
+scrolls. In each, a machine saved part-way (where the VIA's IRQ is
+asserted and not yet taken, and in `test_snapshot` with the AY held in a
+write to the envelope's shape, the input latches set and an NMI
+pending in its own case) and restored into a machine doing something
+else is the saved one, every field compared from `oric_t` rather than
+from the format, both straight after the load and after 150 fields
+more, with the same AY writes and the same samples, sample for sample
+(the original's sample grid restarted at the save, the DC blocker off
+in both). The controls: a machine not restored differs, and a budget
+one cycle out does not meet. The restored program finishes and the
+machine takes typing. A CSAVE saved between its header and its data
+asks, restored, for the same file; with the kept header cleared, the
+control, no file is asked for. Refused, the machine untouched: a flipped
+bit, a short file, a state torn in its state section, wrong magic, a
+newer version, another payload length, a Microdisc, a RAM fit no Oric
+has, another ROM, the other RAM fit, another field shape, a load with a
+tape request waiting; a failed write is reported. The refusal says the
+machine the state is for (`snap_info_t`). **Planted bugs**, forty in
+three rounds, each caught by one test or both. Of the first round, five
+passed both and were dealt with: the IRQ lines and the NMI line's level
+and RESET pending were stored but never matter at a boundary (the lines
+are now worked out from the VIA on load, the other two dropped); the
+VIA's latches were zero in both machines, and the held write had just
+restarted the envelope itself, so a second restart was invisible (the
+test now sets the latches and runs the envelope on first); leaving out
+the AY's remix showed only in the samples, which were not compared then;
+and leaving out the wiring on load was hidden by the test ROM's
+`JMP idle`, where an IRQ taken one instruction late lands at the same
+place and phase, and in the ROMs converged within the 150 fields, so
+both tests now also compare straight after the load. **On the board**,
+over the UART (`out/m11/board1.log`), the card's settings booting the
+Oric-1 16K: a FOR loop playing SOUND and PLAY and printing its count,
+saved to slot 1 from F3 at 80 (281 ms), run on to 158, broken into with
+NEW and PRINT typed, then slot 1 loaded (142 ms, both passes): the field
+count went back and the program counted on from the saved point. The
+Machine page restarted as the Atmos 48K, whose load of slot 1 was
+refused, "slot 1 is the Oric-1 16K's, ROM basic10.rom", in 78 ms; back to
+the Oric-1 16K, the load again (142 ms), and the first heartbeat after
+each load counted 124,994 AY events a second. The program ran on to 500
+and stopped, as the owner saw on the panel, with "?ILLEGAL QUANTITY
+ERROR IN 20": the test program's own `SOUND 2,500-I,8`, which goes
+negative at 501. No dropped snapshots, no underruns; real-time ratio
+0.999 to 1.003, 1.000 in 34 heartbeats of 40, the others around the
+parks. After the error the noise, left playing by PLAY at period 1, is
+stepped every AY tick, 125,000 events a second (1 MHz / 8), and core 0
+goes from 30 % to 61 %: M8's event-by-event path, not this milestone's.
+**Measured**: save 281 ms, load 142 ms, refusal 78 ms (the check pass
+alone). The image is 140.4 KB of text and 208.8 KB of bss (M10: 133.4
+and 207.1). The state and a 256-byte piece are static in `snapshot.c`,
+not on core 1's 2 KiB stack. **Not checked:** Delete, and a refusal, from
+the PicoCalc's own keyboard (over the UART only); the `.new` recovery after a
+cut publish, and a load with the card pulled between the passes (both
+pico-ace's code, unchanged), on the board; a full card.
+**Review fixes** (Codex's review of PR #11, 2026-10-09). Two findings,
+one taken. (1) **A file the emulator could not have written**: a state
+passes its CRC whoever wrote it, and the chips trust their fields. An AY
+period of 0 divides by zero; a register number past 15 indexes past the
+AY's masks; and, found while fixing it, a T1 far below zero, an AY clock
+far behind the CPU's or a large budget keeps core 0 in one loop for
+minutes. `plausible()` now refuses, as not a save state, any field
+outside the range a running machine keeps it in: the AY's periods (1 to
+what a register makes), register, envelope step and direction, prescaler,
+tones and LFSR; the VIA's counters; the AY no more than a second behind
+the CPU and never ahead, its next ticks within 2^32 of its clock; the
+budget from -64 to 0; the ULA's modes. Every state the tests save passes
+it. `test_snapshot` refuses ten such files, each with a good CRC; with
+the check planted out it accepts every one. (2) **The blink period**
+(`cfg.blink_fields`) compared like the field's shape: declined. It sets
+which frames show blinking cells and nothing else, so no machine state
+depends on it, and it is configuration only until §16 settles it; a
+build that settles it should not refuse every earlier state.
+
 **M10, tape by trap** (`src/core/tap.*`, `tape.*`; `src/port/tapeio.*`;
 the Tapes page in `menu.c`, the tape's park, `boot_tape`; `test_tape`;
 `tools/trace-diff.py tape`), built 2026-10-08 (Pico SDK 2.3.1,

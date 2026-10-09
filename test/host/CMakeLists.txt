@@ -61,7 +61,8 @@ target_compile_options(pico_oric_guest PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(pico_oric_guest PRIVATE
     PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
 
-foreach(t test_audio_rom test_boot test_font test_keyboard test_romset test_tape)
+foreach(t test_audio_rom test_boot test_font test_keyboard test_romset test_snapshot_rom
+        test_tape)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_oric_guest)
     target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
@@ -98,6 +99,15 @@ target_compile_options(test_test_rom PRIVATE ${PICO_ORIC_WARNINGS})
 target_compile_definitions(test_test_rom PRIVATE PICO_ORIC_TEST_ROM="${PICO_ORIC_TEST_ROM}")
 add_test(NAME test_test_rom COMMAND test_test_rom)
 set_tests_properties(test_test_rom PROPERTIES SKIP_RETURN_CODE 77)
+
+# Snapshots on the test ROM, so CI round-trips one (§15.2 M11).
+add_executable(test_snapshot test_snapshot.c)
+target_link_libraries(test_snapshot PRIVATE pico_oric_core)
+target_include_directories(test_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_snapshot PRIVATE ${PICO_ORIC_WARNINGS})
+target_compile_definitions(test_snapshot PRIVATE PICO_ORIC_TEST_ROM="${PICO_ORIC_TEST_ROM}")
+add_test(NAME test_snapshot COMMAND test_snapshot)
+set_tests_properties(test_snapshot PROPERTIES SKIP_RETURN_CODE 77)
 
 # The golden images (design.md §7.7), drawn with the fallback font so CI
 # runs them with no ROM.
