@@ -27,6 +27,8 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/sha1.c
     src/core/snappool.c
     src/core/status.c
+    src/core/tap.c
+    src/core/tape.c
     src/core/ula.c
     src/core/via6522.c
 )
