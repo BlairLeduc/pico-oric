@@ -39,8 +39,9 @@ held past its deadline counts 3 late refills and playback carries on;
 muted still consumes; half volume scales. **Found on the way:** the
 simulated DMA must reload a channel's count on every trigger, as the
 RP2350 datasheet's TRANS_COUNT says, for `audio.c`'s late path to behave
-as EL §6.4 measured on the board; hardware-notes §5.3 says a chain trigger
-reloads neither address nor count, and the owner is asked which stands. A
+as EL §6.4 measured on the board; hardware-notes §5.3 said a chain trigger
+reloads neither address nor count, and was corrected, at the owner's word,
+to the datasheet's account the same day. A
 write held on the bus restarts no envelope: wire() runs after every VIA
 access, so the rule is a new write or new data under one. **Checked on
 the board:** the Atmos 48K reaches Ready at 2,476,042 cycles, as in M7;

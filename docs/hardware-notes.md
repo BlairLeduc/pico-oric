@@ -799,9 +799,24 @@ Two hardware details that are not obvious and cost real debugging time:
   interrupts with XIP offline for tens of milliseconds** (§7.2), which no amount
   of careful IRQ design avoids.
 - **When you re-arm a chained channel from its IRQ, reset both the read address
-  and the transfer count.** A chain trigger reloads neither. Reset only the
-  address and the count is still zero, so the next chain completes instantly and
-  storms the IRQ.
+  and the transfer count.** A trigger, a chain's included, does not reload the
+  read address: it carries on from where the last run ended. It does reload the
+  count: writing `TRANS_COUNT` sets a RELOAD value, and every trigger copies it
+  into the live counter, so a channel performs the same number of transfers each
+  time it is started (the RP2350 datasheet's register description, as the
+  `rp235x` PAC transcribes it; the RP2040's says the same). So a channel
+  chained again before its IRQ has re-armed it plays a full half from where it
+  stopped, which in a two-half ring is the *other* half, again; with the ring
+  wrap that is a replay, not a march through SRAM. A refill handler that finds
+  its channel already running has missed its deadline, and must leave it alone
+  and count a late refill (§5.8). Earlier editions of this note said the count
+  was not reloaded and that resetting only the address stormed the IRQ; that
+  was never reproduced, and it does not fit the datasheet or the late-refill
+  path forced on a board (EL §6.4: each 9 ms stall cost 2–3 late refills and
+  about three halves of samples, with no storm, and playback carried on). A
+  host simulation of the DMA with the count reloaded reproduces that figure, 3
+  late refills a stall; without the reload it cannot recover. Set both anyway:
+  it costs nothing, and the address must be set.
 
 Ring size sets your latency and your deadline. 256 slots per half at 2×
 oversample is 128 frames, i.e. **one refill every ~3.5 ms** — for 2,048 bytes of
