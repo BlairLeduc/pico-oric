@@ -32,7 +32,13 @@ own routines, CSAVEd files loaded by Oricutron, archive games loaded
 and run on the board, and tapes loaded by the owner. **M11 (snapshots) is
 done**: checked on the host against both ROMs and our own, saved, loaded
 and refused by name on the board over the UART, and a game saved, the
-PicoCalc power-cycled and the game played on by the owner.
+PicoCalc power-cycled and the game played on by the owner. **M12
+(performance, corpus and soak) is built** and its criteria met on the
+board: TOSEC's 1,061 tapes run on the host, the undocumented opcodes
+decided against (`docs/design.md` §5.1), two tape rules from the corpus
+in `tapeio`, the workloads measured against two controls, and the
+30-minute soak passed; the owner's check of the archive tapes is
+outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -128,6 +134,11 @@ tools/render-diff.sh                             # the goldens, drawn by Oricutr
 build/host/test/host/test_tape --write out/m10/host-taps  # the trap's saves as .tap files
 tools/trace-diff.py tape out/m10/host-taps/atmos-48k.tap  # CLOADed by Oricutron, off the signal
 tools/build.sh -DPICO_ORIC_TAPE=OFF build/notape         # the trap's check out: its control
+
+# M12's corpus (TOSEC, fetched into out/corpus, not committed) and soak
+tools/fetch-corpus.sh                                # out/corpus/tap, out/corpus/dsk
+tools/corpus-run.sh                                  # out/m12/corpus/report.txt
+tools/soak.sh build/pico/pico-oric.elf 30 out/m12/soak   # tools/soak.bas; test_soak first
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every

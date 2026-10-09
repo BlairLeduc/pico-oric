@@ -4,6 +4,96 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M12, performance, corpus and soak** (`tools/fetch-corpus.sh`,
+`tools/corpus/oric-corpus.c`, `tools/corpus-run.sh`,
+`tools/corpus-summary.py`; `tools/soak.bas`, `tools/soak.sh`,
+`tools/soak-check.py`, `test_soak`; `oric_tape_load_keep` and the name
+rule in `tapeio.c`), built 2026-10-09 (Pico SDK 2.3.1, arm-none-eabi-gcc
+15.2) and run on the Plus 2 W `7458DC82A89AAC12` (RP2350B, chip rev 2)
+the same day; its done-when criteria met on the board 2026-10-09. **The
+owner's check** of the archive tapes below on a Pico 2 W, with the
+release build, is outstanding. **The corpus**: TOSEC's *Tangerine Oric 1
+and Atmos* (2012-04-23), from the Internet Archive, its zip checked by
+SHA-1: 1,061 titles on tape, of which 39 are in parts and kept as a
+directory of their files, and 221 disc images for M14. Each title is
+loaded on the host with `CLOAD""` on the Atmos 48K and the Oric-1 48K,
+served as `tapeio` serves the card, and run for 3,000 fields (a minute),
+its last file started with RUN or CALL if it did not autorun and Space
+pressed half way; every undocumented opcode is counted by replaying the
+field that trapped it an instruction at a time, with the 24 instructions
+before the first; both machines in under two minutes
+(`out/m12/corpus/report.txt`, a frame and text screen per title beside
+it). Frelon, 3D Fongus, Car Maniac, Fire Flash, Mr. Wimpy, Dedal and
+TrickShot's frames were looked at, each at its title or in play. **What
+it found**, before any change: 879 titles loaded on one machine or the
+other. 50 are not tapes (ROM images, ELF tools, an Amiga program and an
+`MFM_DISK` filed as TAP). 83 end exactly one byte short of what their
+header says, the data start to end exclusive, which the trap gave up on;
+Oricutron's `tape.c` allows the byte "for broken tape images". The
+titles in parts ask for the next part by file name, `CLOAD"AIRFOX.TA1"`
+or `"IOD2.TAP"`, as Euphoric served them, where `tapeio` looked only for
+`NAME.tap`. **At the owner's choice** (2026-10-09) `tapeio` now looks for
+the name as it is, then `NAME.tap`, and a file one byte short loads with
+the last address keeping its byte (`oric_tape_load_keep`); with both,
+974 load on the Atmos and 977 on the Oric-1, 980 on one or the other.
+Of the 81 that load on neither, 50 are not tapes; the rest give up on a
+name not there (some in parts are numbered wrongly: Airfox's `.ta1`
+carries the header `AIRFOX.TA2`, which its loader's name check refuses),
+or are cut short by more than a byte. `test_tape` loads a file one byte
+short on all four machines: kept, the ROM's own load ends, every byte but
+the last loaded and the last address unchanged; not kept, the control,
+the ROM waits; with the keep planted out, it fails on all four. The name
+rule is not on the host (`tapeio.c` is the port's); the corpus runner
+models it. **Undocumented opcodes**: 62 titles execute one on the Atmos,
+198 on the Oric-1. The instructions before each title's first show none
+on purpose: a corrupt dump (Harrier Attack, where what looks like an
+`STA`'s `8D` read as `09` throws the stream onto an `#80`), returns and
+jumps into data (Arena 3000 [b] by RTI, Video Flipper by RTS, Oricqs [b],
+Snake Venom), the ROM's autorun of a data file (`JMP ($02A9)` at `#E8E5`:
+Godilloric, Strip 21, Diamant), an Oric-1 title calling 1.0's ROM on the
+Atmos, or the harness CALLing a data file. Archeron's Rage loops through
+`#7A`, which the trap's one-byte two-cycle NOP runs as an NMOS 6502 does.
+**Decided by the owner** (2026-10-09): the stable subset is not
+implemented (design.md §5.1, §17). Three titles enable the CB1 interrupt
+themselves, all on the Oric-1: Star, Arpy's MYM Player and Zoom.cod
+(M16). The largest single file on any tape is 49,152 bytes, the largest
+tape 92,160 (design.md §3.4). **Performance**, one sitting on the board,
+eight workloads (`tools/perf-run.sh`) on three builds, all on the Oric-1
+16K the card's settings chose (`out/m12/perf-summary.txt`): the shipped
+tier 2 at 29.3 % of core 0 idle to 36.3 % for the AY loop, now the
+heaviest; tier 0, the control for the hot code in SRAM, 33.1-51.6 %,
+so tier 2 saves 3.8-15.8 points and is kept; the tape trap compiled out,
+the control for its check per instruction, 0.5-1.2 points under tier 2.
+Every run: rt 0.999-1.000, no dropped snapshot, no underrun or late
+refill, 36,624 Hz consumed. The tiers' symbols were checked with
+`arm-none-eabi-nm`: `m6502_step`, `oric_run_field`, `bus_read_slow` and
+`via6522_tick` at `0x2000…` in tier 2 and `0x1000…` in tier 0. **The
+soak**: `tools/soak.bas`, a text page with serial attributes and a hires
+one, the AY's three channels with noise and an envelope, and KEY$
+printed with a count, run first on the host by `test_soak` (the count
+rises, H and J read, hires drawn, the AY written; a misspelt line, the
+control, shows no count). On the board, 2026-10-09, 30 minutes from
+18:42 (`out/m12/soak/soak-20261009-183949.txt`), on the Oric-1 16K,
+firmware built from the tree committed as `b58efb3` (it reports
+`d902e08-dirty`): 386 heartbeats over 32.4 minutes, one boot, rt 0.999
+minimum, 0.9996 mean; late fields, slips, dropped snapshots, keys lost,
+I²C errors, undocumented opcodes, log lines dropped, underrun samples,
+late refills and the core's sample overflow all zero; no park and no
+card change after the program started; 323 keys typed over the UART, the
+screen dumps showing the program reading H 15 times and J 12, its count
+rising from 19 to 523 over 27 of 29 dumps; the AY written in all 359
+heartbeats after the start; core 0 busy 30.0-37.5 % but for one
+heartbeat at 54.9 % (266.6 host cycles an instruction against about 180,
+rt 0.999, nothing late; not explained); the gauge at 96 %, never
+charging. The owner says the Pico cannot tell battery from USB power
+(2026-10-09). About four fields a pass run at 60 Hz: as `HIRES` switches
+the mode, the ULA briefly reads character-set bytes, some of them 60 Hz
+mode attributes; taken as the Oric's, not checked against Oricutron.
+**Not checked**: the workloads and the soak on the Atmos 48K, the
+power-on default; the name rule and the byte kept on the board; titles
+past their first minute; whether any title reads only a joystick
+(design.md §17); the release soak over SWD (M15).
+
 **M11, snapshots** (`src/core/snapshot.*`, `oric_restored`;
 `src/port/snapio.*`; the Snapshots page in `menu.c`; `test_snapshot`,
 `test_snapshot_rom`, `snap_util.h`), built 2026-10-09 (Pico SDK 2.3.1,
