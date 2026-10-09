@@ -57,18 +57,16 @@ uint8_t tape_pc_lo[256] = {
     [0xB2u] = 1, [0xEBu] = 1, [0x7Bu] = 1, [0xA7u] = 1,    /* 1.0 */
 };
 
-void tape_rom_loaded(oric_t *m, const uint8_t *image, size_t len) {
-    rom_id_t id = romset_identify(image, len);
-    m->tape.rom = id == ROM_BASIC11 ? &rom11 : id == ROM_BASIC10 ? &rom10 : NULL;
+void tape_reset(oric_t *m) {
     m->tape.op = TAPE_NONE;
     m->tape.pass = false;
     m->tape.header_kept = false;
 }
 
-void tape_reset(oric_t *m) {
-    m->tape.op = TAPE_NONE;
-    m->tape.pass = false;
-    m->tape.header_kept = false;
+void tape_rom_loaded(oric_t *m, const uint8_t *image, size_t len) {
+    rom_id_t id = romset_identify(image, len);
+    m->tape.rom = id == ROM_BASIC11 ? &rom11 : id == ROM_BASIC10 ? &rom10 : NULL;
+    tape_reset(m);
 }
 
 /* ---- guest access ------------------------------------------------------ */

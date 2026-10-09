@@ -122,6 +122,7 @@
  * characters from CLOAD and CSAVE; 1.1 stores 16 of a longer name read
  * off tape and 1.0 all of it. Anything longer is taken as no header. */
 #define ORIC_TAP_NAME_MAX       64u
+#define ORIC_TAPE_LIST_MAX      64u  /* .tap files the Tapes page lists     */
 
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 

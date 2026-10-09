@@ -16,6 +16,7 @@
 #include "settingsio.h"
 #include "sha1.h"
 #include "storage.h"
+#include "tapeio.h"
 
 /* Card detect must hold a new level this long before it counts: the
  * contacts bounce as a card goes in, and a card half in does not answer
@@ -206,6 +207,24 @@ void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
     storage_unmount();
 }
 
+/* boot_tape: a bare name is a file in /oric/tapes/ (design.md §10.7). A
+ * build-time PICO_ORIC_BOOT_TAPE wins over the file's (EL §8.7). One
+ * that cannot be opened is the file's problem, named. */
+static void boot_tape(const settings_t *s) {
+    const char *name = s->boot_tape;
+#ifdef PICO_ORIC_BOOT_TAPE
+    name = PICO_ORIC_BOOT_TAPE;
+#endif
+    if (!name[0]) return;
+    char path[ORIC_PATH_MAX + sizeof SETTINGS_TAPE_DIR];
+    if (strchr(name, '/')) snprintf(path, sizeof path, "%s", name);
+    else snprintf(path, sizeof path, "%s/%s", SETTINGS_TAPE_DIR, name);
+    const char *err = tapeio_insert(path);
+    if (err) settingsio_fail("boot_tape", err);
+    log_core1("  card         : boot_tape %s%s%s\n", path, err ? ": " : " in the deck",
+              err ? err : "");
+}
+
 void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
                uint8_t image[ORIC_ROM_SIZE]) {
     if (!begin(j)) {
@@ -218,6 +237,7 @@ void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
     settingsio_load(s);
     j->settings_us = time_us_32() - t0;
     boot_machine(s, cfg);
+    boot_tape(s);
     card_roms_mounted(j, cfg->rom, image);
     storage_unmount();
 }

@@ -33,7 +33,7 @@ void audio_rate(uint32_t *rate_num, uint32_t *rate_den);
 void audio_push(const int16_t *pcm, size_t n);
 
 /* Samples the queue can take now without blocking. Turbo (design.md
- * §11.2, M10) tops the queue up with silence to this, so an
+ * §11.2, M13) tops the queue up with silence to this, so an
  * unpaced guest never waits on it and the ring never runs dry. */
 size_t audio_room(void);
 

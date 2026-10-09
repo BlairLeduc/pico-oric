@@ -4,7 +4,7 @@
  * Oricutron checkout; nothing of Oricutron is in this tree.
  *
  *   oricutron-trace ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES]
- *                   [-k KEYS] [-s]
+ *                   [-k KEYS] [-s] [-t TAPE] [-q]
  *
  * ROMBASE is the ROM's path without ".rom", as Oricutron names ROMs.
  * "atmos" is a 48K machine with the ROM in the Atmos's socket, "oric1"
@@ -20,7 +20,11 @@
  * The loop is main.c's frameloop_normal() without SDL: set_icycles, the
  * VIA and the AY clocked by the instruction's cycles before it runs (so
  * Oricutron's VIA is an instruction ahead of a reader), then the
- * instruction, then the ULA's raster. RAM is zeroed after init_machine()
+ * instruction, then the ULA's raster. -t puts a .tap in Oricutron's deck,
+ * played as a signal on CB1 with its tape traps off (tape_patches is
+ * never called, turbo is off), so the ROM's own routines read it: the
+ * check that a tape this project writes loads elsewhere (design.md §15.2
+ * M10). -q prints no trace, for a run that long. RAM is zeroed after init_machine()
  * blanks it to Oricutron's pattern, to match this project's power-on
  * (design.md §6.3).
  */
@@ -40,6 +44,7 @@
 #include "machine.h"
 #include "main.h"
 #include "ula.h"
+#include "tape.h"
 
 #include "keyscript.h"
 
@@ -50,6 +55,7 @@ extern char atmosromfile[1024], oric1romfile[1024];
 static struct machine oric;
 static keyscript_t ks;
 static unsigned long long insns, max_insns = ~0ull, max_cycles = ~0ull;
+static int quiet;
 
 static unsigned peek(Uint16 a) {
     /* Code never runs from page #03, so this read has no side effect. */
@@ -59,6 +65,10 @@ static unsigned peek(Uint16 a) {
 void oricutron_trace(struct m6502 *cpu) {
     /* m6502_inst has added this step's cycles, the interrupt entry's
      * seven among them; the line is the state after entry. */
+    if (quiet) {
+        insns++;
+        return;
+    }
     unsigned long long now = cpu->cycles - cpu->icycles + (cpu->calcint ? 7u : 0u);
     unsigned p = (cpu->f_n ? 0x80u : 0) | (cpu->f_v ? 0x40u : 0) | 0x30u | (cpu->f_d ? 0x08u : 0) |
                  (cpu->f_i ? 0x04u : 0) | (cpu->f_z ? 0x02u : 0) | (cpu->f_c ? 0x01u : 0);
@@ -76,7 +86,7 @@ static void press(const ks_event_t *e) {
 }
 
 int main(int argc, char **argv) {
-    const char *rombase = NULL, *keyfile = NULL, *mach = "atmos";
+    const char *rombase = NULL, *keyfile = NULL, *mach = "atmos", *tapefile = NULL;
     int screen = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc)      max_insns = strtoull(argv[++i], NULL, 0);
@@ -84,14 +94,16 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-k") && i + 1 < argc) keyfile = argv[++i];
         else if (!strcmp(argv[i], "-m") && i + 1 < argc) mach = argv[++i];
         else if (!strcmp(argv[i], "-s"))                 screen = 1;
+        else if (!strcmp(argv[i], "-q"))                 quiet = 1;
+        else if (!strcmp(argv[i], "-t") && i + 1 < argc) tapefile = argv[++i];
         else if (!rombase)                               rombase = argv[i];
         else rombase = NULL, argc = 0;
     }
     int type = !strcmp(mach, "atmos") ? MACH_ATMOS : !strcmp(mach, "oric1") ? MACH_ORIC1
              : !strcmp(mach, "o16k") ? MACH_ORIC1_16K : -1;
     if (!rombase || type < 0 || (max_insns == ~0ull && max_cycles == ~0ull)) {
-        fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s]\n",
-                argv[0]);
+        fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s] "
+                "[-t TAPE] [-q]\n", argv[0]);
         return 2;
     }
     if (!ks_load(&ks, keyfile)) return 2;
@@ -113,6 +125,11 @@ int main(int argc, char **argv) {
     /* Zeroed RAM, as this project powers on (§6.3); ROM untouched. */
     memset(oric.mem, 0, type == MACH_ORIC1_16K ? 16384 : 65536);
     m6502_reset(&oric.cpu);
+    oric.tapeturbo = SDL_FALSE;
+    if (tapefile && !tape_load_tap(&oric, (char *)tapefile)) {
+        fprintf(stderr, "%s: Oricutron would not load it\n", tapefile);
+        return 2;
+    }
 
     struct m6502 *cpu = &oric.cpu;
     unsigned long long base = cpu->cycles;

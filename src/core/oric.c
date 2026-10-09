@@ -7,6 +7,12 @@
 #include "bus.h"
 #include "hot.h"
 
+/* The firmware's PICO_ORIC_TAPE=OFF compiles the trap's check out, the
+ * control for its cost (§15.2 M10). */
+#ifndef PICO_ORIC_TAPE_TRAP
+#define PICO_ORIC_TAPE_TRAP 1
+#endif
+
 void oric_config_default(oric_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     /* The Atmos 48K (§18 item 3). */
@@ -220,7 +226,8 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
      * access to it part-way through one (bus.c). */
     while (done < cycles) {
         uint32_t c;
-        if (__builtin_expect(tape_pc_lo[m->cpu.pc & 0xFFu], 0) && tape_at(m)) {
+        if (PICO_ORIC_TAPE_TRAP && __builtin_expect(tape_pc_lo[m->cpu.pc & 0xFFu], 0) &&
+            tape_at(m)) {
             /* Stalled on a tape request, like a 6502 with RDY low: the
              * rest of the run passes with no instruction (§10.3). */
             c = cycles - done;

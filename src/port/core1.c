@@ -2,12 +2,13 @@
  * log (design.md §4.3, §4.5, §7, §9.1, §10).
  *
  * pico-ace's loop, renamed, with the Oric's boot: the settings and the
- * ROM come off the card (§10.7, §10.2). The tape's park arrives with M10.
+ * ROM come off the card (§10.7, §10.2), and the tape's park (M10).
  */
 
 #include "core1.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
@@ -25,6 +26,7 @@
 #include "settingsio.h"
 #include "southbridge.h"
 #include "status.h"
+#include "tapeio.h"
 
 /* Keyboard polls, as hardware-notes.md §6.1 and design.md §9.1 have them;
  * the poll also feeds the MCU's 2.5 s bus watchdog. */
@@ -49,15 +51,25 @@ void core1_note(const char *text) {
     display_status(s_note);
 }
 
-/* The status line at the foot (§12): the running ROM's problem, if it
- * has one, while the line is on (M10, M14: the tape and the disc); or a
+/* The status line at the foot (§12), while it is on: the running ROM's
+ * problem, if it has one, or the tape in the deck (M14: the disc); or a
  * note, until it has been up for NOTE_US. Drawn only when it changes. */
 static void draw_status(void) {
     if (s_note[0]) {
         if ((int32_t)(time_us_32() - s_note_until) < 0) return;
         s_note[0] = 0;
     }
-    display_status(g_ui.status ? menu_rom_problem() : "");
+    char text[ORIC_TEXT_COLS + 1] = "";
+    const char *tape = tapeio_inserted();
+    if (g_ui.status) {
+        const char *rom = menu_rom_problem();
+        if (rom[0]) snprintf(text, sizeof text, "%s", rom);
+        else if (tape[0]) {
+            const char *b = strrchr(tape, '/');
+            snprintf(text, sizeof text, "Tape: %.33s", b ? b + 1 : tape);
+        }
+    }
+    display_status(text);
 }
 
 /* The perf line at the top (design.md §7.5, §14), as pico-ace has it:

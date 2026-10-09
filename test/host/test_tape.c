@@ -20,6 +20,10 @@
  * differences), and A, X, Y, S, P and the PC. A save's bytes, hooked and
  * trapped, must be the same file. Then the trapped machine runs on: a
  * loaded program lists and runs.
+ *
+ *   test_tape --write DIR    also writes each machine's fast save, its
+ *                            trapped file, to DIR/<machine>.tap, for
+ *                            tools/trace-diff.py tape (§15.2 M10)
  */
 
 #include <string.h>
@@ -30,6 +34,7 @@
 #include "test_util.h"
 
 static guest_t g;
+static const char *s_write_dir;
 static oric_t s_start, s_run, s_ref;
 
 typedef struct {
@@ -311,6 +316,15 @@ static int machine(rom_id_t rom, oric_ram_t ram) {
     memcpy(&slow, &s_deck, sizeof slow);
     if (save_case(n, r, "CSAVE\"PROG\"")) return 1;
     memcpy(&prog, &s_deck, sizeof prog);
+    if (s_write_dir) {
+        char path[512];
+        snprintf(path, sizeof path, "%s/%s%s.tap", s_write_dir, rom == ROM_BASIC11 ? "atmos" : "oric1",
+                 ram == ORIC_RAM_16K ? "-16k" : "-48k");
+        FILE *f = fopen(path, "wb");
+        CHECK(f && fwrite(prog.buf, 1, prog.len, f) == prog.len && fclose(f) == 0,
+              "%s: cannot write %s", n, path);
+        printf("%s: %zu bytes\n", path, prog.len);
+    }
     CHECK(slow.len == prog.len && memcmp(slow.buf, prog.buf, prog.len) == 0,
           "%s: the slow save's bytes are not the fast one's", n);
 
@@ -404,7 +418,8 @@ static int machine(rom_id_t rom, oric_ram_t ram) {
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--write") == 0) s_write_dir = argv[2];
     const char *dir;
     if (!guest_find_roms(&dir)) {
         printf("skipped: basic10.rom and basic11b.rom are not both in %s\n", dir);

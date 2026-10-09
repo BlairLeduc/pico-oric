@@ -1,7 +1,6 @@
 /* park.c — the guest parked at a field boundary (park.h, design.md §4.5).
  *
- * pico-ace's, renamed, which is pico-atom's park() in its own file; less
- * the tape's park, which returns with M10. g_park is the hand-off word,
+ * pico-ace's, renamed, which is pico-atom's park() in its own file. g_park is the hand-off word,
  * written non-zero by core 0 and back to PARK_NONE by core 1, with a
  * barrier on each side of every write so the machine changes hands with
  * everything either core wrote to it.
@@ -20,6 +19,7 @@
 #include "core1.h"
 #include "menu.h"
 #include "shotio.h"
+#include "tapeio.h"
 
 static volatile uint32_t g_park = PARK_NONE;
 static oric_t   *s_m;
@@ -137,6 +137,15 @@ bool park_serve(void) {
     switch (why) {
     case PARK_HOLD:
         return serve_hold();
+    case PARK_TAPE: {
+        /* What the tape has to say, a save or the end of a tape, on the
+         * status line as a note. */
+        uint32_t us;
+        tapeio_serve(s_m, &us);
+        const char *said = tapeio_said();
+        if (said[0]) core1_note(said + 1);
+        break;
+    }
     case PARK_MENU:
         menu_run(s_m, s_page, s_alt);
         break;
