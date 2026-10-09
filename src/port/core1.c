@@ -94,15 +94,6 @@ static void show_rom(void) {
     }
 }
 
-/* The values the file may give that this firmware cannot act on yet:
- * kept for the save, and named as the first problem (§12). */
-static void settings_unsupported(const settings_t *st) {
-    if (st->microdisc) settingsio_fail("microdisc", "not in this firmware yet");
-    if (st->layout[0]) settingsio_fail("layout", "not in this firmware yet");
-    if (st->boot_tape[0]) settingsio_fail("boot_tape", "not in this firmware yet");
-    if (st->boot_disc[0]) settingsio_fail("boot_disc", "not in this firmware yet");
-}
-
 /* The boot's card job (design.md §10.7, §10.2), with core 0 waiting, as
  * every card job is (§4.5): the settings, the machine they name, and its
  * ROM; then the settings into g_ui, and the page if the machine cannot
@@ -113,7 +104,6 @@ static void boot_card(void) {
     card_boot(&g_boot.settings, &g_boot.job, &cfg, g_boot.image);
     g_boot.want = cfg.rom;
     g_boot.ram = cfg.ram;
-    settings_unsupported(&g_boot.settings);
 
     const settings_t *st = &g_boot.settings;
     g_ui.volume = st->volume;

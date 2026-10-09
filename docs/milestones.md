@@ -64,6 +64,19 @@ About's OK, ?? and -- in that page's green, yellow and red. Looked at in a
 host render of the page before flashing; on the board the About page
 opens and draws in 16.7 ms. By the owner's eye on a Pico 2 W, the same day: the
 colours look good.
+**Review fixes** (Codex's review of PR #9, 2026-10-08). Three findings,
+all taken. (1) A refused `backlight = 16` saved with no backlight set was
+rewritten as `backlight = 0`, which the parser refuses too, while the
+rewrite said OK: 0 is "leave it", which no line can say. Such a line is
+now made a comment; `test_settings` has the case, which failed before
+the change. (2) Pause assumed Alt was held, so paused by the UART's US a
+plain `p` did not resume and `m` opened the menu; it now starts from
+whether Alt was down when asked. On the board, US then `p` resumed. (3) A
+save that fixed a bad line left the old problem named by the menu and
+About until a reboot; the save now says afresh what the file it wrote
+holds, values this firmware cannot act on yet included, which moved from
+core 1 into `settingsio.c`. Not checked on the board: (1) and (3) need a
+bad line planted in the card's file. pico-ace has (1) and (2) as well.
 
 **M8, AY audio** (`src/core/ay8912.*`, `pcm.*`; `src/port/audio.*`,
 `core0.c`, `main.c`; `test_audio`, `test_audio_rom`, `test_audio_port`,

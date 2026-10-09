@@ -371,7 +371,11 @@ settings_status_t settings_rewrite(const char *text, size_t len, const settings_
         if (st == SET_DUPLICATE) return SET_DUPLICATE;
         bool applies = st == SET_OK && key < K_COUNT;
         bool bad = st == SET_BAD_VALUE && key < K_COUNT;
-        bool refused = bad && !(good & (1u << key)) && !(present & (1u << key));
+        /* A backlight of 0 is "leave it", which no line can say: a
+         * refused one has nothing to be replaced with, and is made a
+         * comment like one beside the key's own line. */
+        bool unsayable = key == K_BACKLIGHT && s->backlight == 0;
+        bool refused = bad && !unsayable && !(good & (1u << key)) && !(present & (1u << key));
 
         if (bad && !refused) {
             emit_str(&o, "# ");

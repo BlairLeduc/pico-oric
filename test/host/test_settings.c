@@ -242,6 +242,20 @@ int main(void) {
         s.backlight = 4u;
         CHECK(REWRITE("", &s) == SET_OK && IS("backlight = 4\n"),
               "a backlight the file lacked is added:\n%.*s", (int)out_len, out);
+        /* A refused backlight with none set has no value in force to
+         * write: 0 is "leave it", which the file cannot say, so the line
+         * becomes a comment (PR #9 review). */
+        settings_default(&s);
+        CHECK(REWRITE("backlight = 16 # too bright\n", &s) == SET_OK &&
+                  IS("# backlight = 16 # too bright\n"),
+              "a refused backlight, none set, is made a comment:\n%.*s", (int)out_len, out);
+        settings_default(&s);
+        CHECK(settings_parse(&s, out, out_len, &line) == SET_OK && line == 0,
+              "and reads back without a problem: line %u", line);
+        settings_default(&s);
+        s.backlight = 5u;
+        CHECK(REWRITE("backlight = 16\n", &s) == SET_OK && IS("backlight = 5\n"),
+              "a refused backlight, one set, is replaced:\n%.*s", (int)out_len, out);
     }
 
     /* A refused value is replaced where it stands, even by the default,

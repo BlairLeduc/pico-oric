@@ -142,7 +142,7 @@ bool park_serve(void) {
         break;
     case PARK_PAUSE: {
         bool alt;
-        int page = pause_run(&alt);
+        int page = pause_run(s_alt, &alt);
         if (page >= 0) menu_run(s_m, (unsigned)page, alt);
         break;
     }

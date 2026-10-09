@@ -7,7 +7,8 @@
  *
  * The first problem is kept for the heartbeat and the menu's status row
  * (design.md §12): a line the parser refused, a file that could not be
- * read, or a value the port could not act on.
+ * read, or a value this firmware cannot act on yet. A save says it
+ * afresh of the file it wrote.
  *
  * Copied from pico-ace and renamed.
  *

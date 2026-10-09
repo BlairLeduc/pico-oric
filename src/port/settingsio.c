@@ -46,6 +46,23 @@ void settingsio_none(settings_t *out) {
     s_error[0] = 0;
 }
 
+/* The text's first problem, then the values this firmware cannot act on
+ * yet: kept for the save, and named (design.md §12). */
+static void diagnose(const char *text, size_t len, settings_t *out) {
+    unsigned line = 0;
+    settings_status_t st = settings_parse(out, text, len, &line);
+    if (st != SET_OK) {
+        char at[16];
+        snprintf(at, sizeof at, "line %u", line);
+        settingsio_fail(at, settings_status_str(st));
+    }
+    /* M14, M15, M10: the Microdisc, layouts, and tapes and discs at boot. */
+    if (out->microdisc) settingsio_fail("microdisc", "not in this firmware yet");
+    if (out->layout[0]) settingsio_fail("layout", "not in this firmware yet");
+    if (out->boot_tape[0]) settingsio_fail("boot_tape", "not in this firmware yet");
+    if (out->boot_disc[0]) settingsio_fail("boot_disc", "not in this firmware yet");
+}
+
 void settingsio_load(settings_t *out) {
     settingsio_none(out);
 
@@ -65,13 +82,7 @@ void settingsio_load(settings_t *out) {
 
     s_state = SETTINGSIO_READ;
     s_bytes = got;
-    unsigned line = 0;
-    settings_status_t st = settings_parse(out, s_text, got, &line);
-    if (st != SET_OK) {
-        char at[16];
-        snprintf(at, sizeof at, "line %u", line);
-        settingsio_fail(at, settings_status_str(st));
-    }
+    diagnose(s_text, got, out);
     log_core1("  settings     : %s read, %lu bytes\n", from, (unsigned long)got);
 }
 
@@ -141,5 +152,13 @@ const char *settingsio_save(const settings_t *s) {
         return "write failed";
     }
     log_core1("  settings     : %s saved, %u bytes\n", SETTINGSIO_PATH, (unsigned)len);
+    /* The file is now what was written: what the menu and About say of
+     * it is said afresh, so a line the save fixed is no longer named. */
+    s_state = SETTINGSIO_READ;
+    s_bytes = (uint32_t)len;
+    s_error[0] = 0;
+    settings_t back;
+    settings_default(&back);
+    diagnose(text, len, &back);
     return NULL;
 }

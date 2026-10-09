@@ -43,8 +43,10 @@ void menu_run(oric_t *m, unsigned page, bool alt);
  * is not typed; a modifier alone does not, nor does the pause chord's
  * own repeat. Alt+M, Alt+H and the function keys go to the menu instead,
  * but for F6, which takes a screenshot and stays paused: returns -1 to
- * resume, or the page, with whether Alt was down in *alt. */
-int pause_run(bool *alt);
+ * resume, or the page, with whether Alt was down in *alt. `alt_held` is
+ * whether Alt was down when pause was asked for: Alt+P has it, the
+ * UART's US does not. */
+int pause_run(bool alt_held, bool *alt);
 
 /* The status line's word on the running ROM (§12): "" when its SHA-1 is
  * its image's, else the file named as unrecognised. */

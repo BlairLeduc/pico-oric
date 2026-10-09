@@ -679,7 +679,7 @@ static int menu_key(bool alt, uint8_t c) {
     return -1;
 }
 
-int pause_run(bool *alt_out) {
+int pause_run(bool alt_held, bool *alt_out) {
     /* The status line says so, whether or not it is on, as pico-atom's
      * does. */
     char line[ORIC_TEXT_COLS + 1];
@@ -695,8 +695,9 @@ int pause_run(bool *alt_out) {
     log_core1("  pause        : paused, backlight %s\n",
               !read ? "unread, left" : dimmed ? "dimmed" : "already lowest");
 
-    /* It was asked for with Alt held. */
-    bool alt = true, done = false;
+    /* As it was asked for: Alt+P with Alt held, so that P's repeat does
+     * not resume; the UART's US without, so that any key does. */
+    bool alt = alt_held, done = false;
     s_shot_down = false;
     int page = -1;
     uint32_t last_poll = time_us_32();
