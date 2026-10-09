@@ -376,6 +376,27 @@ static int machine(rom_id_t rom, oric_ram_t ram) {
         CHECK(oric_peek(&g.m, (uint16_t)(0x5000u + i)) == (uint8_t)(0x16u + i * 0x0Eu),
               "%s: CLOAD\"\" did not load OTHER's byte %u at #%04X", n, i, 0x5000u + i);
 
+    /* The first 16 of OTHER's 22 characters: 1.1 keeps 16 of a name off
+     * tape, so it matches and loads; 1.0 keeps them all, so the byte
+     * after the 16th is not the zero, and it looks on, past PROG, to the
+     * end (tapeio.c's name_is). */
+    {
+        CHECK(start_at_setup(r, "CLOAD\"OTHER WITH A LON\""), "%s: CLOAD never reached the set-up", n);
+        static deck_t in;
+        memcpy(&in, &two, sizeof in);
+        oric_copy(&s_run, &s_start);
+        uint32_t served = s_run.tape.served, declined = s_run.tape.declined;
+        bool ended = run_to(&s_run, NULL, r->cleanup, TRAPPED, r, &in, NULL, 20000000u);
+        unsigned sv = (unsigned)(s_run.tape.served - served);
+        unsigned dc = (unsigned)(s_run.tape.declined - declined);
+        if (v11) CHECK(ended && sv == 2 && dc == 0, "%s: 16 of a 22-character name: ended %d, "
+                       "served %u, declined %u; 1.1 loads it", n, ended, sv, dc);
+        else     CHECK(!ended && sv == 2 && dc == 1, "%s: 16 of a 22-character name: ended %d, "
+                       "served %u, declined %u; 1.0 passes it", n, ended, sv, dc);
+        oric_nmi(&g.m);
+        guest_fields(&g, 50);
+    }
+
     /* ---- 1.1's verify ----------------------------------------------------- */
     if (v11) {
         guest_type(&g, "NEW\r");

@@ -166,18 +166,26 @@ static tap_scan_t scan_file(FIL *f, uint32_t pos, tap_header_t *h) {
 }
 
 /* What CLOAD asked for is what the header carries, as the ROM compares
- * them (#E790 in 1.1, #E6F0 in 1.0): the name it stored, 16 bytes of a
- * longer one in 1.1, to its zero. */
-static bool name_is(const tap_header_t *h, const uint8_t *want) {
-    size_t n = strlen((const char *)want);
-    size_t k = h->name_len < 16u ? h->name_len : 16u;
-    return n == k && memcmp(h->name, want, n) == 0;
+ * them (#E790 in 1.1, #E6F0 in 1.0): the name it stored, to its zero.
+ * 1.1 stores 16 bytes of a longer one, which a 16-byte name matches; 1.0
+ * stores it all, and the byte after the 16th is not the zero. */
+static bool name_is(const tap_header_t *h, const tape_t *t) {
+    size_t n = strlen((const char *)t->want);
+    size_t k = h->name_len < t->rom->name_cap ? h->name_len : t->rom->name_cap;
+    return n == k && memcmp(h->name, t->want, n) == 0;
+}
+
+/* A file in TAPEIO_DIR as a path, false if it does not fit: FatFs's long
+ * names run to 255, past ORIC_PATH_MAX, and a cut path opens nothing. */
+static bool dir_path(const char *fname, char out[ORIC_PATH_MAX]) {
+    int n = snprintf(out, ORIC_PATH_MAX, "%s/%s", TAPEIO_DIR, fname);
+    return n > 0 && n < (int)ORIC_PATH_MAX;
 }
 
 /* With the deck empty and no file of that name: the first tape in
  * TAPEIO_DIR whose first header carries the name. Archive files are
  * seldom named after the program they hold. */
-static bool find_by_header(const uint8_t *want, char out[ORIC_PATH_MAX]) {
+static bool find_by_header(const tape_t *t, char out[ORIC_PATH_MAX]) {
     DIR d;
     FILINFO fi;
     bool found = false;
@@ -186,10 +194,9 @@ static bool find_by_header(const uint8_t *want, char out[ORIC_PATH_MAX]) {
         size_t len = strlen(fi.fname);
         if ((fi.fattrib & (AM_DIR | AM_HID)) || strncmp(fi.fname, "._", 2) == 0 ||
             len < 5 || strcasecmp(fi.fname + len - 4, ".tap") != 0) continue;
-        snprintf(out, ORIC_PATH_MAX, "%s/%s", TAPEIO_DIR, fi.fname);
-        if (f_open(&s_f, out, FA_READ) != FR_OK) continue;
+        if (!dir_path(fi.fname, out) || f_open(&s_f, out, FA_READ) != FR_OK) continue;
         tap_header_t h;
-        found = scan_file(&s_f, 0, &h) == TAP_FOUND && name_is(&h, want);
+        found = scan_file(&s_f, 0, &h) == TAP_FOUND && name_is(&h, t);
         f_close(&s_f);
     }
     f_closedir(&d);
@@ -222,7 +229,7 @@ static void choose_tape(const tape_t *t) {
         f_close(&s_f);
         set_deck(named, false);
         log_core1("  tape         : %s found by name\n", named);
-    } else if (!s_path[0] && find_by_header(t->want, found)) {
+    } else if (!s_path[0] && find_by_header(t, found)) {
         set_deck(found, false);
         log_core1("  tape         : %s found by its header\n", found);
     }
@@ -436,7 +443,10 @@ unsigned tapeio_list(tapeio_entry_t *out, unsigned max) {
         size_t len = strlen(fi.fname);
         if (len < 5 || strcasecmp(fi.fname + len - 4, ".tap") != 0) continue;
         tapeio_entry_t *e = &out[n];
-        snprintf(e->path, sizeof e->path, "%s/%s", TAPEIO_DIR, fi.fname);
+        if (!dir_path(fi.fname, e->path)) {
+            log_core1("  tape         : %s: name too long to open; not listed\n", fi.fname);
+            continue;
+        }
         e->size = (uint32_t)fi.fsize;
         e->name[0] = 0;
         e->code = false;
