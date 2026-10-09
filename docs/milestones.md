@@ -73,6 +73,24 @@ not on core 1's 2 KiB stack. **Not checked:** Delete, and a refusal, from
 the PicoCalc's own keyboard (over the UART only); the `.new` recovery after a
 cut publish, and a load with the card pulled between the passes (both
 pico-ace's code, unchanged), on the board; a full card.
+**Review fixes** (Codex's review of PR #11, 2026-10-09). Two findings,
+one taken. (1) **A file the emulator could not have written**: a state
+passes its CRC whoever wrote it, and the chips trust their fields. An AY
+period of 0 divides by zero; a register number past 15 indexes past the
+AY's masks; and, found while fixing it, a T1 far below zero, an AY clock
+far behind the CPU's or a large budget keeps core 0 in one loop for
+minutes. `plausible()` now refuses, as not a save state, any field
+outside the range a running machine keeps it in: the AY's periods (1 to
+what a register makes), register, envelope step and direction, prescaler,
+tones and LFSR; the VIA's counters; the AY no more than a second behind
+the CPU and never ahead, its next ticks within 2^32 of its clock; the
+budget from -64 to 0; the ULA's modes. Every state the tests save passes
+it. `test_snapshot` refuses ten such files, each with a good CRC; with
+the check planted out it accepts every one. (2) **The blink period**
+(`cfg.blink_fields`) compared like the field's shape: declined. It sets
+which frames show blinking cells and nothing else, so no machine state
+depends on it, and it is configuration only until §16 settles it; a
+build that settles it should not refuse every earlier state.
 
 **M10, tape by trap** (`src/core/tap.*`, `tape.*`; `src/port/tapeio.*`;
 the Tapes page in `menu.c`, the tape's park, `boot_tape`; `test_tape`;

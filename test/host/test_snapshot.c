@@ -227,6 +227,41 @@ int main(void) {
     CHECK(mem_check(&snap, &h, NULL) == SNAP_NOT_SNAPSHOT, "another payload length");
     snap.buf[12] ^= 1u;
 
+    /* Fields no machine could have saved, each with a good CRC, each
+     * of which would divide by zero, index past a table or hang core 0
+     * if loaded (snapshot.c's plausible). The offsets are the state
+     * section's (snapshot.c). */
+    {
+        static const struct { const char *what; unsigned off, len; uint32_t v; } bad[] = {
+            { "a tone period of 0",          123, 4, 0 },
+            { "an envelope period of 0",     123 + 16, 4, 0 },
+            { "a noise period past 31",      123 + 12, 4, 32 },
+            { "an AY register of 16",        70, 1, 16 },
+            { "an envelope step of 16",      149, 1, 16 },
+            { "a dead LFSR",                 145, 4, 0 },
+            { "T1 far below zero",           42, 4, 0x80000000u },
+            { "T2 far below zero",           46, 4, 0x80000000u },
+            { "a positive budget",           158, 4, 1000000u },
+            { "the AY a day behind",         75, 8, 0 },
+        };
+        for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            uint8_t was[8];
+            uint8_t *at = snap.buf + SNAP_HEADER_LEN + bad[i].off;
+            memcpy(was, at, bad[i].len);
+            memset(at, 0, bad[i].len);
+            for (unsigned k = 0; k < bad[i].len && k < 4; k++) at[k] = (uint8_t)(bad[i].v >> (8 * k));
+            mem_recrc(&snap);
+            CHECK(mem_check(&snap, &h, NULL) == SNAP_NOT_SNAPSHOT, "%s: %s", bad[i].what,
+                  snapshot_status_str(mem_check(&snap, &h, NULL)));
+            CHECK(mem_load(&snap, &h) == SNAP_NOT_SNAPSHOT, "load refuses %s", bad[i].what);
+            memcpy(at, was, bad[i].len);
+            mem_recrc(&snap);
+        }
+        /* The AY's clock at 0 is more than a second behind only if the
+         * saved machine had run that long. */
+        CHECK(saved.cpu.cycles > ORIC_CPU_HZ, "the AY case needs a clock past a second");
+    }
+
     /* A Microdisc fitted (M14), and a RAM fit no Oric has. */
     poke_state(163, 1);
     CHECK(mem_check(&snap, &h, NULL) == SNAP_OTHER_MACHINE, "a Microdisc: %s",

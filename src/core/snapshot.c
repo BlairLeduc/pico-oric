@@ -228,13 +228,61 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     info->ram = st[S_RAM] == ORIC_RAM_16K ? ORIC_RAM_16K : ORIC_RAM_48K;
 }
 
+/* Could a machine have saved this? A file passes its CRC whoever wrote
+ * it, and the chips trust their fields: an AY period of 0 divides by
+ * zero, a register number past 15 indexes past the AY's masks, and a T1
+ * far below zero, an AY clock far behind the CPU's or a large budget
+ * keeps core 0 in one loop for minutes (Codex's review of PR #11). So
+ * every field the code divides, indexes or loops by must be in the range
+ * a running machine keeps it in. */
+static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
+    if (st[S_RAM] > ORIC_RAM_48K || st[S_SR_HALVES] > 16u ||
+        st[S_TAPE_NAME_LEN] > ORIC_TAP_NAME_MAX || st[S_ULA_MODE] > 7u || st[S_FRAME_MODE] > 7u)
+        return false;
+
+    /* The VIA's counters after due() and a sync: from just below zero
+     * to a full count past the latch. */
+    int32_t t1 = (int32_t)get32(st + S_T1), t2 = (int32_t)get32(st + S_T2);
+    if (t1 < -2 || t1 > 0x10002 || t2 < -2 || t2 > 0x10002) return false;
+
+    /* The AY: a register below 16, a bus mode, a period of at least one
+     * tick and no more than a register can make, the envelope's step and
+     * direction, a live LFSR. */
+    if (st[S_AY_ADDR] >= AY_REG_COUNT || st[S_AY_MODE] > AY_BUS_LATCH) return false;
+    static const uint32_t per_max[AY_GEN_COUNT] = { 0xFFFu, 0xFFFu, 0xFFFu, 0x1Fu, 0x1FFFEu };
+    for (unsigned g = 0; g < AY_GEN_COUNT; g++) {
+        uint32_t p = get32(st + S_AY_PER + 4u * g);
+        if (p < 1u || p > per_max[g]) return false;
+    }
+    if (st[S_AY_ENV_STEP] > 15u || (st[S_AY_ENV_ATTACK] != 0 && st[S_AY_ENV_ATTACK] != 0x0Fu) ||
+        st[S_AY_NOISE_PRE] > 1u || st[S_AY_TONE_OUT] > 7u)
+        return false;
+    uint32_t rng = get32(st + S_AY_RNG);
+    if (rng == 0 || rng > 0x1FFFFu) return false;
+
+    /* The AY is brought up to date at every sound write and every
+     * field's end, so it is never more than a field behind the CPU and
+     * never ahead; a second is generous. Its next ticks are within a
+     * period of its clock, but for a held envelope's, which mean
+     * nothing; 2^32 ticks keeps the arithmetic far from overflow. */
+    uint64_t cycles = get64(st + S_CYCLES), t = get64(st + S_AY_T);
+    if (t > cycles || cycles - t > ORIC_CPU_HZ) return false;
+    int64_t k0 = (int64_t)(t / AY_TICK_CYCLES);
+    for (unsigned g = 0; g < AY_GEN_COUNT; g++) {
+        int64_t nx = (int64_t)get64(st + S_AY_NEXT + 8u * g);
+        if (nx < k0 - ((int64_t)1 << 32) || nx > k0 + ((int64_t)1 << 32)) return false;
+    }
+
+    /* The budget is the last field's overshoot: never positive, and no
+     * more than an interrupt's entry and the longest instruction. */
+    int32_t budget = (int32_t)get32(st + S_BUDGET);
+    return budget <= 0 && budget >= -64;
+}
+
 /* Would this state resume on this machine? The ROM and the RAM first,
  * which the user can change and the refusal names. */
 static snap_status_t compatible(const oric_t *m, const uint8_t st[SNAP_STATE_LEN]) {
-    if (st[S_RAM] > ORIC_RAM_48K || st[S_AY_MODE] > AY_BUS_LATCH || st[S_SR_HALVES] > 16u ||
-        st[S_TAPE_NAME_LEN] > ORIC_TAP_NAME_MAX) {
-        return SNAP_NOT_SNAPSHOT;
-    }
+    if (!plausible(st)) return SNAP_NOT_SNAPSHOT;
     uint8_t rom[SHA1_DIGEST_LEN];
     rom_hash(m, rom);
     if (memcmp(rom, st + S_ROM, sizeof rom) != 0) return SNAP_OTHER_ROM;
