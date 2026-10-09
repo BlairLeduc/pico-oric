@@ -113,9 +113,9 @@ static void __not_in_flash_func(refill)(unsigned which) {
         return;
     }
     fill_half(half);
-    /* A chain trigger reloads neither the address nor the count: set
-     * both, or the next chain completes at once and storms the IRQ
-     * (hardware-notes.md §5.3). */
+    /* A trigger carries the read address on from where the last run
+     * ended, so it must be set back to this half; the count reloads from
+     * the last value written, set here too (hardware-notes.md §5.3). */
     dma_channel_set_read_addr(ch, half, false);
     dma_channel_set_trans_count(ch, ORIC_DMA_SLOTS_PER_HALF, false);
 }
