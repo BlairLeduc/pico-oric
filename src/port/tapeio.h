@@ -13,10 +13,13 @@
  * the guest names: CLOAD"SQ" plays /oric/tapes/SQ.tap from its start, or
  * failing that the first tape whose first header is SQ's, and CSAVE"SQ"
  * appends to SQ.tap, making it if need be. A CLOAD whose name is a file
- * on the card plays that file whatever is in the deck; any other reads
+ * on the card, as it is or with .tap after it (CLOAD"GAME.TA1", a title's
+ * next part), plays that file whatever is in the deck; any other reads
  * the deck. When a CLOAD reaches the end of the tape it is rewound once,
- * so a program already passed is found; at the end a second time, or
- * with no tape, no card or a file cut short, the emulator presses the
+ * so a program already passed is found. A file one byte short at the
+ * tape's end loads, the last address unchanged (oric_tape_load_keep). At
+ * the end a second time, or with no tape, no card or a file cut short
+ * by more, the emulator presses the
  * reset button and the status line says why: the ROM's warm start,
  * program kept, where the real machine would wait for a signal
  * (oric_tape_give_up).

@@ -1,22 +1,18 @@
 /* oric-corpus.c — M12's corpus run: archive tapes loaded and run on the
  * host, one line each (design.md §15, M12; §5.1).
  *
- *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-N] [-B] TAPE...
+ *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...
  *
  * Each tape gets a machine of its own, copied from one booted to Ready.
  * A TAPE is a .tap, or a directory of a title's parts, whose deck starts
  * with its first (the shortest .tap name, else the first name). The
  * harness types CLOAD"" and serves the tape as the firmware's tapeio
- * does (design.md §10.3): CLOAD "NAME" puts NAME.tap from the tape's own
- * directory in the deck, if there is one; at the end of the tape it
- * rewinds once, and a find that goes round it twice, or a file cut short,
- * gives up, back to Ready.
- *
- * Two changes to tapeio, measured here before they are made: -N looks
- * for NAME as it is before NAME.tap (TOSEC's parts are "x.ta1", and some
- * loaders ask for "X.TAP"); -B lets a tape's last file end one byte
- * short, the byte in memory kept, as Oricutron allows "for broken tape
- * images" (tape.c). When the tape has gone quiet and the ROM is at Ready, a last file
+ * does (design.md §10.3): CLOAD "NAME" puts the file NAME, or NAME.tap,
+ * from the tape's own directory in the deck, if there is one; a file one
+ * byte short at the tape's end keeps the byte in memory
+ * (oric_tape_load_keep); at the end of the tape it rewinds once, and a
+ * find that goes round it twice, or a file cut short by more, gives up,
+ * back to Ready. When the tape has gone quiet and the ROM is at Ready, a last file
  * without autorun is started, RUN for BASIC and CALL for code; half way
  * through, Space is pressed, for the titles that wait for a key.
  *
@@ -61,7 +57,7 @@ typedef struct {
 typedef struct {
     unsigned finds, files, gave_up;
     unsigned by_name;         /* decks changed by CLOAD's name           */
-    unsigned one_byte;        /* files one byte short, let through (-B)  */
+    unsigned one_byte;        /* files one byte short, the byte kept     */
     uint32_t bytes;
     bool     cut_short;
     char     why[64];
@@ -99,7 +95,6 @@ static deck_t     s_deck;
 static tape_log_t s_tl;
 static run_log_t  s_rl;
 static long       s_field;
-static bool       s_name_as_is, s_one_byte;
 
 /* ---- the deck, served as src/port/tapeio.c serves the card's ------------ */
 
@@ -134,8 +129,8 @@ static bool find_file(const char *want, char *out, size_t cap) {
     return found;
 }
 
-/* tapeio's choose_tape: CLOAD's name, its trailing spaces gone, as
- * NAME.tap; with -N, as NAME first. */
+/* tapeio's choose_tape: CLOAD's name, its trailing spaces gone, as it
+ * is, then as NAME.tap. */
 static void choose_tape(const tape_t *t) {
     char want[ORIC_TAP_NAME_MAX + 8], name[256];
     size_t k = 0;
@@ -147,7 +142,7 @@ static void choose_tape(const tape_t *t) {
     }
     want[k] = 0;
     if (!k) return;
-    bool got = s_name_as_is && find_file(want, name, sizeof name);
+    bool got = find_file(want, name, sizeof name);
     if (!got) {
         strcat(want, ".tap");
         got = find_file(want, name, sizeof name);
@@ -202,12 +197,7 @@ static void serve(oric_t *m) {
         size_t n = d->pos < d->len ? d->len - d->pos : 0;
         if (n > t->len) n = t->len;
         oric_tape_load_data(m, d->buf + d->pos, n);
-        if (s_one_byte && t->done + 1u == t->len) {
-            /* The tape's last byte is missing: the one in memory stays. */
-            uint8_t b = oric_peek(m, (uint16_t)(t->start + t->done));
-            oric_tape_load_data(m, &b, 1);
-            s_tl.one_byte++;
-        }
+        if (oric_tape_load_keep(m)) s_tl.one_byte++;
         bool whole = t->done == t->len;
         oric_tape_load_end(m);
         d->pos += n;
@@ -472,12 +462,8 @@ int main(int argc, char **argv) {
             fields = atol(argv[++i]);
         else if (!strcmp(argv[i], "-s") && i + 1 < argc)
             shots = argv[++i];
-        else if (!strcmp(argv[i], "-N"))
-            s_name_as_is = true;
-        else if (!strcmp(argv[i], "-B"))
-            s_one_byte = true;
         else {
-            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-N] [-B] TAPE...\n");
+            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...\n");
             return 2;
         }
     }
