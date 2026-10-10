@@ -200,6 +200,7 @@ bool cassette_walk(oric_t *m, bool from_start, bool slow, uint32_t *t) {
 
 static void set_live(cassette_t *c) {
     c->live = c->playing || c->rec.on;
+    c->due = c->rec.on ? 0 : c->playing ? c->next : UINT64_MAX;
 }
 
 /* The next change into next, or the end of the tape. */
@@ -224,6 +225,7 @@ static void play_to(oric_t *m, uint64_t now) {
         via6522_set_cb1(&m->via, c->level);
         schedule(m);
     }
+    set_live(c);
 }
 
 /* The ROM's speed setting, which CLOAD and CSAVE set before the relay. */
@@ -256,6 +258,7 @@ static void update(oric_t *m) {
         c->slow = rom_slow(m);
         c->next = now_of(m) + c->left;
         c->playing = true;
+        set_live(c);
         via6522_set_cb1(&m->via, c->level);
     } else if (!run) {
         stop_player(m);

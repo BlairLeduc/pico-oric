@@ -49,6 +49,7 @@ static void map_rw(oric_t *m, unsigned first_page, unsigned last_page, uint32_t 
 void oric_init(oric_t *m, const oric_config_t *cfg) {
     memset(m, 0, sizeof(*m));
     m->cfg = *cfg;
+    m->cas.due = UINT64_MAX;   /* the deck idle (cassette.h) */
     pcm_init(&m->pcm, 0, AY_LEVEL_MAX, 0, 0, 0);
     ay8912_set_average(&m->ay, m->pcm.num, m->pcm.den);
 
@@ -257,7 +258,7 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
         via6522_tick(&m->via, c - m->via_early);
         m->via_early = 0;
         /* The deck, only while it plays or records (cassette.h). */
-        if (__builtin_expect(m->cas.live, 0)) cassette_run(m, m->cpu.cycles);
+        if (__builtin_expect(m->cpu.cycles >= m->cas.due, 0)) cassette_run(m, m->cpu.cycles);
         m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
     }
     m->instructions += n;

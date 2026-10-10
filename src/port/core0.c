@@ -269,6 +269,10 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     window_start(&sec, m, late);
     uint32_t fields60 = 0;   /* since boot */
     uint32_t turbo_fields = 0;   /* run unpaced, since boot */
+    /* Each stretch the deck runs, measured whole (§15.2 M13): turbo's
+     * speed, or with PICO_ORIC_TURBO=OFF core 0's share while it plays. */
+    bool deck_was = false;
+    uint64_t deck_us = 0, deck_cycles = 0, deck_busy = 0;
     bool ready = false;
     uint32_t why = PARK_NONE;
     unsigned page = 0;
@@ -402,6 +406,25 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         uint32_t busy = time_us_32() - t_busy;
         bool turbo = turbo_now(m);
         if (turbo) turbo_fields++;
+        bool deck = oric_cassette_running(m);
+        if (deck && !deck_was) {
+            deck_us = time_us_64();
+            deck_cycles = m->cpu.cycles;
+            deck_busy = 0;
+        } else if (deck) {
+            deck_busy += busy;
+        } else if (deck_was) {
+            uint64_t wall = time_us_64() - deck_us;
+            uint64_t cyc = m->cpu.cycles - deck_cycles;
+            uint32_t x100 = (uint32_t)(cyc * 100u * 1000000u / ORIC_CPU_HZ / (wall + 1u));
+            uint32_t b1000 = (uint32_t)(deck_busy * 1000u / (wall + 1u));
+            log_printf("  deck         : ran %llu cycles in %llu us, %lu.%02lux real time%s, "
+                       "core 0 busy %lu.%lu%%\n", (unsigned long long)cyc,
+                       (unsigned long long)wall, (unsigned long)(x100 / 100u),
+                       (unsigned long)(x100 % 100u), PICO_ORIC_TURBO ? ", turbo" : ", paced",
+                       (unsigned long)(b1000 / 10u), (unsigned long)(b1000 % 10u));
+        }
+        deck_was = deck;
 #if PICO_ORIC_AUDIO
         if (turbo) {
             /* Never block: the guest's samples are dropped, and the queue

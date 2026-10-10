@@ -93,8 +93,11 @@ typedef struct {
 } cassette_rec_t;
 
 typedef struct {
-    /* While the deck plays or records: the run loop's one test. */
-    bool     live;
+    /* The run loop's one test (oric.c, bus.c): the cycle from which the
+     * deck wants bringing up to date, the next edge while it plays, 0
+     * while it records (every instruction), never while it is idle. */
+    uint64_t due;
+    bool     live;         /* playing or recording                        */
 
     const uint8_t *img;    /* a .tap image, len bytes                      */
     uint32_t len;
