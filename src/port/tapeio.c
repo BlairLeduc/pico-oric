@@ -618,7 +618,7 @@ static void signal_flush(oric_t *m) {
                   (unsigned long)(to - from), s_rec_path);
         /* The recording's start in the log, so that a run over the UART
          * can check it off the board (design.md §15.2 M13). */
-        for (uint32_t i = from; i < to && i - from < 64u; i += 32u) {
+        for (uint32_t i = from; i < to && i - from < 256u; i += 32u) {
             char hex[32 * 2 + 1];
             uint32_t k = 0;
             for (; k < 32u && i + k < to; k++) snprintf(hex + 2u * k, 3, "%02X", s_img[i + k]);
