@@ -1813,6 +1813,13 @@ The owner's decisions, each with its date.
    copy.
 5. **One design document**, `docs/design.md`, with the milestones in §15
    and the record in `docs/milestones.md` from M0. *Decided 2026-10-07.*
+6. **The overlay RAM powers on in Oricutron's pattern**, 128 zeros and 128
+   `#FF`s a page, and the rest of RAM zero-filled. *Decided 2026-10-10.*
+   Sedoric's loader takes a zero sum over the overlay as the DOS resident,
+   so zeroed RAM crashed a cold boot (§6.3, M14).
+7. **The WD1793 reports no CRC errors.** *Decided 2026-10-10.* 24 of
+   TOSEC's 221 Microdisc images carry CRCs their tools never computed, and
+   Oricutron loads them (§10.5, §17).
 
 **Proposed, following the siblings; the owner to confirm:**
 
