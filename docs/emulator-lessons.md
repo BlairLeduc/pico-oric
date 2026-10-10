@@ -1149,6 +1149,28 @@ snapshots are expected there.
 - Short images (truncated after the last used sector) read zeros past their
   end and grow when written. A read-only file is a write-protected disc.
 - Refuse a snapshot while a command is in progress.
+- **Let the disc turn in guest cycles.** The byte under the head is a
+  function of the cycle count (on the Oric's Microdisc, byte `(t / 32) mod
+  6400` of the track); a search waits for its ID to come round, a transfer
+  moves a byte per byte-time and loses one the CPU missed, and a missing
+  sector is given up at the fifth index pulse. Each timed step is an event
+  the run loop stops at, as a tape's edges are, so the chip's timing is
+  exact without a per-instruction check, and nothing in it is a guess
+  tuned until a loader works. A controller whose INTRQ ends the CPU's loop
+  (the Microdisc's EPROM leaves its byte loop through the IRQ) needs the
+  last byte's full byte-time before INTRQ, or the CPU never takes it.
+- **A disc command also stops the keyboard.** A DOS that masks the timer
+  interrupt while it drives the disc stops the ROM's key scan with it; a
+  test that types the next command too soon loses keys, as a user on the
+  real machine would. Wait for the interrupt to be enabled again.
+- **Hold the archive to the reference by screen, not by trace**, when the
+  reference's disc is instant and yours turns: boot every image in both for
+  the same time and compare the text screens. On the Microdisc, 193 of 206
+  matched at 30 s, and every one of the other 13 had a reason: animations
+  caught at another moment, a title still loading, a disc for another DOS.
+- **Survey the archive's images before trusting a check the chip makes**:
+  24 of TOSEC's 221 Oric discs carry CRCs their tools never computed, which a
+  CRC-checking controller would refuse and the reference loads.
 
 ### 8.5 Snapshots
 
@@ -1286,7 +1308,12 @@ ever and a game drew all its asteroids at one point. Seed such state from the
 board's hardware RNG in firmware, and from a constant in host tests so runs
 repeat. Look, and record what you find either way: the Ace's ROM has no
 random-number word at all, and the manual's `RND` is user code seeded from a
-field counter, so zeroed RAM leaves nothing stuck.
+field counter, so zeroed RAM leaves nothing stuck. A second kind to look
+for: **a checksum that zeros pass.** The Oric's Sedoric sums the RAM its DOS
+lives in and takes a zero sum as the DOS already loaded, so from zero-filled
+RAM a cold boot loaded four sectors of sixty and crashed. Power that RAM on
+in the reference emulator's pattern (Oricutron's: 128 zeros, then 128
+`#FF`s, a page), and only that RAM, if the rest is held to traces.
 
 ### 9.3 Turbo and faster guest clocks
 

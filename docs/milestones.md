@@ -4,6 +4,79 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M14, the Microdisc** (`src/core/wd1793.*`, `microdisc.*`, `mfmdisk.*`;
+the latch's map in `oric.c` and the decode in `bus.c`; the run loop's
+slice cut moved from the cassette to the machine; the overlay RAM's
+power-on pattern; the Microdisc's fields in `snapshot.c`; `discio.c`,
+`PARK_DISC`, the Discs page, the Machine page's row, `boot_disc` and
+`microdis.rom` off the card; `test_disc`; `oricutron-trace -d` and `-p`,
+`trace-diff.py disc`, `oric-discs` and `tools/disc-corpus.sh`), built
+2026-10-10 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2) and run on the Plus 2
+W `7458DC82A89AAC12` (RP2350B, chip rev 2) the same day, **built**: done on
+the host; on the board the EPROM boots and waits for a disc, and Sedoric
+there is outstanding, as the card holds no disc image yet. **Read off the
+EPROM and agreed by MAME and Oricutron**: the latch's bits, `#0314` and
+`#0318` read as INTRQ and DRQ in bit 7, the EPROM over the overlay RAM
+from RESET, the WD1793 at 1 MHz (design.md §10.5, §16). **The disc
+turns**: a byte every 32 cycles of a 6,400-byte track, each step an event
+the run loop stops at; CRCs not checked (24 of TOSEC's 221 images carry
+wrong ones). **Found on the way**: Sedoric's loader sums the overlay RAM and
+takes zero as the DOS resident, so zero-filled RAM booted four sectors of
+sixty and crashed, and Oricutron does the same with its RAM zeroed; the
+overlay now powers on in Oricutron's pattern, the rest still zeroed, and
+the trace diff agrees to the end on all four machines after it. **Checked
+on the host** (`test_disc`): the CRC's known answer; the format's index
+and refusals; Restore, Seek with verify, Read Sector (one, with E, with
+side compare, multiple), Read Address, Read Track, Write Sector (with a
+deleted mark), Write Track (a Sedoric-like format read back with good
+CRCs) and Force Interrupt's three forms, each INTRQ at the cycle the
+rotation says, with controls: the slowest step rate, a track register
+that lies (SEEK ERROR at the fifth index), a CPU too slow for the disc
+(LOST DATA), one that writes nothing (the sector untouched), write
+protect, a track served late; the latch's map, the decode, INTRQ through
+bit 0 and the reset vector on made-up images; snapshots round trip,
+refused mid-command and by the other fit. With the ROMs and Sedoric 3.006
+(by SHA-1): the disc reaches Sedoric's menu 4.39 M cycles after power-on
+in the Atmos 48K and 4.47 M in the Oric-1 48K, 77 sectors read; then in
+both, SAVE, DIR, NEW, LOAD and RUN ("DISC OK"), a disc swapped between
+fields seen and swapped back, DEL, SAVE refused on a protected disc with
+the image untouched, a snapshot refused mid-command and one taken between
+that replays the same DIR; INIT formats a blank image in drive B, 84
+tracks in 1,774 fields (35 s), and a file saved there lists. The program
+saved by the Atmos, read by Oricutron (`trace-diff.py disc`), loads and
+prints DISC OK. **Planted**, each failing `test_disc` and then removed: no
+LOST DATA on read; RNF at the fourth index; the 2 MHz settle; the 2 MHz
+step; INTRQ with a read's last byte; `/ROMDIS` inverted; `#0314` and
+`#0318` swapped; no side compare; F5's CRC preset wrong. One that passed
+marked dead code, a put before a get that the end of every write already
+posts, and it was taken out. MAME's gating of `#0314` by bit 0 fails only
+our own unit check: Sedoric cannot tell. **The archive** (`tools/disc-corpus.sh`,
+`out/m14/corpus`): of TOSEC's 221 images, 15 refused by name (10 cut short,
+5 not `MFM_DISK`, one `ORICDISK`); of the 206, the Atmos 48K leaves the
+same screen as Oricutron after 30 s on 193; of the other 13, ten are
+animations caught at another moment, Le Masque d'Or a blinking cell in
+another phase, Creepy Castle still loading (the same at 60 s), and FTDOS,
+a Jasmin disc, on which the EPROM seeks with verify to track 116 and our
+chip gives SEEK ERROR where Oricutron ignores the verify. 26 discs whose
+loader is a slave's (`#B901` = 1) print "DOS is altered" and run into
+junk, as they do in Oricutron; Pulsoids (F) uses two undocumented
+opcodes. **On the board**: microdis.rom found by its SHA-1; with
+`PICO_ORIC_BOOT_MICRODISC` and the Atmos 48K, the EPROM boots and shows
+"insert system disc", its own prompt for an empty drive, in its DRQ loop
+at `#E2EF`; the Discs page lists `/oric/discs/`, which is empty
+(`out/m14/board`). **Measured**, one sitting, M12's workloads on the
+Oric-1 16K the card's settings choose, against main as the control
+(`out/m14/perf`): idle 29.8% against 30.2%, compute 35.8% against 36.4%,
+sound 36.8% against 37.4%, rt 1.000 and no underruns in all; the
+Microdisc costs nothing while off. Waiting in the EPROM's DRQ loop, which
+is the loop every byte moves through, core 0 is 48.5% busy at rt 1.000
+(headroom 2.13x), as a paced tape load was (M13). Image 170,704 bytes
+text, bss 308,436 (274,900 before: two EPROM copies and a track).
+**Not checked**: Sedoric on the board (an image on the card), the time a
+track takes on the card, core 0 while a transfer runs there, a disc
+written on the board read back in Oricutron, the Discs page and Machine
+row on the panel, the release build on the board.
+
 **M13, signal-level tape** (`src/core/cassette.*`; the trap's cues in
 `tape.c`, `oric_tape_reading`; the run slice's end in `oric.c` and the
 catch-up in `bus.c`; `tapeio.c` with fast tape off; turbo, the deck's log

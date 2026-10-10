@@ -42,7 +42,13 @@ the player matches both ROMs' CSAVE edge for edge on the host, CLOAD
 reads it, the recorder's files load in Oricutron (one made on the
 board among them), and turbo runs a load at 2.03×; an archive title
 that loads only by the signal (L'Immonde Dr Kokus) loads on the board;
-the owner's check is outstanding.
+the owner's check is outstanding. **M14 (the Microdisc) is built**: the
+WD1793 with a turning disc, the latch's memory map, `discio`, the Discs page
+and the Machine row; Sedoric 3 boots, saves, loads, deletes and formats in
+both ROMs on the host, a saved file loads in Oricutron, and 193 of TOSEC's
+206 loadable images leave Oricutron's screen after 30 s (the other 13
+explained); on the board the EPROM boots and waits for a disc. Sedoric on
+the board, with an image on the card, and the owner's check are outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -116,6 +122,7 @@ tools/build.sh -DPICO_ORIC_BOOT_ROM=10 -DPICO_ORIC_BOOT_RAM=16 build/boot-10-16 
 tools/build.sh -DPICO_ORIC_AUDIO=OFF build/timer          # paced on the timer: audio's control
 tools/build.sh -DPICO_ORIC_TURBO=OFF build/m13-noturbo    # a tape paced: turbo's control
 tools/build.sh -DPICO_ORIC_DECK=OFF build/m13-nodeck      # the signal's checks out: their control
+tools/build.sh -DPICO_ORIC_BOOT_MICRODISC=ON -DPICO_ORIC_BOOT_DISC=sedoric3.dsk build/m14-md  # boots a disc
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
@@ -141,6 +148,9 @@ build/host/test/host/test_tape --write out/m10/host-taps  # the trap's saves as 
 tools/trace-diff.py tape out/m10/host-taps/atmos-48k.tap  # CLOADed by Oricutron, off the signal
 tools/build.sh -DPICO_ORIC_TAPE=OFF build/notape         # the trap's check out: its control
 build/host/test/host/test_cassette --write out/m13/rec    # the recorder's files, for trace-diff tape
+build/host/test/host/test_disc --write out/m14/host       # Sedoric's saves as .dsk files
+tools/trace-diff.py disc out/m14/host/saved-1.1.dsk --then 'LOAD"M14"\nRUN\n'  # read by Oricutron
+tools/disc-corpus.sh                                      # every .dsk, ours against Oricutron's screen
 
 # M12's corpus (TOSEC, fetched into out/corpus, not committed) and soak
 tools/fetch-corpus.sh                                # out/corpus/tap, out/corpus/dsk
@@ -156,7 +166,9 @@ without the SDK is what keeps SDK headers out of `src/core/`.
 - **No ROM is committed.** `roms/` is a gitignored staging area (only its
   README is in git). Host tests find `basic10.rom`, `basic11b.rom` and
   `microdis.rom` there by SHA-1 and **skip** without them; CI has none, and
-  runs a test ROM of our own instead (design.md §13.3). A skip is not a pass.
+  runs a test ROM of our own instead (design.md §13.3). `test_disc` also
+  wants the Sedoric 3.006 disc there, any name ending `.dsk`, by SHA-1
+  (`roms/README.md`); its controller tests run without it. A skip is not a pass.
 - **Our own test ROM** (`test/asm/oric_test_rom.s`) is assembled by CMake
   when ca65 is on the path at configure time; it is what proves the wiring
   in CI. `test/host/guest.c` types as the firmware will, PicoCalc
@@ -217,6 +229,15 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   read; `test_tape` holds the rest to the ROM's own routines on all four
   machines. Run it after touching `tape.c`, and plant a bug in anything
   you add: one that passes marks dead code (EL §8.2).
+- **The Microdisc remaps `#C000–#FFFF` on every latch write**
+  (`microdisc_map`, design.md §10.5): the BASIC ROM's pages are `PAGE_ROM`,
+  the EPROM's `PAGE_EPROM`, and only those two flags tell `oric_copy` which
+  array a page points into. The tape trap fires only on `PAGE_ROM`.
+- **The disc turns in guest cycles** (`wd1793.h`): every timed step is an
+  event the run loop's slice ends at (`m->cut` when one moves earlier, as
+  the cassette's do). Run `test_disc` after touching `wd1793.c`,
+  `microdisc.c`, `oric_run` or `bus.c`'s page `#03`; its timings are exact
+  to the cycle, each with a control.
 - **There is no framebuffer, and no VRAM-byte diff.** A serial attribute
   changes every cell to its right without changing their bytes; the
   presenter's shadow holds **decoded cells** (design.md §7.3).
