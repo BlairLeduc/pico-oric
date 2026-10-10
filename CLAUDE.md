@@ -25,8 +25,8 @@ dropped snapshots, at 27–31 % of core 0 with the hot code in SRAM (tier 2,
 the default since M7). **M8 (AY audio) is done**: checked on the host
 against a cycle-stepped model, on the board (paced on the audio queue,
 ten minutes without an underrun, the late path forced), and by the
-owner's ear. **M9 (menu and settings) is built** and run on the board
-over the UART; the owner's check of every page and key is outstanding.
+owner's ear. **M9 (menu and settings) is done**: run on the board over
+the UART, and every page checked by the owner on a Pico 2 W in M15.
 **M10 (tape by trap) is done**: checked on the host against both ROMs'
 own routines, CSAVEd files loaded by Oricutron, archive games loaded
 and run on the board, and tapes loaded by the owner. **M11 (snapshots) is
@@ -48,15 +48,19 @@ and the Machine row; Sedoric 3 boots, saves, loads, deletes and formats in
 both ROMs on the host, a saved file loads in Oricutron, and 193 of TOSEC's
 206 loadable images leave Oricutron's screen after 30 s (the other 13
 explained); on the board Sedoric boots off the card, saves and loads, and
-Oricutron reads the disc it wrote. The owner's check of the pages is
-outstanding. **M16 (the vertical-sync modification) is done**: the first
+Oricutron reads the disc it wrote; the owner checked its pages in M15.
+**M16 (the vertical-sync modification) is done**: the first
 active line settled from Brown's measured timing (sync on lines 256–259),
 the pulse on CB1 as two run-loop events a field, a Machine-page row, and
 a test program tracing line for line against Oricutron with its VSync
 hack on all four machines; on the way, a VIA read in an instruction's
 last cycle no longer sees the next instruction's first tick (`design.md`
 §5.3); the owner played Oricium, which wants the vsync cable, with the
-hack on a Pico 2 W.
+hack on a Pico 2 W. **M15 (finish) is done**: game layouts, three built
+in from a survey of the corpus's keys and any on the card; states that
+carry their discs and tape (format version 2); the SWD counters and the
+release soak over them, passed; the README; the owner's check of the
+menus, a layout and the settings on a Pico 2 W.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -168,6 +172,12 @@ tools/fetch-corpus.sh                                # out/corpus/tap, out/corpu
 tools/corpus-run.sh                                  # out/m12/corpus/report.txt
 build/corpus/oric-corpus -r 11 -f 20000 -t TAPE...   # by the signal (fast tape off), M13
 tools/soak.sh build/pico/pico-oric.elf 30 out/m12/soak   # tools/soak.bas; test_soak first
+
+# M15: the release build's soak over SWD, and the layouts' survey
+build/host/test/host/test_soak --write out/m15/soak      # SOAK.tap, for /oric/tapes/
+tools/swd-counters.py read --screen                      # build/pico-release's block, live
+tools/swd-counters.py soak                               # CLOAD"SOAK" first; hold H, then J
+tools/layout-survey.sh                                   # out/m15/layouts/report.txt
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every

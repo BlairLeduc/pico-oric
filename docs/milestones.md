@@ -4,9 +4,10 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
-**M15, finish**, in progress on branch `m15-finish` from 2026-10-10
+**M15, finish**, built on branch `m15-finish` on 2026-10-10
 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2), on the Plus 2 W
-`7458DC82A89AAC12` (RP2350B, chip rev 2). **Built so far:** game
+`7458DC82A89AAC12` (RP2350B, chip rev 2), **done** the same day: every
+done-when item is checked, the last by the owner. **Built:** game
 layouts (`src/core/keylayout.c`, the overlay in `keymatrix.c`, the
 built-ins and the `.map` names in `keymap_picocalc.c`;
 `src/port/keymapio.*`; the Setup page's Keys row, the main and Help
@@ -75,10 +76,13 @@ only for the 5.4 minutes between them that nobody sampled, over which
 the counters, cumulative from boot, stayed 0 and rt held. Taken as the
 release soak passed. **The owner checked the menus on a Pico 2 W** the
 same day, and they are right: the build runs on the second board.
-**Outstanding:** whether the owner's check of the menus covers every key and setting, as
-M15's done-when has it; the release build's core 0 share under §14's
-workloads,
-which `perf-run.sh` types over the UART the release build does not have.
+**The owner's check** on the Pico 2 W, the same day: the menus' pages,
+a game layout chosen on the Setup page and working, and the settings
+saved, the PicoCalc power-cycled and the settings read back at boot.
+**Not measured:** the release build's core 0 share under §14's
+workloads, since `perf-run.sh` types them over the UART the release
+build does not have; at idle Ready it matches the development build's
+(above), and the soak's program ran at 36.8–39.6 %.
 
 **M16, the vertical-sync modification** (`src/core/vsync.*`; the run
 loop's slice and the bus's catch-up in `oric.c` and `bus.c`; the player
