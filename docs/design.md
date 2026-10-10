@@ -1433,11 +1433,12 @@ the VIA (§5.3).
 
 ### 13.5 Soak
 
-EL §11.5: 30 minutes on battery with a BASIC program exercising the
+EL §11.5: 30 minutes with a BASIC program exercising the
 display (text and hires, attributes), sound (the AY's three channels and
 noise) and the keyboard read through the matrix, every failure counter
 zero, the workload seen running in screen dumps, and the release build
-soaked with counters read over SWD.
+soaked with counters read over SWD. The power source is not a condition:
+battery and USB power are not told apart (the owner, 2026-10-10).
 
 ---
 
@@ -1696,7 +1697,7 @@ that fail to load; the soak program.
 *Done when:* each optimisation kept is justified against a control in one
 sitting; the corpus report exists and **the undocumented-opcode decision is
 written into §5.1** (implement the stable subset with Harte's suite, or
-not); the 30-minute battery soak passes with every counter zero and the
+not); the 30-minute soak passes with every counter zero and the
 workload seen running.
 *Measured:* every workload's core 0 share at the shipped tier.
 *Leaves out:* the signal.
@@ -1738,7 +1739,7 @@ by whether Sedoric's `INIT` works on a blank image).
 complete; the release build with no UART and SWD counters; `README.md` with
 the ROM names, hashes and sources; the release soak.
 *Done when:* every page, key and setting checked on the panel by the owner;
-the release soak passes on battery with counters read over SWD; CI green on
+the release soak passes with counters read over SWD; CI green on
 both builds; the build runs on a second board (Pico 2 W).
 *Measured:* the release build's core 0 share and image size.
 *Leaves out:* §17.

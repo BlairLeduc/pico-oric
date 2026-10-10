@@ -1379,8 +1379,8 @@ shape is:
   watchdog**, not by retuning running peripherals.
 - At 300 MHz, host cycles per guest instruction were unchanged: CPU-bound code
   is clock-bound even with flash at 50 MHz, and a 4 MHz guest at 300 MHz left
-  core 0 the same margin as 2 MHz at 150. Soak it on battery before calling it
-  stable, and put the die temperature on the heartbeat.
+  core 0 the same margin as 2 MHz at 150. Soak it before calling it stable,
+  and put the die temperature on the heartbeat.
 
 If the CPU-alone gate (§14.3) passes at 150 MHz with a wide margin, as the
 Ace's did at three times, defer 300 MHz entirely and build for one clock.
@@ -1538,7 +1538,7 @@ it finds problems no unit test is shaped to catch.
 
 ### 11.5 The soak
 
-A 30-minute run **on battery** with a guest program that exercises display,
+A 30-minute run with a guest program that exercises display,
 sound and keyboard together, with the log captured throughout. A script then
 checks the log: one boot, heartbeats covering the run, real-time ratio never
 below 0.995, and every failure counter zero on every heartbeat (I²C errors,
@@ -1956,6 +1956,6 @@ Process
       with a not-checked list.
 - [ ] Reference emulator building from the first host milestone.
 - [ ] Perf workloads scripted; each feature measured against a control build.
-- [ ] 30-minute battery soak with every counter zero and the workload seen
+- [ ] 30-minute soak with every counter zero and the workload seen
       running; the release build soaked with counters read over SWD.
 - [ ] Owner's decisions numbered and dated; a PR per milestone.
