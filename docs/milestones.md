@@ -10,9 +10,11 @@ and done-when criteria; this file keeps the full record.
 `tools/soak-check.py`, `test_soak`; `oric_tape_load_keep` and the name
 rule in `tapeio.c`), built 2026-10-09 (Pico SDK 2.3.1, arm-none-eabi-gcc
 15.2) and run on the Plus 2 W `7458DC82A89AAC12` (RP2350B, chip rev 2)
-the same day; its done-when criteria met on the board 2026-10-09. **The
-owner's check** of the archive tapes below on a Pico 2 W, with the
-release build, is outstanding. **The corpus**: TOSEC's *Tangerine Oric 1
+the same day, **done** 2026-10-09. **By the owner** on a Pico 2 W,
+2026-10-09, with the release build: the seven archive tapes put on the
+card for the two tape rules all loaded, Car Maniac, Dedal, Digger and
+Mr. Wimpy finding their parts by name, and Fire Flash, TrickShot and
+Hyper Olympics with their last byte missing. **The corpus**: TOSEC's *Tangerine Oric 1
 and Atmos* (2012-04-23), from the Internet Archive, its zip checked by
 SHA-1: 1,061 titles on tape, of which 39 are in parts and kept as a
 directory of their files, and 221 disc images for M14. Each title is
@@ -93,6 +95,7 @@ mode attributes; taken as the Oric's, not checked against Oricutron.
 power-on default; the name rule and the byte kept on the board; titles
 past their first minute; whether any title reads only a joystick
 (design.md §17); the release soak over SWD (M15).
+The owner's check did not capture a log: the release build has no UART.
 
 **M11, snapshots** (`src/core/snapshot.*`, `oric_restored`;
 `src/port/snapio.*`; the Snapshots page in `menu.c`; `test_snapshot`,

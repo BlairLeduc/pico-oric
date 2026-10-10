@@ -33,12 +33,11 @@ and run on the board, and tapes loaded by the owner. **M11 (snapshots) is
 done**: checked on the host against both ROMs and our own, saved, loaded
 and refused by name on the board over the UART, and a game saved, the
 PicoCalc power-cycled and the game played on by the owner. **M12
-(performance, corpus and soak) is built** and its criteria met on the
-board: TOSEC's 1,061 tapes run on the host, the undocumented opcodes
+(performance, corpus and soak) is done**: TOSEC's 1,061 tapes run on the host, the undocumented opcodes
 decided against (`docs/design.md` §5.1), two tape rules from the corpus
 in `tapeio`, the workloads measured against two controls, and the
-30-minute soak passed; the owner's check of the archive tapes is
-outstanding.
+30-minute soak passed, and archive tapes loaded with the release build
+by the owner.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
