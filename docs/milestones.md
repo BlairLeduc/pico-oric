@@ -12,9 +12,9 @@ power-on pattern; the Microdisc's fields in `snapshot.c`; `discio.c`,
 `microdis.rom` off the card; `test_disc`; `oricutron-trace -d` and `-p`,
 `trace-diff.py disc`, `oric-discs` and `tools/disc-corpus.sh`), built
 2026-10-10 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2) and run on the Plus 2
-W `7458DC82A89AAC12` (RP2350B, chip rev 2) the same day, **built**: done on
-the host; on the board the EPROM boots and waits for a disc, and Sedoric
-there is outstanding, as the card holds no disc image yet. **Read off the
+W `7458DC82A89AAC12` (RP2350B, chip rev 2) the same day, **built**: every
+done-when item is checked, on the host and on the board, and the owner's
+check of the pages on the panel is outstanding. **Read off the
 EPROM and agreed by MAME and Oricutron**: the latch's bits, `#0314` and
 `#0318` read as INTRQ and DRQ in bit 7, the EPROM over the overlay RAM
 from RESET, the WD1793 at 1 MHz (design.md §10.5, §16). **The disc
@@ -60,22 +60,34 @@ a Jasmin disc, on which the EPROM seeks with verify to track 116 and our
 chip gives SEEK ERROR where Oricutron ignores the verify. 26 discs whose
 loader is a slave's (`#B901` = 1) print "DOS is altered" and run into
 junk, as they do in Oricutron; Pulsoids (F) uses two undocumented
-opcodes. **On the board**: microdis.rom found by its SHA-1; with
-`PICO_ORIC_BOOT_MICRODISC` and the Atmos 48K, the EPROM boots and shows
-"insert system disc", its own prompt for an empty drive, in its DRQ loop
-at `#E2EF`; the Discs page lists `/oric/discs/`, which is empty
-(`out/m14/board`). **Measured**, one sitting, M12's workloads on the
+opcodes. **On the board** (`out/m14/board`): microdis.rom found by its SHA-1; with
+`PICO_ORIC_BOOT_MICRODISC`, the Atmos 48K and no disc, the EPROM boots and
+shows "insert system disc", its own prompt for an empty drive, in its DRQ
+loop at `#E2EF`. Then with Sedoric 3.006 copied to `/oric/discs/` and
+`PICO_ORIC_BOOT_DISC`: Sedoric's menu, 77 sectors in 6 tracks, each read
+off the card in 22.9-23.4 ms with the guest parked; over the UART X,
+`SAVE"BOARD"`, `NEW`, `LOAD"BOARD"`, `RUN` (BOARD DISC OK) and
+`DIR"BOARD"`; tracks put back in 39-45 ms; rt 1.000 and no underruns
+throughout. The image, copied off the card, differs from the original in
+side 0's track 20 and side 1's track 41 alone, the two tracks the log shows
+put back, and Oricutron (`trace-diff.py disc`) loads BOARD from it and
+prints BOARD DISC OK. At Sedoric's prompt core 0 was 42.2% busy, against
+34.2% for the Atmos 48K's BASIC in the same sitting: Sedoric flips the ROM
+in and out through `#0314` about every 15 instructions while it waits for
+a key (`#0477`), each a remap of 64 pages. A latch write no longer ends the
+run slice, the map is rebuilt only when bits 1 or 7 change, and the access
+path and the events are in SRAM: 41.4% (headroom 2.43x). **Measured**, one sitting, M12's workloads on the
 Oric-1 16K the card's settings choose, against main as the control
 (`out/m14/perf`): idle 29.8% against 30.2%, compute 35.8% against 36.4%,
 sound 36.8% against 37.4%, rt 1.000 and no underruns in all; the
 Microdisc costs nothing while off. Waiting in the EPROM's DRQ loop, which
 is the loop every byte moves through, core 0 is 48.5% busy at rt 1.000
-(headroom 2.13x), as a paced tape load was (M13). Image 170,704 bytes
+(headroom 2.13x), as a paced tape load was (M13). Image 170,856 bytes
 text, bss 308,436 (274,900 before: two EPROM copies and a track).
-**Not checked**: Sedoric on the board (an image on the card), the time a
-track takes on the card, core 0 while a transfer runs there, a disc
-written on the board read back in Oricutron, the Discs page and Machine
-row on the panel, the release build on the board.
+**Not checked**: the Discs page, the Machine page's row and the status
+line on the panel (the boots used the build's flags, not the menu); a
+disc swapped or a protected one on the board; INIT on the board; the
+release build on the board; the Oric-1 48K with Sedoric on the board.
 
 **M13, signal-level tape** (`src/core/cassette.*`; the trap's cues in
 `tape.c`, `oric_tape_reading`; the run slice's end in `oric.c` and the

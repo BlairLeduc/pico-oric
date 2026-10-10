@@ -47,8 +47,9 @@ WD1793 with a turning disc, the latch's memory map, `discio`, the Discs page
 and the Machine row; Sedoric 3 boots, saves, loads, deletes and formats in
 both ROMs on the host, a saved file loads in Oricutron, and 193 of TOSEC's
 206 loadable images leave Oricutron's screen after 30 s (the other 13
-explained); on the board the EPROM boots and waits for a disc. Sedoric on
-the board, with an image on the card, and the owner's check are outstanding.
+explained); on the board Sedoric boots off the card, saves and loads, and
+Oricutron reads the disc it wrote. The owner's check of the pages is
+outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
