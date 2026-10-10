@@ -624,12 +624,16 @@ static void signal_flush(oric_t *m) {
             for (; k < 32u && i + k < to; k++) snprintf(hex + 2u * k, 3, "%02X", s_img[i + k]);
             log_core1("  tape rec     : %s\n", hex);
         }
+        oric_cassette_saved(m);
     } else {
+        /* Kept, as for a missing card: this is the only copy. Tried
+         * again when the card changes or the tape is next served. */
         g_tape_stats.errors++;
         say(" Not saved: card %s", fr == FR_DENIED ? "full" : "error");
-        log_core1("  tape         : recording not saved to %s: FatFs %d\n", s_rec_path, (int)fr);
+        log_core1("  tape         : recording not saved to %s: FatFs %d; %lu bytes kept\n",
+                  s_rec_path, (int)fr, (unsigned long)(to - from));
+        s_flush_wait = true;
     }
-    oric_cassette_saved(m);
     oric_cassette_record(m, NULL, 0);
 }
 
