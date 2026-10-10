@@ -27,7 +27,7 @@ arrows through both ROMs, the standard map the control; the README's
 settings example parses to the defaults; `SOAK.tap` loads and runs by
 itself in `oric-corpus`; on the board, `swd-counters.py read --screen`
 reads the block and the text screen of the release build at Ready, every
-failure counter 0. **Found:** the AY's write count includes port A, which
+failure counter 0; CI green on both jobs for the branch (run 38073809982). **Found:** the AY's write count includes port A, which
 the keyboard's scan writes at every column, so it grows with the guest
 idle. M12's soak record cites the AY written in every heartbeat; that
 held with or without the program, and the program's running was shown by
@@ -45,8 +45,8 @@ underruns; the release image 177,672 bytes text and 309,532 bss, a
 **Outstanding:** the release soak over SWD, which needs the owner at the
 PicoCalc (`CLOAD"SOAK"`, then H and J held during the run); the owner's
 check of every page, key and setting on the panel, M9's, M13's and M14's
-included; the build on a second board, a Pico 2 W; CI on both builds for
-the branch; the release build's core 0 share under §14's workloads,
+included; the build on a second board, a Pico 2 W; the release build's
+core 0 share under §14's workloads,
 which `perf-run.sh` types over the UART the release build does not have.
 
 **M16, the vertical-sync modification** (`src/core/vsync.*`; the run
