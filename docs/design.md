@@ -1179,6 +1179,18 @@ among the four drives. **Formatting is supported**: Sedoric's `INIT` formats
 a blank image (a header and unformatted tracks) through the chip's Write
 Track, so a new disc is a file made on a computer and formatted by the DOS.
 
+**A tape that loads over page 4 hangs with Sedoric resident**, as it does in
+Oricutron (2026-10-10, after M16). Sedoric points the ROM's IRQ vector in
+page 2 (`#0244`) at its own trampoline in page 4 (`JMP #0488`); a tape
+whose file covers `#0400`, Defence Force's Impossible Mission (`#0400–#BFDF`,
+autorun) among them, overwrites it, and the next interrupt runs into the
+game's bytes. The game then waits at `#73C5` for an interrupt with I set,
+for ever, the screen part drawn. Oricutron, loading the same tape by the
+signal under Sedoric 3.006, ends in the same loop (`trace-diff.py disc
+--tap`, `oricutron-trace -M`), and so does this core, by the trap and by
+the signal (`oric-corpus -d`). Play such a tape with the Microdisc off, as
+the owner found; the emulator does nothing to protect page 4.
+
 ### 10.6 Snapshots
 
 EL §8.5 as pico-ace built it: explicit little-endian fields, zero as reset,

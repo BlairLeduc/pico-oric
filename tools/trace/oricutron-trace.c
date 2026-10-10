@@ -30,7 +30,8 @@
  * vertical-sync modification (design.md §15.2 M16), with its pulse moved
  * to the sync's line by the build script (ORICUTRON_VSYNC_LINE); -V turns
  * it on at a cycle instead, after a tape has loaded by the signal, which
- * the hack disconnects.
+ * the hack disconnects. -M ADDR:LEN, both hex, prints memory at the end
+ * as the CPU would read it.
  */
 
 #include <stdio.h>
@@ -100,6 +101,7 @@ int main(int argc, char **argv) {
     const char *discfile = NULL;
     int screen = 0, pattern = 0, vsync_hack = 0;
     unsigned long long vsync_at = ~0ull;
+    unsigned dump_at = 0, dump_len = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc)      max_insns = strtoull(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "-c") && i + 1 < argc) max_cycles = strtoull(argv[++i], NULL, 0);
@@ -112,6 +114,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-p"))                 pattern = 1;
         else if (!strcmp(argv[i], "-v"))                 vsync_hack = 1;
         else if (!strcmp(argv[i], "-V") && i + 1 < argc) vsync_at = strtoull(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "-M") && i + 1 < argc) sscanf(argv[++i], "%x:%x", &dump_at, &dump_len);
         else if (!rombase)                               rombase = argv[i];
         else rombase = NULL, argc = 0;
     }
@@ -119,7 +122,7 @@ int main(int argc, char **argv) {
              : !strcmp(mach, "o16k") ? MACH_ORIC1_16K : -1;
     if (!rombase || type < 0 || (max_insns == ~0ull && max_cycles == ~0ull)) {
         fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s] "
-                "[-t TAPE] [-d DISC] [-p] [-q] [-v] [-V CYCLE]\n", argv[0]);
+                "[-t TAPE] [-d DISC] [-p] [-q] [-v] [-V CYCLE] [-M ADDR:LEN]\n", argv[0]);
         return 2;
     }
     if (!ks_load(&ks, keyfile)) return 2;
@@ -180,6 +183,12 @@ int main(int argc, char **argv) {
         }
     }
     fflush(stdout);
+
+    for (unsigned a = dump_at; a < dump_at + dump_len; a += 16) {
+        fprintf(stderr, "%04X:", a);
+        for (unsigned k = 0; k < 16; k++) fprintf(stderr, " %02X", peek((Uint16)(a + k)));
+        fprintf(stderr, "\n");
+    }
 
     if (screen) {
         for (int row = 0; row < 28; row++) {
