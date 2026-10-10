@@ -128,6 +128,26 @@
  * bytes, its largest tape 92,160 (design.md §3.3, M12's corpus). */
 #define ORIC_TAPE_IMAGE_MAX  65536u
 
+/* ---- The Microdisc (design.md §10.5) ---------------------------------- */
+
+/* Its EPROM, 8 KiB at #E000 while #0314 enables it (§10.2, §16). */
+#define ORIC_EPROM_BASE    0xE000u
+#define ORIC_EPROM_SIZE      8192u
+
+/* #0314's bits 5-6 select one of four drives (§16). */
+#define ORIC_DISC_DRIVES        4u
+
+/* MFM_DISK (mfmdisk.h): a 256-byte header, then raw tracks of 6,400
+ * bytes, up to 128 a side, as Oricutron's loader bounds them. One track
+ * is in SRAM at a time (§3.3). The archive's tracks hold 9 to 18
+ * sectors (M14's survey); the index has room for a track of 128-byte
+ * ones. */
+#define ORIC_DISC_HEADER_LEN  256u
+#define ORIC_DISC_TRACK_LEN  6400u
+#define ORIC_DISC_TRACKS_MAX  128u
+#define ORIC_DISC_SECTORS_MAX  32u
+#define ORIC_DISC_LIST_MAX     64u  /* images the Discs page lists      */
+
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 
 #define ORIC_CPU_HZ       1000000u  /* 12 MHz crystal / 12 (§16: high)     */

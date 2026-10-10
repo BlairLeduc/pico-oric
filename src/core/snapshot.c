@@ -5,6 +5,7 @@
 
 #include <string.h>
 
+#include "microdisc.h"
 #include "sha1.h"
 
 static const uint8_t magic[8] = { 'P', 'O', 'R', 'C', 'S', 'N', 'A', 'P' };
@@ -63,7 +64,7 @@ enum {
     S_BUDGET = 158,               /* 4 bytes, signed                     */
     /* The machine it runs on. */
     S_RAM = 162,                  /* oric_ram_t                          */
-    S_MACHINE = 163,              /* the Microdisc from M14; zero now    */
+    S_MACHINE = 163,              /* M_MICRODISC, or zero                */
     S_LINE_CYCLES = 164, S_LINES_50 = 166, S_LINES_60 = 168,
     S_ROM = 170,                  /* SHA-1 of the ROM, 20 bytes          */
     /* The tape trap's carry-over (tape.h): a header kept for the data
@@ -72,14 +73,25 @@ enum {
     S_TAPE_RAW = 193,             /* TAP_HEADER_LEN bytes                */
     S_TAPE_NAME_LEN = 202,
     S_TAPE_NAME = 203,            /* ORIC_TAP_NAME_MAX bytes             */
-    S_END = 267,                  /* the rest is reserved, written zero  */
+    /* The Microdisc (microdisc.h, wd1793.h), from M14, zero without it:
+     * the latch, the controller's registers, its lines, the heads, and
+     * the next event, which only Force Interrupt's index interrupt
+     * leaves while idle. A state is refused mid-command (§10.6). */
+    S_MD_LATCH = 267,
+    S_WD_REGS = 268,              /* status track sector data cmd        */
+    S_WD_FLAGS = 273,             /* bits below                          */
+    S_WD_CYL = 274,               /* ORIC_DISC_DRIVES bytes              */
+    S_WD_HEAD_UNTIL = 278,        /* 8 bytes                             */
+    S_WD_DUE = 286,               /* 8 bytes                             */
+    S_END = 294,                  /* the rest is reserved, written zero  */
 };
 
 _Static_assert(S_VIA + 13 == S_T1_LATCH, "the VIA's registers overrun");
 _Static_assert(S_AY_NEXT + 8 * AY_GEN_COUNT == S_AY_PER, "the AY's counts overrun");
 _Static_assert(S_AY_PER + 4 * AY_GEN_COUNT == S_AY_TONE_OUT, "the AY's periods overrun");
 _Static_assert(S_TAPE_RAW + TAP_HEADER_LEN == S_TAPE_NAME_LEN, "the tape header overruns");
-_Static_assert(S_TAPE_NAME + ORIC_TAP_NAME_MAX == S_END, "the tape name overruns");
+_Static_assert(S_TAPE_NAME + ORIC_TAP_NAME_MAX == S_MD_LATCH, "the tape name overruns");
+_Static_assert(S_WD_CYL + ORIC_DISC_DRIVES == S_WD_HEAD_UNTIL, "the heads overrun");
 _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its length");
 
 /* A press of the reset button latched and not yet taken. The line's
@@ -104,6 +116,15 @@ _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its leng
 #define A_ENV_HOLD     0x04u
 #define A_ENV_ALT      0x08u
 #define A_ENV_HOLDING  0x10u
+
+#define M_MICRODISC    0x01u
+
+#define W_INTRQ        0x01u
+#define W_DRQ          0x02u
+#define W_TYPE1        0x04u
+#define W_HOLD_INTRQ   0x08u
+#define W_INDEX_INTRQ  0x10u
+#define W_STEP_IN      0x20u
 
 #define T_HEADER_KEPT  0x01u
 #define T_PASS         0x02u
@@ -168,7 +189,7 @@ static void state_encode(const oric_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put32(st + S_BUDGET, (uint32_t)m->budget);
 
     st[S_RAM] = (uint8_t)m->cfg.ram;
-    st[S_MACHINE] = 0;
+    st[S_MACHINE] = m->cfg.microdisc ? M_MICRODISC : 0;
     put16(st + S_LINE_CYCLES, m->cfg.line_cycles);
     put16(st + S_LINES_50, m->cfg.lines_50hz);
     put16(st + S_LINES_60, m->cfg.lines_60hz);
@@ -180,12 +201,27 @@ static void state_encode(const oric_t *m, uint8_t st[SNAP_STATE_LEN]) {
     memcpy(st + S_TAPE_RAW, t->raw, TAP_HEADER_LEN);
     st[S_TAPE_NAME_LEN] = t->name_len;
     memcpy(st + S_TAPE_NAME, t->name, ORIC_TAP_NAME_MAX);
+
+    if (!m->cfg.microdisc) return;
+    const wd1793_t *f = &m->fdc;
+    st[S_MD_LATCH] = m->md_latch;
+    st[S_WD_REGS + 0] = f->status;
+    st[S_WD_REGS + 1] = f->track;
+    st[S_WD_REGS + 2] = f->sector;
+    st[S_WD_REGS + 3] = f->data;
+    st[S_WD_REGS + 4] = f->cmd;
+    st[S_WD_FLAGS] = (uint8_t)((f->intrq ? W_INTRQ : 0) | (f->drq ? W_DRQ : 0) |
+                               (f->type1 ? W_TYPE1 : 0) | (f->hold_intrq ? W_HOLD_INTRQ : 0) |
+                               (f->index_intrq ? W_INDEX_INTRQ : 0) | (f->step_in ? W_STEP_IN : 0));
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) st[S_WD_CYL + d] = f->drv[d].cyl;
+    put64(st + S_WD_HEAD_UNTIL, f->head_until);
+    put64(st + S_WD_DUE, f->due);
 }
 
 /* ---- the stream -------------------------------------------------------- */
 
 snap_status_t snapshot_save(const oric_t *m, snap_write_fn write, void *ctx) {
-    if (m->tape.op != TAPE_NONE) return SNAP_BUSY;
+    if (m->tape.op != TAPE_NONE || oric_disc_busy(m)) return SNAP_BUSY;
 
     uint8_t *st = s_st;
     state_encode(m, st);
@@ -226,6 +262,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     if (!info) return;
     info->rom = romset_identify_digest(st + S_ROM, ORIC_ROM_SIZE);
     info->ram = st[S_RAM] == ORIC_RAM_16K ? ORIC_RAM_16K : ORIC_RAM_48K;
+    info->microdisc = (st[S_MACHINE] & M_MICRODISC) != 0;
 }
 
 /* Could a machine have saved this? A file passes its CRC whoever wrote
@@ -287,7 +324,7 @@ static snap_status_t compatible(const oric_t *m, const uint8_t st[SNAP_STATE_LEN
     rom_hash(m, rom);
     if (memcmp(rom, st + S_ROM, sizeof rom) != 0) return SNAP_OTHER_ROM;
     if (st[S_RAM] != (uint8_t)m->cfg.ram) return SNAP_OTHER_RAM;
-    if (st[S_MACHINE] != 0) return SNAP_OTHER_MACHINE;
+    if (st[S_MACHINE] != (m->cfg.microdisc ? M_MICRODISC : 0)) return SNAP_OTHER_MACHINE;
     if (get16(st + S_LINE_CYCLES) != m->cfg.line_cycles ||
         get16(st + S_LINES_50) != m->cfg.lines_50hz || get16(st + S_LINES_60) != m->cfg.lines_60hz)
         return SNAP_OTHER_FIELD;
@@ -311,8 +348,31 @@ snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap
     return compatible(m, st);
 }
 
+/* The Microdisc's fields onto m. The discs are the port's and stay in
+ * their drives; the heads are where the state left them, so the track in
+ * hand is dropped. Without the Microdisc these bytes are zero and are not
+ * read: its reset values stay. */
+static void md_decode(oric_t *m, const uint8_t *st) {
+    wd1793_t *f = &m->fdc;
+    m->md_latch = st[S_MD_LATCH];
+    f->status = st[S_WD_REGS + 0];
+    f->track = st[S_WD_REGS + 1];
+    f->sector = st[S_WD_REGS + 2];
+    f->data = st[S_WD_REGS + 3];
+    f->cmd = st[S_WD_REGS + 4];
+    uint8_t wf = st[S_WD_FLAGS];
+    f->intrq = wf & W_INTRQ; f->drq = wf & W_DRQ; f->type1 = wf & W_TYPE1;
+    f->hold_intrq = wf & W_HOLD_INTRQ; f->index_intrq = wf & W_INDEX_INTRQ;
+    f->step_in = wf & W_STEP_IN;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) f->drv[d].cyl = st[S_WD_CYL + d];
+    f->head_until = get64(st + S_WD_HEAD_UNTIL);
+    f->due = get64(st + S_WD_DUE);
+    f->phase = 0;
+    f->buf_ok = false;
+}
+
 snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx) {
-    if (m->tape.op != TAPE_NONE) return SNAP_BUSY;
+    if (m->tape.op != TAPE_NONE || oric_disc_busy(m)) return SNAP_BUSY;
     uint32_t want;
     snap_status_t r = read_header(read, ctx, &want);
     if (r != SNAP_OK) return r;
@@ -392,6 +452,8 @@ snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx) {
     t->name_len = st[S_TAPE_NAME_LEN];
     memcpy(t->name, st + S_TAPE_NAME, ORIC_TAP_NAME_MAX);
 
+    if (m->cfg.microdisc) md_decode(m, st);
+
     oric_restored(m);
     return SNAP_OK;
 }
@@ -407,7 +469,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_OTHER_ROM:     return "for another ROM";
     case SNAP_OTHER_MACHINE: return "for another machine";
     case SNAP_OTHER_FIELD:   return "another field timing";
-    case SNAP_BUSY:          return "a tape request is waiting";
+    case SNAP_BUSY:          return "the tape or the disc is busy";
     }
     return "?";
 }

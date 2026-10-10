@@ -10,7 +10,7 @@
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
  * M8 the AY's sound, box-filtered into PCM a field at a time (§8); M10
  * the tape's traps (§10.3); M11 the restore after a snapshot (§10.6);
- * M13 the signal (§10.4).
+ * M13 the signal (§10.4); M14 the Microdisc (§10.5).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -28,10 +28,12 @@
 #include "tape.h"
 #include "ula.h"
 #include "via6522.h"
+#include "wd1793.h"
 
 /* Page descriptor flags (§6.1). */
 #define PAGE_ROM   0x01u  /* writes ignored                            */
 #define PAGE_IO    0x02u  /* reads and writes take the slow path       */
+#define PAGE_EPROM 0x04u  /* the Microdisc's EPROM: writes ignored     */
 #define PAGE_OPEN  0x08u  /* unpopulated: reads return the open bus    */
 
 /* Exactly two pointers. The flags are a separate byte array rather than
@@ -62,6 +64,9 @@ typedef struct {
     /* Fast tape off: the traps are only the port's cues, and the ROM
      * reads and writes the signal (tape.h, cassette.h). */
     bool       tape_signal;
+    /* The Microdisc on the expansion port (§10.5): a 48K machine only;
+     * on a 16K one it is left out. */
+    bool       microdisc;
 } oric_config_t;
 
 typedef struct oric_s {
@@ -79,6 +84,13 @@ typedef struct oric_s {
      * load stops it. */
     cassette_t cas;
 
+    /* The Microdisc (§10.5, microdisc.h): its controller, the latch
+     * last written to #0314, and its EPROM, which the port loads. */
+    wd1793_t  fdc;
+    uint8_t   md_latch;
+    bool      eprom_in;
+    bool      rom_in;        /* a BASIC ROM is in the socket         */
+
     /* The AY's level as PCM (§8.2), drained by the port once a field
      * with oric_audio_drain. Not the chip's state: RESET leaves it. */
     pcm_t     pcm;
@@ -91,6 +103,7 @@ typedef struct oric_s {
      * (§2.1). The ROM has its own array, so that RAM stays beneath it. */
     uint8_t ram[ORIC_ADDR_SPACE];
     uint8_t rom[ORIC_ROM_SIZE];
+    uint8_t eprom[ORIC_EPROM_SIZE];
     page_t  page[ORIC_PAGE_COUNT];
     uint8_t page_flags[ORIC_PAGE_COUNT];
 
@@ -110,6 +123,11 @@ typedef struct oric_s {
     /* Cycles of the current instruction the VIA has already been ticked
      * through, to reach an access part-way into it (§5.3). */
     uint32_t via_early;
+
+    /* A device's next event moved earlier inside a run slice (the
+     * relay closed, a disc command began): the slice ends after this
+     * instruction, and the run loop clears it. */
+    bool cut;
 
     /* Cycle debt carried between fields (§4.2): what the last field ran
      * past its length, as a negative number. */
@@ -211,6 +229,12 @@ void oric_copy(oric_t *dst, const oric_t *src);
  * power on or reset after this: without it the first instruction is at
  * #FFFF, the open bus's vector. */
 bool oric_load_rom(oric_t *m, const uint8_t *data, size_t len);
+
+/* Put the Microdisc's 8 KiB EPROM in (§10.5); false if it is not
+ * exactly ORIC_EPROM_SIZE bytes. Power on or reset after it, as after
+ * oric_load_rom: with the Microdisc on, the reset vector is the
+ * EPROM's. */
+bool oric_load_eprom(oric_t *m, const uint8_t *data, size_t len);
 
 /* Make a region plain read/write RAM. Used by the host tests, which need a
  * bare 64 KiB machine for the Dormann and Clark suites. */

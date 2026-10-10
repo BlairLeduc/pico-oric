@@ -52,15 +52,16 @@ typedef enum {
     SNAP_CORRUPT,         /* the CRC does not match                      */
     SNAP_OTHER_RAM,       /* the other RAM fit                           */
     SNAP_OTHER_ROM,       /* the ROM is not the one it ran on            */
-    SNAP_OTHER_MACHINE,   /* another Microdisc fit (M14)                 */
+    SNAP_OTHER_MACHINE,   /* the Microdisc fitted, or not                */
     SNAP_OTHER_FIELD,     /* another line length or field shape (§11.1)  */
-    SNAP_BUSY,            /* the CPU is stalled on a tape request        */
+    SNAP_BUSY,            /* a tape request, or a disc command, waiting  */
 } snap_status_t;
 
 /* The machine a state was taken on, for naming it in a refusal. */
 typedef struct {
     rom_id_t   rom;       /* by the SHA-1 in the file; ROM_UNKNOWN if none of ours */
     oric_ram_t ram;
+    bool       microdisc;
 } snap_info_t;
 
 /* Move exactly n bytes; false on any failure. */
