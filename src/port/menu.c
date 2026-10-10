@@ -6,8 +6,8 @@
  * Esc going back a page, or to the guest from the main page or a page a
  * key opened. The Oric has every page the Atom has, so the Discs page is
  * back, on F2, with the Microdisc's four drives (M14). The Machine page
- * stages the ROM, the RAM and the Microdisc (§12), and the text is in the
- * Oric's own character set, which has lower case.
+ * stages the ROM, the RAM, the Microdisc and the VSync hack (§12, M16),
+ * and the text is in the Oric's own character set, which has lower case.
  */
 
 #include "menu.h"
@@ -76,9 +76,9 @@ enum { T_EJECT, T_PLAY, T_REWIND, T_NEW, T_FIRST };
  * it, then every slot's state. */
 enum { N_SLOT, N_SAVE, N_LOAD, N_DELETE, N_COUNT };
 
-/* The Machine page (§12): the ROM, the RAM and the Microdisc staged, and
- * the power-on that applies them. */
-enum { M_ROM, M_RAM, M_DISC, M_APPLY, M_COUNT };
+/* The Machine page (§12): the ROM, the RAM, the Microdisc and the VSync
+ * hack staged, and the power-on that applies them. */
+enum { M_ROM, M_RAM, M_DISC, M_VSYNC, M_APPLY, M_COUNT };
 
 static settings_t    s_file;      /* what the file says, for the save */
 static oric_frame_t *s_scr;       /* core 1's page frame (menu_init)  */
@@ -124,6 +124,7 @@ static struct {
     rom_id_t   st_rom;        /* staged: applied only by a power-on */
     oric_ram_t st_ram;
     bool       st_md;
+    bool       st_vs;
 
     int      sb_ver;          /* the About page's, read as it opens */
     int      temp_c;
@@ -186,6 +187,7 @@ static void draw_main(void) {
         snprintf(line, sizeof line, " Disc A: %.30s", d[0] ? base(d) : "none");
         textpage_line(s_scr, ROW_TOP + I_COUNT + 4, line, false);
     }
+    if (s.m->cfg.vsync_hack) textpage_line(s_scr, ROW_TOP + I_COUNT + 5, " VSync hack: on", false);
 }
 
 static void draw_tapes(void) {
@@ -213,6 +215,9 @@ static void draw_tapes(void) {
         }
         textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.tape_sel);
     }
+    /* CB1 is the sync's: the signal is not heard (vsync.h, M16). */
+    if (s.m->cfg.vsync_hack)
+        textpage_line(s_scr, ROW_STATUS - 1, " VSync hack: no signal; fast tape loads", false);
 }
 
 static void draw_snaps(void) {
@@ -300,6 +305,7 @@ static bool machine_changed(int r) {
     case M_ROM: return s.st_rom != s.m->cfg.rom;
     case M_RAM: return s.st_ram != s.m->cfg.ram;
     case M_DISC: return s.st_md != s.m->cfg.microdisc;
+    case M_VSYNC: return s.st_vs != s.m->cfg.vsync_hack;
     }
     return false;
 }
@@ -324,14 +330,17 @@ static void draw_machine(void) {
         case M_DISC:
             snprintf(line, sizeof line, "%cMicrodisc       < %s >", mark, on_off(s.st_md));
             break;
+        case M_VSYNC:
+            snprintf(line, sizeof line, "%cVSync hack      < %s >", mark, on_off(s.st_vs));
+            break;
         case M_APPLY:
             snprintf(line, sizeof line, " (Apply and restart)");
             break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.machine_sel);
     }
-    snprintf(line, sizeof line, " = the %s%s", roms_machine_name(s.st_rom, s.st_ram),
-             s.st_md ? " and Microdisc" : "");
+    snprintf(line, sizeof line, " = the %s%s%s", roms_machine_name(s.st_rom, s.st_ram),
+             s.st_md ? ", Microdisc" : "", s.st_vs ? ", VSync hack" : "");
     textpage_line(s_scr, ROW_TOP + M_COUNT + 1, line, false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 3, " - Program in memory is lost on", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 4, "   restart.", false);
@@ -340,6 +349,9 @@ static void draw_machine(void) {
     textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - The Microdisc needs 48K and", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   microdis.rom; it boots the disc", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 9, "   in drive A (F2).", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 10, " - The VSync hack puts the sync on", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 11, "   the tape input, for the programs", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 12, "   that wait for it; fast tape only.", false);
 }
 
 /* One image's row on About (§12): its file, OK for the image's SHA-1,
@@ -382,8 +394,9 @@ static void draw_about(void) {
     snprintf(line, sizeof line, " %s rev %X %u MHz SB %s %dC", b->chip ? b->chip : "?",
              b->chip_version & 0xFu, (unsigned)((b->clk_sys_hz / 1000000u) % 1000u), sb, t);
     textpage_line(s_scr, 4, line, false);
-    snprintf(line, sizeof line, " Machine %s, Microdisc %s",
-             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), on_off(s.m->cfg.microdisc));
+    snprintf(line, sizeof line, " %s, Microdisc %s, VSync %s",
+             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), on_off(s.m->cfg.microdisc),
+             on_off(s.m->cfg.vsync_hack));
     textpage_line(s_scr, 5, line, false);
 
     /* The ROMs as the card has them now (§10.2). */
@@ -527,6 +540,7 @@ static void open_machine(void) {
     s.st_rom = s.m->cfg.rom;
     s.st_ram = s.m->cfg.ram;
     s.st_md = s.m->cfg.microdisc;
+    s.st_vs = s.m->cfg.vsync_hack;
 }
 
 static void open_about(void) {
@@ -561,6 +575,7 @@ static void save_settings(void) {
     out.status = g_ui.status;
     out.fast_tape = g_ui.fast_tape;
     out.microdisc = s.m->cfg.microdisc;
+    out.vsync_hack = s.m->cfg.vsync_hack;
     /* The panel's level is the MCU's too, set by its own chords: the file
      * keeps what it has unless the Setup page set one, and 0 keeps the
      * file's (settings.h; EL §8.7). */
@@ -581,7 +596,7 @@ static void save_settings(void) {
  * part old and part new: it is not resumed, but powered on again as it
  * is configured, with its own ROM (snapio.h). */
 static void snap_load(void) {
-    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K, false };
+    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K, false, false };
     bool recovered, changed;
     uint32_t us;
     snap_status_t st = snapio_load(s.m, s_slot, &in, &recovered, &changed, &us);
@@ -601,10 +616,14 @@ static void snap_load(void) {
     }
     if (st == SNAP_IO && !s.used[s_slot]) {
         snprintf(s.status, sizeof s.status, " Slot %u is empty", s_slot + 1u);
-    } else if (st == SNAP_OTHER_MACHINE) {
+    } else if (st == SNAP_OTHER_MACHINE && in.microdisc != s.m->cfg.microdisc) {
         say(" Not loaded: needs the Microdisc %s", on_off(in.microdisc));
         log_core1("  snapshot     : slot %u needs the Microdisc %s\n", s_slot + 1u,
                   on_off(in.microdisc));
+    } else if (st == SNAP_OTHER_MACHINE) {
+        say(" Not loaded: needs the VSync hack %s", on_off(in.vsync_hack));
+        log_core1("  snapshot     : slot %u needs the VSync hack %s\n", s_slot + 1u,
+                  on_off(in.vsync_hack));
     } else if ((st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM) && in.rom != ROM_UNKNOWN) {
         /* Refused by name (§15.2 M11): the machine it needs. */
         say(" Not loaded: needs the %.14s", roms_machine_name(in.rom, in.ram));
@@ -632,6 +651,7 @@ static void apply_machine(void) {
     cfg.rom = s.st_rom;
     cfg.ram = s.st_ram;
     cfg.microdisc = s.st_md;
+    cfg.vsync_hack = s.st_vs;
     /* The Microdisc's overlay RAM is a 48K machine's (§12). */
     if (cfg.microdisc && cfg.ram != ORIC_RAM_48K) { say(" The Microdisc needs 48K", ""); return; }
     if (cfg.microdisc) {
@@ -658,10 +678,12 @@ static void apply_machine(void) {
          * back in. */
         memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
     }
-    log_core1("  machine      : the %s%s, staged; restarting as the %s%s\n",
+    log_core1("  machine      : the %s%s%s, staged; restarting as the %s%s%s\n",
               roms_machine_name(s.m->cfg.rom, s.m->cfg.ram),
               s.m->cfg.microdisc ? " with the Microdisc" : "",
-              roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "");
+              s.m->cfg.vsync_hack ? " with the VSync hack" : "",
+              roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
+              cfg.vsync_hack ? " with the VSync hack" : "");
     s_rom = cfg.rom;
     g_ui.restart_cfg = cfg;
     g_ui.restart = true;
@@ -873,6 +895,7 @@ static void key_machine(uint8_t c) {
         case M_ROM: s.st_rom = s.st_rom == ROM_BASIC10 ? ROM_BASIC11 : ROM_BASIC10; break;
         case M_RAM: s.st_ram = s.st_ram == ORIC_RAM_16K ? ORIC_RAM_48K : ORIC_RAM_16K; break;
         case M_DISC: s.st_md = !s.st_md; break;
+        case M_VSYNC: s.st_vs = !s.st_vs; break;
         default: return;
         }
         say(machine_staged() ? " Apply restarts: program lost" : "", "");

@@ -77,6 +77,7 @@ typedef struct {
                                 build's (boot_machine)                    */
     oric_ram_t ram;          /* and its RAM, for the missing-ROM page     */
     bool       microdisc;    /* and the Microdisc, if its EPROM is here   */
+    bool       vsync_hack;   /* and the vertical-sync modification (M16)  */
     settings_t settings;     /* what the card's file said, over the defaults */
     card_job_t job;          /* what the card had, and which was loaded   */
     uint8_t    image[ORIC_ROM_SIZE];   /* job.loaded's bytes              */

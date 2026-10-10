@@ -12,6 +12,7 @@
 #include "hot.h"
 #include "microdisc.h"
 #include "via6522.h"
+#include "vsync.h"
 
 #define VIA_REG(a)  ((uint8_t)((a) & 15u))
 
@@ -30,7 +31,9 @@ uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
         /* CB1 as the tape has it at this cycle (cassette.h). */
         if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
-        oric_via_catch_up(m);
+        /* And as the sync has it (vsync.h). */
+        if (m->cpu.cycles + m->cpu.io_at >= m->vs.due) vsync_run(m, m->cpu.cycles + m->cpu.io_at);
+        oric_via_catch_up(m, false);
         /* Reading T1C-L or T2C-L clears a flag, and reading ORA or ORB
          * clears CA/CB flags, so the IRQ line can drop on a read (§6.4). */
         uint8_t reg = VIA_REG(a);
@@ -58,7 +61,9 @@ void ORIC_HOT1(bus_write_slow)(oric_t *m, uint16_t a, uint8_t v) {
         /* CB1 as the tape has it at this cycle (cassette.h). */
         if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
-        oric_via_catch_up(m);
+        /* And as the sync has it (vsync.h). */
+        if (m->cpu.cycles + m->cpu.io_at >= m->vs.due) vsync_run(m, m->cpu.cycles + m->cpu.io_at);
+        oric_via_catch_up(m, true);
         via6522_write(&m->via, VIA_REG(a), v);
         /* A write to ORA, ORB, the DDRs or the PCR is what the AY's bus
          * and the keyboard row see (§2.3). */

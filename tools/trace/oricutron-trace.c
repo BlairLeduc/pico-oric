@@ -4,7 +4,7 @@
  * Oricutron checkout; nothing of Oricutron is in this tree.
  *
  *   oricutron-trace ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES]
- *                   [-k KEYS] [-s] [-t TAPE] [-q]
+ *                   [-k KEYS] [-s] [-t TAPE] [-q] [-v] [-V CYCLE]
  *
  * ROMBASE is the ROM's path without ".rom", as Oricutron names ROMs.
  * "atmos" is a 48K machine with the ROM in the Atmos's socket, "oric1"
@@ -26,7 +26,11 @@
  * check that a tape this project writes loads elsewhere (design.md §15.2
  * M10). -q prints no trace, for a run that long. RAM is zeroed after init_machine()
  * blanks it to Oricutron's pattern, to match this project's power-on
- * (design.md §6.3).
+ * (design.md §6.3). -v turns on Oricutron's VSync hack, the
+ * vertical-sync modification (design.md §15.2 M16), with its pulse moved
+ * to the sync's line by the build script (ORICUTRON_VSYNC_LINE); -V turns
+ * it on at a cycle instead, after a tape has loaded by the signal, which
+ * the hack disconnects.
  */
 
 #include <stdio.h>
@@ -81,6 +85,11 @@ void oricutron_trace(struct m6502 *cpu) {
 
 static void press(const ks_event_t *e) {
     struct ay8912 *ay = &oric.ay;
+    if (e->n) {
+        for (unsigned k = 0; k < e->n; k++)
+            oric.cpu.write(&oric.cpu, (Uint16)(e->addr + k), e->bytes[k]);
+        return;
+    }
     if (e->down) ay->keystates[e->row] |= (Uint8)(1u << e->col);
     else         ay->keystates[e->row] &= (Uint8)~(1u << e->col);
     ay_update_keybits(ay);
@@ -89,7 +98,8 @@ static void press(const ks_event_t *e) {
 int main(int argc, char **argv) {
     const char *rombase = NULL, *keyfile = NULL, *mach = "atmos", *tapefile = NULL;
     const char *discfile = NULL;
-    int screen = 0, pattern = 0;
+    int screen = 0, pattern = 0, vsync_hack = 0;
+    unsigned long long vsync_at = ~0ull;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc)      max_insns = strtoull(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "-c") && i + 1 < argc) max_cycles = strtoull(argv[++i], NULL, 0);
@@ -100,6 +110,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-t") && i + 1 < argc) tapefile = argv[++i];
         else if (!strcmp(argv[i], "-d") && i + 1 < argc) discfile = argv[++i];
         else if (!strcmp(argv[i], "-p"))                 pattern = 1;
+        else if (!strcmp(argv[i], "-v"))                 vsync_hack = 1;
+        else if (!strcmp(argv[i], "-V") && i + 1 < argc) vsync_at = strtoull(argv[++i], NULL, 0);
         else if (!rombase)                               rombase = argv[i];
         else rombase = NULL, argc = 0;
     }
@@ -107,7 +119,7 @@ int main(int argc, char **argv) {
              : !strcmp(mach, "o16k") ? MACH_ORIC1_16K : -1;
     if (!rombase || type < 0 || (max_insns == ~0ull && max_cycles == ~0ull)) {
         fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s] "
-                "[-t TAPE] [-d DISC] [-p] [-q]\n", argv[0]);
+                "[-t TAPE] [-d DISC] [-p] [-q] [-v] [-V CYCLE]\n", argv[0]);
         return 2;
     }
     if (!ks_load(&ks, keyfile)) return 2;
@@ -144,6 +156,7 @@ int main(int argc, char **argv) {
     }
     m6502_reset(&oric.cpu);
     oric.tapeturbo = SDL_FALSE;
+    oric.vsynchack = vsync_hack ? SDL_TRUE : SDL_FALSE;
     if (tapefile && !tape_load_tap(&oric, (char *)tapefile)) {
         fprintf(stderr, "%s: Oricutron would not load it\n", tapefile);
         return 2;
@@ -154,6 +167,7 @@ int main(int argc, char **argv) {
     while (insns < max_insns && cpu->cycles - base < max_cycles) {
         const ks_event_t *e;
         while ((e = ks_due(&ks, cpu->cycles - base)) != NULL) press(e);
+        if (cpu->cycles - base >= vsync_at) oric.vsynchack = SDL_TRUE;
         m6502_set_icycles(cpu, SDL_FALSE, NULL);
         via_clock(&oric.via, cpu->icycles);
         ay_ticktock(&oric.ay, cpu->icycles);

@@ -30,6 +30,10 @@ void boot_machine(const settings_t *s, oric_config_t *cfg) {
 #endif
     /* The overlay RAM is a 48K machine's (microdisc.h). */
     if (cfg->ram != ORIC_RAM_48K) cfg->microdisc = false;
+    cfg->vsync_hack = s->vsync_hack;
+#ifdef PICO_ORIC_BOOT_VSYNC
+    cfg->vsync_hack = true;
+#endif
 }
 
 void handoff_init(void) {

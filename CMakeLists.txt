@@ -35,6 +35,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/tape.c
     src/core/ula.c
     src/core/via6522.c
+    src/core/vsync.c
     src/core/wd1793.c
 )
 
@@ -295,6 +296,12 @@ else()
     set(PICO_ORIC_BOOT_DISC "" CACHE STRING "disc in drive A at boot, empty for the file's")
     if (PICO_ORIC_BOOT_DISC)
         target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_DISC="${PICO_ORIC_BOOT_DISC}")
+    endif()
+    # The vertical-sync modification at boot, over the file's vsync_hack
+    # (design.md §15.2 M16).
+    option(PICO_ORIC_BOOT_VSYNC "Boot with the VSync hack on, over the file" OFF)
+    if (PICO_ORIC_BOOT_VSYNC)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_VSYNC=1)
     endif()
 
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})

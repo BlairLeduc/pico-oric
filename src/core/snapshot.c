@@ -64,7 +64,7 @@ enum {
     S_BUDGET = 158,               /* 4 bytes, signed                     */
     /* The machine it runs on. */
     S_RAM = 162,                  /* oric_ram_t                          */
-    S_MACHINE = 163,              /* M_MICRODISC, or zero                */
+    S_MACHINE = 163,              /* M_MICRODISC, M_VSYNC, or zero       */
     S_LINE_CYCLES = 164, S_LINES_50 = 166, S_LINES_60 = 168,
     S_ROM = 170,                  /* SHA-1 of the ROM, 20 bytes          */
     /* The tape trap's carry-over (tape.h): a header kept for the data
@@ -83,7 +83,12 @@ enum {
     S_WD_CYL = 274,               /* ORIC_DISC_DRIVES bytes              */
     S_WD_HEAD_UNTIL = 278,        /* 8 bytes                             */
     S_WD_DUE = 286,               /* 8 bytes                             */
-    S_END = 294,                  /* the rest is reserved, written zero  */
+    /* The vertical-sync modification's pulse (vsync.h), from M16, zero
+     * without it: its lines, delay and width, which every count in the
+     * state is in step with. The pulse itself is worked out again from
+     * the boundary (oric_restored). */
+    S_VS_LINE_50 = 294, S_VS_LINE_60 = 296, S_VS_DELAY = 298, S_VS_LOW = 300,
+    S_END = 302,                  /* the rest is reserved, written zero  */
 };
 
 _Static_assert(S_VIA + 13 == S_T1_LATCH, "the VIA's registers overrun");
@@ -118,6 +123,7 @@ _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its leng
 #define A_ENV_HOLDING  0x10u
 
 #define M_MICRODISC    0x01u
+#define M_VSYNC        0x02u
 
 #define W_INTRQ        0x01u
 #define W_DRQ          0x02u
@@ -128,6 +134,12 @@ _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its leng
 
 #define T_HEADER_KEPT  0x01u
 #define T_PASS         0x02u
+
+/* What is fitted besides the ROM and RAM: the Microdisc (M14), the
+ * vertical-sync modification (M16). A state is for one set of them. */
+static uint8_t machine_of(const oric_t *m) {
+    return (uint8_t)((m->cfg.microdisc ? M_MICRODISC : 0) | (m->cfg.vsync_hack ? M_VSYNC : 0));
+}
 
 static void rom_hash(const oric_t *m, uint8_t digest[SHA1_DIGEST_LEN]) {
     sha1(m->rom, ORIC_ROM_SIZE, digest);
@@ -189,7 +201,7 @@ static void state_encode(const oric_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put32(st + S_BUDGET, (uint32_t)m->budget);
 
     st[S_RAM] = (uint8_t)m->cfg.ram;
-    st[S_MACHINE] = m->cfg.microdisc ? M_MICRODISC : 0;
+    st[S_MACHINE] = machine_of(m);
     put16(st + S_LINE_CYCLES, m->cfg.line_cycles);
     put16(st + S_LINES_50, m->cfg.lines_50hz);
     put16(st + S_LINES_60, m->cfg.lines_60hz);
@@ -201,6 +213,13 @@ static void state_encode(const oric_t *m, uint8_t st[SNAP_STATE_LEN]) {
     memcpy(st + S_TAPE_RAW, t->raw, TAP_HEADER_LEN);
     st[S_TAPE_NAME_LEN] = t->name_len;
     memcpy(st + S_TAPE_NAME, t->name, ORIC_TAP_NAME_MAX);
+
+    if (m->cfg.vsync_hack) {
+        put16(st + S_VS_LINE_50, m->cfg.vsync_line_50hz);
+        put16(st + S_VS_LINE_60, m->cfg.vsync_line_60hz);
+        put16(st + S_VS_DELAY, m->cfg.vsync_delay);
+        put16(st + S_VS_LOW, m->cfg.vsync_low);
+    }
 
     if (!m->cfg.microdisc) return;
     const wd1793_t *f = &m->fdc;
@@ -263,6 +282,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     info->rom = romset_identify_digest(st + S_ROM, ORIC_ROM_SIZE);
     info->ram = st[S_RAM] == ORIC_RAM_16K ? ORIC_RAM_16K : ORIC_RAM_48K;
     info->microdisc = (st[S_MACHINE] & M_MICRODISC) != 0;
+    info->vsync_hack = (st[S_MACHINE] & M_VSYNC) != 0;
 }
 
 /* Could a machine have saved this? A file passes its CRC whoever wrote
@@ -273,7 +293,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
  * every field the code divides, indexes or loops by must be in the range
  * a running machine keeps it in. */
 static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
-    if (st[S_RAM] > ORIC_RAM_48K || st[S_SR_HALVES] > 16u ||
+    if (st[S_RAM] > ORIC_RAM_48K || st[S_SR_HALVES] > 16u || (st[S_MACHINE] & ~(M_MICRODISC | M_VSYNC)) ||
         st[S_TAPE_NAME_LEN] > ORIC_TAP_NAME_MAX || st[S_ULA_MODE] > 7u || st[S_FRAME_MODE] > 7u)
         return false;
 
@@ -324,9 +344,14 @@ static snap_status_t compatible(const oric_t *m, const uint8_t st[SNAP_STATE_LEN
     rom_hash(m, rom);
     if (memcmp(rom, st + S_ROM, sizeof rom) != 0) return SNAP_OTHER_ROM;
     if (st[S_RAM] != (uint8_t)m->cfg.ram) return SNAP_OTHER_RAM;
-    if (st[S_MACHINE] != (m->cfg.microdisc ? M_MICRODISC : 0)) return SNAP_OTHER_MACHINE;
+    if (st[S_MACHINE] != machine_of(m)) return SNAP_OTHER_MACHINE;
     if (get16(st + S_LINE_CYCLES) != m->cfg.line_cycles ||
         get16(st + S_LINES_50) != m->cfg.lines_50hz || get16(st + S_LINES_60) != m->cfg.lines_60hz)
+        return SNAP_OTHER_FIELD;
+    if (m->cfg.vsync_hack &&
+        (get16(st + S_VS_LINE_50) != m->cfg.vsync_line_50hz ||
+         get16(st + S_VS_LINE_60) != m->cfg.vsync_line_60hz ||
+         get16(st + S_VS_DELAY) != m->cfg.vsync_delay || get16(st + S_VS_LOW) != m->cfg.vsync_low))
         return SNAP_OTHER_FIELD;
     return SNAP_OK;
 }

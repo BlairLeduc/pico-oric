@@ -7,6 +7,7 @@
 #include "bus.h"
 #include "hot.h"
 #include "microdisc.h"
+#include "vsync.h"
 
 /* The firmware's PICO_ORIC_TAPE=OFF compiles the trap's check out, the
  * control for its cost (§15.2 M10). */
@@ -32,6 +33,12 @@ void oric_config_default(oric_config_t *cfg) {
     /* MAME's 32 and Brown's, against Oricutron's 16 (§16: disputed). */
     cfg->blink_fields = 32;
     cfg->tape_traps = true;
+    /* The sync's lines from Brown's measurement at 50 Hz and Clock
+     * Signal's at 60, the pulse Oricutron's (vsync.h, §16). */
+    cfg->vsync_line_50hz = 256;
+    cfg->vsync_line_60hz = 234;
+    cfg->vsync_delay = 12;
+    cfg->vsync_low = 260;
 }
 
 static void map_open(oric_t *m, unsigned first_page, unsigned last_page) {
@@ -104,6 +111,9 @@ void oric_power_on(oric_t *m) {
     /* The cycle count starts again, and the next sample with it. */
     pcm_restart(&m->pcm, (uint32_t)m->cpu.cycles);
     oric_reset(m);
+    /* The ULA's count starts with the first field, at the first
+     * instruction, after the reset's cycles (vsync.h). */
+    vsync_restart(m, m->cpu.cycles);
 }
 
 /* ---- The VIA's wiring (§2.3) ------------------------------------------- */
@@ -146,18 +156,28 @@ void ORIC_HOT1(oric_io_changed)(oric_t *m) {
     wire(m);
 }
 
-void ORIC_HOT1(oric_via_catch_up)(oric_t *m) {
+void ORIC_HOT1(oric_via_catch_up)(oric_t *m, bool write) {
     /* The VIA runs two cycles behind the CPU: at an instruction boundary
      * it has been ticked to the start of the instruction's penultimate
      * cycle. A 6502 decides whether to take an IRQ at the end of that
      * cycle, so an IRQ asserted in the last cycle waits for the next
-     * instruction (§5.3; settled against Oricutron by trace, M3). From
-     * there, the start of the instruction's cycle k is k + 1 ticks on;
-     * the run loop ticks the rest. */
-    uint32_t before = m->cpu.io_at ? m->cpu.io_at + 1u : 0u;
-    if (before > m->via_early) {
-        via6522_tick(&m->via, before - m->via_early);
-        m->via_early = before;
+     * instruction (§5.3; settled against Oricutron by trace, M3). An
+     * access in cycle k, from 1, reads the VIA k ticks on, and a write
+     * lands a tick later: the T1 a write starts counts from there (M3),
+     * and a read in the last cycle sees the VIA as the boundary leaves
+     * it (M16, by a loop polling T1's flag). The run loop ticks the
+     * rest; a write's tick past the boundary it ticks back. */
+    via6522_t *v = &m->via;
+    uint32_t at = m->cpu.io_at;
+    if (at > m->via_early) {
+        via6522_tick(v, at - m->via_early);
+        m->via_early = at;
+    }
+    if (write && at && m->via_early == at) {
+        uint8_t ifr = v->ifr;
+        via6522_tick(v, 1);
+        m->via_early = at + 1u;
+        m->via_late = (uint8_t)(v->ifr & ~ifr);
     }
 }
 
@@ -190,6 +210,9 @@ void oric_restored(oric_t *m) {
               m->cpu.cycles);
     microdisc_map(m);
     microdisc_irq(m);
+    /* A state is taken at a field boundary, which began the budget's
+     * overshoot ago (vsync.h). */
+    vsync_restart(m, m->cpu.cycles + (uint64_t)(int64_t)m->budget);
     wire(m);
 }
 
@@ -277,8 +300,10 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
          * the deck costs nothing then (cassette.h). */
         uint32_t stop = cycles;
         uint64_t due = PICO_ORIC_DECK ? m->cas.due : UINT64_MAX;
-        /* The disc's next event too (wd1793.h). */
+        /* The disc's next event too (wd1793.h), and the sync's
+         * (vsync.h). */
         if (m->fdc.due < due) due = m->fdc.due;
+        if (m->vs.due < due) due = m->vs.due;
         if (__builtin_expect(due != UINT64_MAX, 0)) {
             uint64_t now = m->cpu.cycles;
             uint64_t left = due > now ? due - now : 0;
@@ -299,10 +324,13 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
             }
             done += c;
             /* Less what an access to page #03 already brought it
-             * through. */
+             * through; a write's tick past the instruction's end comes
+             * back off, and what it set waits for the next poll. */
             via6522_tick(&m->via, c - m->via_early);
+            uint8_t late = m->via_early > c ? m->via_late : 0u;
             m->via_early = 0;
-            m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
+            m6502_set_irq(&m->cpu, M6502_IRQ_VIA,
+                          (m->via.ifr & m->via.ier & (uint8_t)~late & 0x7Fu) != 0);
         } while (done < stop && !m->cut);
         m->cut = false;
         if (PICO_ORIC_DECK && __builtin_expect(m->cpu.cycles >= m->cas.due, 0)) {
@@ -312,6 +340,10 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
         if (__builtin_expect(m->cpu.cycles >= m->fdc.due, 0)) {
             wd_run(&m->fdc, m->cpu.cycles);
             microdisc_irq(m);
+        }
+        if (__builtin_expect(m->cpu.cycles >= m->vs.due, 0)) {
+            vsync_run(m, m->cpu.cycles);
+            m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
         }
     }
     m->instructions += n;
@@ -339,6 +371,7 @@ uint32_t ORIC_HOT2(oric_run_field)(oric_t *m) {
      * (§7.4, §11.1, §16: low). */
     m->frame_mode = m->ula_mode;
     m->ula_mode = ula_scan_mode(oric_video_window(m), m->frame_mode);
+    vsync_field(m);
     return done;
 }
 

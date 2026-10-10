@@ -550,7 +550,7 @@ static int test_machine(void) {
     CHECK(mem_load(&snap, &s_m2) == SNAP_OK, "load");
     CHECK(snap_same(&s_m, &s_m2, "Microdisc state"), "round trip");
     machine(&s_m2, false);
-    snap_info_t info = { ROM_UNKNOWN, ORIC_RAM_48K, false };
+    snap_info_t info = { ROM_UNKNOWN, ORIC_RAM_48K, false, false };
     CHECK(mem_check(&snap, &s_m2, &info) == SNAP_OTHER_MACHINE && info.microdisc,
           "refused without the Microdisc");
     bus_write(&s_m, 0x0310, 0x80);   /* a read, drive 1 empty: busy */

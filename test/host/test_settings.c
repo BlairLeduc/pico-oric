@@ -24,7 +24,7 @@ int main(void) {
         oric_config_default(&cfg);
         CHECK(d.rom == cfg.rom && d.ram == cfg.ram && d.rom == ROM_BASIC11 &&
               d.ram == ORIC_RAM_48K, "the Atmos 48K (§18 item 3)");
-        CHECK(!d.microdisc, "no Microdisc");
+        CHECK(!d.microdisc && !d.vsync_hack, "no Microdisc, no VSync hack");
         CHECK(d.volume == 8u && !d.perf, "full volume, no perf line");
         CHECK(d.fast_tape, "fast tape (§10.3)");
         CHECK(!d.layout[0] && !d.boot_tape[0] && !d.boot_disc[0],
@@ -44,6 +44,7 @@ int main(void) {
             "ROM       = 1.0\r\n"
             "RAM       = 16\r\n"
             "microdisc = ON\r\n"
+            "vsync_hack = on\r\n"
             "volume    = 0\r\n"
             "Perf      = On\r\n"
             "status    = off\r\n"
@@ -53,7 +54,8 @@ int main(void) {
             "boot_tape = /oric/tapes/My Tape.tap\r\n"
             "boot_disc = sedoric.dsk\r\n";
         CHECK(parse(&s, all, &line) == SET_OK && line == 0, "every setting: line %u", line);
-        CHECK(s.rom == ROM_BASIC10 && s.ram == ORIC_RAM_16K && s.microdisc, "rom, ram, microdisc");
+        CHECK(s.rom == ROM_BASIC10 && s.ram == ORIC_RAM_16K && s.microdisc && s.vsync_hack,
+              "rom, ram, microdisc, vsync_hack");
         CHECK(s.volume == 0u && s.perf && !s.status && s.backlight == 15u,
               "volume, perf, status, backlight");
         CHECK(!s.fast_tape, "fast_tape");
@@ -97,6 +99,7 @@ int main(void) {
             { "rom = 1.2\n",           SET_BAD_VALUE },
             { "rom = basic11b.rom\n",  SET_BAD_VALUE },
             { "microdisc = yes\n",     SET_BAD_VALUE },
+            { "vsync_hack = 1\n",      SET_BAD_VALUE },
             { "volume = 9\n",          SET_BAD_VALUE },
             { "volume = -1\n",         SET_BAD_VALUE },
             { "volume = 99999999999\n", SET_BAD_VALUE },

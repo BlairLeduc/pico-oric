@@ -17,6 +17,7 @@ set(PICO_ORIC_HOST_TESTS
     test_status
     test_ula
     test_via6522
+    test_vsync
 )
 
 foreach(t ${PICO_ORIC_HOST_TESTS})

@@ -225,7 +225,9 @@ static void play_to(oric_t *m, uint64_t now) {
     while (c->playing && now >= c->next) {
         c->level = !c->level;
         c->edges++;
-        via6522_set_cb1(&m->via, c->level);
+        /* With the vertical-sync modification, CB1 is the sync's
+         * (vsync.h): the tape plays on, disconnected. */
+        if (!m->cfg.vsync_hack) via6522_set_cb1(&m->via, c->level);
         schedule(m);
     }
     set_live(m);
@@ -262,7 +264,7 @@ static void update(oric_t *m) {
         c->next = now_of(m) + c->left;
         c->playing = true;
         set_live(m);
-        via6522_set_cb1(&m->via, c->level);
+        if (!m->cfg.vsync_hack) via6522_set_cb1(&m->via, c->level);
     } else if (!run) {
         stop_player(m);
     }

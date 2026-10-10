@@ -49,7 +49,13 @@ both ROMs on the host, a saved file loads in Oricutron, and 193 of TOSEC's
 206 loadable images leave Oricutron's screen after 30 s (the other 13
 explained); on the board Sedoric boots off the card, saves and loads, and
 Oricutron reads the disc it wrote. The owner's check of the pages is
-outstanding.
+outstanding. **M16 (the vertical-sync modification) is built**: the first
+active line settled from Brown's measured timing (sync on lines 256–259),
+the pulse on CB1 as two run-loop events a field, a Machine-page row, and
+a test program tracing line for line against Oricutron with its VSync
+hack on all four machines; on the way, a VIA read in an instruction's
+last cycle no longer sees the next instruction's first tick (`design.md`
+§5.3).
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -124,6 +130,7 @@ tools/build.sh -DPICO_ORIC_AUDIO=OFF build/timer          # paced on the timer: 
 tools/build.sh -DPICO_ORIC_TURBO=OFF build/m13-noturbo    # a tape paced: turbo's control
 tools/build.sh -DPICO_ORIC_DECK=OFF build/m13-nodeck      # the signal's checks out: their control
 tools/build.sh -DPICO_ORIC_BOOT_MICRODISC=ON -DPICO_ORIC_BOOT_DISC=sedoric3.dsk build/m14-md  # boots a disc
+tools/build.sh -DPICO_ORIC_BOOT_VSYNC=ON build/m16-vsync   # the VSync hack on, over the file
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
@@ -144,6 +151,8 @@ git -C out/oricutron checkout 002279fce9fa756d1d63cdc40ae97939eb7de7ed
 tools/trace/build-oricutron.sh out/oricutron     # corrects its errata, by name
 cmake --build build/host --target oric-trace
 tools/trace-diff.py run --rom 1.0 --ram 16 --keys 'PRINT 2+2\n'
+tools/trace-diff.py run --rom 1.1 --ram 48 --vsync   # CB1's test program, the hack on in both (M16)
+tools/trace-diff.py run --rom 1.1 --ram 48 --test --keys 'CALL#480\n'  # T1 polled; #4A0 writes the VIA
 tools/render-diff.sh                             # the goldens, drawn by Oricutron's ULA (§7.7)
 build/host/test/host/test_tape --write out/m10/host-taps  # the trap's saves as .tap files
 tools/trace-diff.py tape out/m10/host-taps/atmos-48k.tap  # CLOADed by Oricutron, off the signal
@@ -210,9 +219,15 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   not to the CPU's bus: CA2 = BC1, CB2 = BDIR, PB3 high is a key down.
 - **The VIA's timing is cycle-exact against Oricutron** (design.md §5.3): an
   access to page `#03` brings the VIA to the access's cycle
-  (`bus_read_at`/`m6502_t.io_at`, slow path only), and the VIA runs two
-  cycles behind the CPU at boundaries so the IRQ poll is the 6502's. Run the
-  trace diff after touching either.
+  (`bus_read_at`/`m6502_t.io_at`, slow path only), a read k ticks on and a
+  write k + 1, and the VIA runs two cycles behind the CPU at boundaries so
+  the IRQ poll is the 6502's; a write's tick past the boundary is ticked
+  back and its flags wait (`via_late`). Run the trace diff, with `--vsync`
+  and `--test`'s loops, after touching any of it.
+- **With the VSync hack, CB1 is the ULA's sync, not the tape** (`vsync.h`):
+  two edges a field, events the slice ends at, placed from the field's
+  start, which begins at the first instruction. The player stops driving
+  CB1. Run `test_vsync` after touching `vsync.c`, `oric_run` or `bus.c`.
 - **The AY is brought up to date lazily, stamped at the writing
   instruction's start** (design.md §8.2): a write to a sound register
   advances it first, and so does the field's end. A write to port A, which

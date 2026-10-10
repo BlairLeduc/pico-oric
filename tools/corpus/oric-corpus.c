@@ -1,7 +1,7 @@
 /* oric-corpus.c — M12's corpus run: archive tapes loaded and run on the
  * host, one line each (design.md §15, M12; §5.1).
  *
- *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] TAPE...
+ *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] TAPE...
  *
  * Each tape gets a machine of its own, copied from one booted to Ready.
  * A TAPE is a .tap, or a directory of a title's parts, whose deck starts
@@ -26,7 +26,8 @@
  * an instruction at a time, so every one is counted by opcode, with the
  * first PC each was seen at. The CB1 interrupt enabled while the PC is
  * outside the ROM is noted: the vertical-sync modification's titles, for
- * M16 (design.md §15).
+ * M16 (design.md §15). -v fits the modification (vsync.h); with it the
+ * tape is still the trap's, which does not read CB1.
  *
  * One line per tape on stdout, tab-separated:
  *   name  machine  outcome  files  bytes  undoc  opcodes  cb1  mode  note
@@ -514,6 +515,7 @@ int main(int argc, char **argv) {
     oric_ram_t ram = ORIC_RAM_48K;
     long fields = 3000;
     const char *shots = NULL;
+    bool vsync_hack = false;
     int i = 1;
     for (; i < argc && argv[i][0] == '-'; i++) {
         if (!strcmp(argv[i], "-r") && i + 1 < argc)
@@ -526,8 +528,10 @@ int main(int argc, char **argv) {
             shots = argv[++i];
         else if (!strcmp(argv[i], "-t"))
             s_signal = true;
+        else if (!strcmp(argv[i], "-v"))
+            vsync_hack = true;
         else {
-            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...\n");
+            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] TAPE...\n");
             return 2;
         }
     }
@@ -536,7 +540,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "oric-corpus: no BASIC ROMs in %s\n", dir);
         return 77;
     }
-    if (!guest_boot(&s_booted, rom, ram)) {
+    oric_config_t cfg;
+    oric_config_default(&cfg);
+    cfg.rom = rom;
+    cfg.ram = ram;
+    cfg.vsync_hack = vsync_hack;
+    oric_init(&s_booted.m, &cfg);
+    oric_load_rom(&s_booted.m, guest_rom_image(rom), ORIC_ROM_SIZE);
+    oric_power_on(&s_booted.m);
+    if (!guest_have_rom(rom) || !guest_boot_machine(&s_booted)) {
         fprintf(stderr, "oric-corpus: the machine did not reach Ready\n");
         return 1;
     }

@@ -15,7 +15,7 @@
  * are the same, since every count in it is in that machine's cycles.
  * Unused state bytes are written zero and read as reserved, so a later
  * version can add fields whose zero is their reset value: from M14, the
- * Microdisc's.
+ * Microdisc's; from M16, the vertical-sync modification's.
  *
  * States are saved between fields, where the port parks the guest, so
  * the field always resumes where the snapshot point is (§11.1); the
@@ -52,8 +52,8 @@ typedef enum {
     SNAP_CORRUPT,         /* the CRC does not match                      */
     SNAP_OTHER_RAM,       /* the other RAM fit                           */
     SNAP_OTHER_ROM,       /* the ROM is not the one it ran on            */
-    SNAP_OTHER_MACHINE,   /* the Microdisc fitted, or not                */
-    SNAP_OTHER_FIELD,     /* another line length or field shape (§11.1)  */
+    SNAP_OTHER_MACHINE,   /* the Microdisc or the vsync hack, or not     */
+    SNAP_OTHER_FIELD,     /* another line length, field or sync shape    */
     SNAP_BUSY,            /* a tape request, or a disc command, waiting  */
 } snap_status_t;
 
@@ -62,6 +62,7 @@ typedef struct {
     rom_id_t   rom;       /* by the SHA-1 in the file; ROM_UNKNOWN if none of ours */
     oric_ram_t ram;
     bool       microdisc;
+    bool       vsync_hack;
 } snap_info_t;
 
 /* Move exactly n bytes; false on any failure. */
