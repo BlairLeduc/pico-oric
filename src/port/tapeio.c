@@ -302,18 +302,24 @@ static void serve_load(oric_t *m, const tape_t *t) {
         return;
     }
     uint32_t got_all = 0;
+    bool failed = false;
     while (oric_tape_load_wants(m)) {
         UINT want = t->len - t->done < sizeof s_buf ? (UINT)(t->len - t->done)
                                                     : (UINT)sizeof s_buf;
         UINT got = 0;
-        if (f_read(&s_f, s_buf, want, &got) != FR_OK || got == 0) break;
+        if (f_read(&s_f, s_buf, want, &got) != FR_OK) {
+            failed = true;
+            break;
+        }
+        if (got == 0) break;
         oric_tape_load_data(m, s_buf, got);
         got_all += got;
     }
     f_close(&s_f);
     /* The file ends one byte short, as many archive tapes do: the byte
-     * in memory is kept, and the load ends whole (tape.h). */
-    bool kept = oric_tape_load_keep(m);
+     * in memory is kept, and the load ends whole (tape.h). Only at the
+     * file's end: a card that failed part-way is not a short tape. */
+    bool kept = !failed && oric_tape_load_keep(m);
     bool whole = t->done == t->len;
     uint32_t len = t->len;
     bool verify = t->verify;
@@ -326,13 +332,13 @@ static void serve_load(oric_t *m, const tape_t *t) {
     g_tape_stats.loads++;
     g_tape_stats.bytes = got_all;
     if (!whole) {
-        say(" Tape ended: %.24s", base(s_path));
+        say(failed ? " Cannot read %.24s" : " Tape ended: %.24s", base(s_path));
         g_tape_stats.errors++;
-        give_up(m, "the file is cut short");
+        give_up(m, failed ? "cannot read the tape" : "the file is cut short");
     }
     log_core1("  tape         : %s %lu of %lu bytes at #%04X from %s%s\n",
               verify ? "verified" : "loaded", (unsigned long)got_all, (unsigned long)len,
-              start, base(s_path), !whole ? "; the tape ends there"
+              start, base(s_path), failed ? "; a read failed" : !whole ? "; the tape ends there"
                                    : kept ? "; the last byte missing, kept" : "");
 }
 

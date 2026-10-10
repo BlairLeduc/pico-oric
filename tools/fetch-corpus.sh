@@ -31,7 +31,7 @@ fi
 
 # The extraction is Python's zipfile, run isolated (-I) from a temporary
 # script outside the downloaded tree, and it writes only under DIR.
-py="$(mktemp -t fetch-corpus)"
+py="$(mktemp "${TMPDIR:-/tmp}/fetch-corpus.XXXXXX")"
 trap 'rm -f "$py"' EXIT
 cat >"$py" <<'PY'
 import io, os, re, sys, zipfile
