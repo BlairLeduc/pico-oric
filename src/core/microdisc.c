@@ -2,6 +2,7 @@
 
 #include "microdisc.h"
 
+#include "hot.h"
 #include "m6502.h"
 
 /* The cycle now: inside an instruction, its access's (bus.h). */
@@ -9,20 +10,25 @@ static uint64_t now_of(const oric_t *m) {
     return m->cpu.cycles + m->cpu.io_at;
 }
 
-void microdisc_irq(oric_t *m) {
+void ORIC_HOT1(microdisc_irq)(oric_t *m) {
     m6502_set_irq(&m->cpu, M6502_IRQ_DISC, m->fdc.intrq && (m->md_latch & MD_IRQEN));
 }
 
-static void map_pages(oric_t *m, unsigned first, unsigned last, uint8_t *base, uint8_t flags) {
+/* Pages first..last onto base, read-only if flagged; none if base is
+ * NULL. Sedoric flips the ROM in and out about every 15 instructions
+ * while it waits for a key (its #0477), so this is kept tight. */
+static void ORIC_HOT1(map_pages)(oric_t *m, unsigned first, unsigned last, uint8_t *base, uint8_t flags) {
+    uint8_t f = base ? flags : PAGE_OPEN;
+    uint8_t *w = (base && !flags) ? base : NULL;
     for (unsigned p = first; p <= last; p++) {
-        uint8_t *mem = base ? base + (p - first) * ORIC_PAGE_SIZE : NULL;
-        m->page[p].read = mem;
-        m->page[p].write = (flags || !mem) ? NULL : mem;
-        m->page_flags[p] = mem ? flags : PAGE_OPEN;
+        unsigned k = (p - first) * ORIC_PAGE_SIZE;
+        m->page[p].read = base ? base + k : NULL;
+        m->page[p].write = w ? w + k : NULL;
+        m->page_flags[p] = f;
     }
 }
 
-void microdisc_map(oric_t *m) {
+void ORIC_HOT1(microdisc_map)(oric_t *m) {
     const unsigned c0 = ORIC_ROM_BASE / ORIC_PAGE_SIZE, e0 = ORIC_EPROM_BASE / ORIC_PAGE_SIZE;
     uint8_t latch = m->md_latch;
     if (!m->cfg.microdisc || (latch & MD_BASIC)) {
@@ -47,7 +53,7 @@ void microdisc_reset(oric_t *m) {
     microdisc_irq(m);
 }
 
-uint8_t microdisc_read(oric_t *m, uint16_t a) {
+uint8_t ORIC_HOT1(microdisc_read)(oric_t *m, uint16_t a) {
     uint64_t now = now_of(m);
     uint8_t lo = (uint8_t)a, v;
     if (lo < 0x14u) {
@@ -61,18 +67,20 @@ uint8_t microdisc_read(oric_t *m, uint16_t a) {
     return v;
 }
 
-void microdisc_write(oric_t *m, uint16_t a, uint8_t v) {
+void ORIC_HOT1(microdisc_write)(oric_t *m, uint16_t a, uint8_t v) {
     uint64_t now = now_of(m);
     if ((uint8_t)a < 0x14u) {
         wd_write(&m->fdc, a & 3u, v, now);
+        /* A command's first event may fall inside this run slice. */
+        m->cut = true;
     } else {
+        uint8_t was = m->md_latch;
         m->md_latch = v;
         wd_select(&m->fdc, (v & MD_DRIVE) >> 5, (v & MD_SIDE) ? 1u : 0u, now);
-        microdisc_map(m);
+        /* Only bits 1 and 7 choose the map. */
+        if ((was ^ v) & (MD_BASIC | MD_EPROM_OFF)) microdisc_map(m);
     }
     microdisc_irq(m);
-    /* A command's first event may fall inside this run slice. */
-    m->cut = true;
 }
 
 /* ---- the port's -------------------------------------------------------- */

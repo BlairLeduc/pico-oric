@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#include "hot.h"
+
 #define L ORIC_DISC_TRACK_LEN
 
 /* The datasheet's times at 2 MHz, doubled for the Microdisc's 1 MHz
@@ -367,7 +369,9 @@ static void write_track_byte(wd1793_t *f, uint8_t *out) {
     }
 }
 
-static void event(wd1793_t *f) {
+/* The access path and the events are hot (hot.h): a DOS polls DRQ
+ * every few cycles while it moves a sector. */
+static void ORIC_HOT1(event)(wd1793_t *f) {
     uint64_t t = f->due;
     uint8_t c = f->cmd;
     switch (f->phase) {
@@ -496,13 +500,13 @@ static void event(wd1793_t *f) {
     }
 }
 
-void wd_run(wd1793_t *f, uint64_t now) {
+void ORIC_HOT1(wd_run)(wd1793_t *f, uint64_t now) {
     while (f->due <= now) event(f);
 }
 
 /* ---- registers --------------------------------------------------------- */
 
-static uint8_t status_now(wd1793_t *f, uint64_t now) {
+static uint8_t ORIC_HOT1(status_now)(wd1793_t *f, uint64_t now) {
     if (!f->type1) return (uint8_t)((f->status & (uint8_t)~WD_ST_DRQ) | (f->drq ? WD_ST_DRQ : 0));
     const wd_drive_t *d = sel(f);
     uint8_t s = f->status & (WD_ST_BUSY | WD_ST_SEEK_ERR | WD_ST_CRC);
@@ -513,7 +517,7 @@ static uint8_t status_now(wd1793_t *f, uint64_t now) {
     return s;
 }
 
-uint8_t wd_read(wd1793_t *f, unsigned reg, uint64_t now) {
+uint8_t ORIC_HOT1(wd_read)(wd1793_t *f, unsigned reg, uint64_t now) {
     wd_run(f, now);
     switch (reg & 3u) {
     case 0: {
@@ -531,7 +535,7 @@ uint8_t wd_read(wd1793_t *f, unsigned reg, uint64_t now) {
     }
 }
 
-void wd_write(wd1793_t *f, unsigned reg, uint8_t v, uint64_t now) {
+void ORIC_HOT1(wd_write)(wd1793_t *f, unsigned reg, uint8_t v, uint64_t now) {
     wd_run(f, now);
     switch (reg & 3u) {
     case 0: command(f, v, now); break;
@@ -544,7 +548,7 @@ void wd_write(wd1793_t *f, unsigned reg, uint8_t v, uint64_t now) {
     }
 }
 
-void wd_select(wd1793_t *f, unsigned drive, unsigned side, uint64_t now) {
+void ORIC_HOT1(wd_select)(wd1793_t *f, unsigned drive, unsigned side, uint64_t now) {
     wd_run(f, now);
     f->drive = (uint8_t)(drive % ORIC_DISC_DRIVES);
     f->side = (uint8_t)(side & 1u);
