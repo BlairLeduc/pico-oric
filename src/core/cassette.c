@@ -199,8 +199,10 @@ bool cassette_walk(oric_t *m, bool from_start, bool slow, uint32_t *t) {
 /* ---- the player ------------------------------------------------------------ */
 
 static void set_live(cassette_t *c) {
+    uint64_t was = c->due;
     c->live = c->playing || c->rec.on;
     c->due = c->rec.on ? 0 : c->playing ? c->next : UINT64_MAX;
+    if (c->due < was) c->cut = true;
 }
 
 /* The next change into next, or the end of the tape. */

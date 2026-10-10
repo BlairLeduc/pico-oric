@@ -151,6 +151,16 @@ else()
         target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_TAPE_TRAP=0)
     endif()
 
+    # The deck's checks in the run loop and on the VIA's path (design.md
+    # §10.4); OFF is the control M13 measures their cost against, and
+    # nothing plays or records.
+    option(PICO_ORIC_DECK "The signal's checks in the run loop" ON)
+    if (PICO_ORIC_DECK)
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_DECK=1)
+    else()
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_DECK=0)
+    endif()
+
     get_filename_component(PICO_ORIC_TOOLCHAIN_BIN ${CMAKE_C_COMPILER} DIRECTORY)
     find_program(PICO_ORIC_SIZE arm-none-eabi-size HINTS ${PICO_ORIC_TOOLCHAIN_BIN} REQUIRED)
 

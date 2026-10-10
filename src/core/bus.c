@@ -13,10 +13,15 @@
 
 #define VIA_REG(a)  ((uint8_t)((a) & 15u))
 
+/* PICO_ORIC_DECK=OFF: the control for the signal's cost (oric.c). */
+#ifndef PICO_ORIC_DECK
+#define PICO_ORIC_DECK 1
+#endif
+
 uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
         /* CB1 as the tape has it at this cycle (cassette.h). */
-        if (m->cpu.cycles + m->cpu.io_at >= m->cas.due)
+        if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         /* Reading T1C-L or T2C-L clears a flag, and reading ORA or ORB
@@ -40,7 +45,7 @@ uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
 void ORIC_HOT1(bus_write_slow)(oric_t *m, uint16_t a, uint8_t v) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
         /* CB1 as the tape has it at this cycle (cassette.h). */
-        if (m->cpu.cycles + m->cpu.io_at >= m->cas.due)
+        if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         via6522_write(&m->via, VIA_REG(a), v);

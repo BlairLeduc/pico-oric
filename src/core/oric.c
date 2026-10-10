@@ -13,6 +13,12 @@
 #define PICO_ORIC_TAPE_TRAP 1
 #endif
 
+/* PICO_ORIC_DECK=OFF compiles the signal's checks out, the control for
+ * their cost (§15.2 M13). */
+#ifndef PICO_ORIC_DECK
+#define PICO_ORIC_DECK 1
+#endif
+
 void oric_config_default(oric_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     /* The Atmos 48K (§18 item 3). */
@@ -117,7 +123,7 @@ static void ORIC_HOT1(wire)(oric_t *m) {
 
     /* The relay closes while PB6 is driven high (§2.3, §16). */
     bool motor = (v->orb & v->ddrb & 0x40u) != 0;
-    if (__builtin_expect(motor != m->cas.motor, 0)) cassette_motor(m, motor);
+    if (PICO_ORIC_DECK && __builtin_expect(motor != m->cas.motor, 0)) cassette_motor(m, motor);
 
     uint8_t row = (uint8_t)(via6522_pb_out(v) & 7u);
     uint8_t enabled = (uint8_t)~ay8912_port_a(&m->ay);
@@ -242,24 +248,41 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
      * the chip is doing (§3.2, via6522.h), and up to the cycle of any
      * access to it part-way through one (bus.c). */
     while (done < cycles) {
-        uint32_t c;
-        if (PICO_ORIC_TAPE_TRAP && __builtin_expect(tape_pc_lo[m->cpu.pc & 0xFFu], 0) &&
-            tape_at(m)) {
-            /* Stalled on a tape request, like a 6502 with RDY low: the
-             * rest of the run passes with no instruction (§10.3). */
-            c = cycles - done;
-            m->cpu.cycles += c;
-        } else {
-            c = m6502_step(m);
-            n++;
+        /* The slice ends at the deck's next edge, or after one
+         * instruction while it records; idle, it is the whole run, so
+         * the deck costs nothing then (cassette.h). */
+        uint32_t stop = cycles;
+        uint64_t due = m->cas.due;
+        if (PICO_ORIC_DECK && __builtin_expect(due != UINT64_MAX, 0)) {
+            uint64_t now = m->cpu.cycles;
+            uint64_t left = due > now ? due - now : 0;
+            if (left < cycles - done) stop = done + (uint32_t)left;
         }
-        done += c;
-        /* Less what an access to page #03 already brought it through. */
-        via6522_tick(&m->via, c - m->via_early);
-        m->via_early = 0;
-        /* The deck, only while it plays or records (cassette.h). */
-        if (__builtin_expect(m->cpu.cycles >= m->cas.due, 0)) cassette_run(m, m->cpu.cycles);
-        m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
+        do {
+            uint32_t c;
+            if (PICO_ORIC_TAPE_TRAP && __builtin_expect(tape_pc_lo[m->cpu.pc & 0xFFu], 0) &&
+                tape_at(m)) {
+                /* Stalled on a tape request, like a 6502 with RDY low:
+                 * the rest of the run passes with no instruction
+                 * (§10.3). */
+                c = cycles - done;
+                m->cpu.cycles += c;
+            } else {
+                c = m6502_step(m);
+                n++;
+            }
+            done += c;
+            /* Less what an access to page #03 already brought it
+             * through. */
+            via6522_tick(&m->via, c - m->via_early);
+            m->via_early = 0;
+            m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
+        } while (done < stop && !(PICO_ORIC_DECK && m->cas.cut));
+        m->cas.cut = false;
+        if (PICO_ORIC_DECK && __builtin_expect(m->cpu.cycles >= m->cas.due, 0)) {
+            cassette_run(m, m->cpu.cycles);
+            m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
+        }
     }
     m->instructions += n;
     return done;

@@ -98,6 +98,9 @@ typedef struct {
      * while it records (every instruction), never while it is idle. */
     uint64_t due;
     bool     live;         /* playing or recording                        */
+    /* Due moved earlier inside a run slice (the relay closed): the slice
+     * ends after this instruction, and the run loop clears it. */
+    bool     cut;
 
     const uint8_t *img;    /* a .tap image, len bytes                      */
     uint32_t len;
