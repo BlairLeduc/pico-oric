@@ -181,7 +181,7 @@ static void serve(oric_t *m) {
         }
         if (r != TAP_FOUND) {
             char why[64];
-            if (t->want[0]) snprintf(why, sizeof why, "\"%s\" not on the tape", (const char *)t->want);
+            if (t->want[0]) snprintf(why, sizeof why, "\"%.40s\" not on the tape", (const char *)t->want);
             else snprintf(why, sizeof why, "end of the tape, twice");
             give_up(m, why);
             return;
