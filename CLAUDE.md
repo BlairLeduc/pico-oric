@@ -41,8 +41,8 @@ by the owner. **M13 (signal-level tape) is built** and run on the board:
 the player matches both ROMs' CSAVE edge for edge on the host, CLOAD
 reads it, the recorder's files load in Oricutron (one made on the
 board among them), and turbo runs a load at 2.03×; an archive title
-that loads only by the signal (L'Immonde Dr Kokus) is checked on the
-host, not yet on the board, and the owner's check is outstanding.
+that loads only by the signal (L'Immonde Dr Kokus) loads on the board;
+the owner's check is outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
