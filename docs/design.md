@@ -1272,7 +1272,8 @@ and the deck is left empty and the status line says so. A tape now
 shorter than the state's place goes in at its start. Version 1 states
 load as before, leaving the drives and the deck as they are. A disc
 written to after the save is put back as it now is; a DOS resumed with
-an older picture of it in memory can disagree with it.
+an older picture of it in memory can disagree with it. The owner decided
+against recording a checksum of each disc to warn of that (2026-10-10).
 
 **No community snapshot format is imported**: the Oric archive is tapes and
 discs (§17).

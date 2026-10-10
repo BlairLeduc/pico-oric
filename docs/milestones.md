@@ -54,12 +54,25 @@ load refused as busy (a disc command waiting on an empty drive) was taken
 by the port for one that had changed the machine, which it then powered
 on again; `snapio_load` now refuses a busy machine before the card is
 touched, and on the board the same load was refused with nothing
-changed. A disc missing from the card was not tried on the board.
-**Outstanding:** the release soak over SWD, which needs the owner at the
-PicoCalc (`CLOAD"SOAK"`, then H and J held during the run); the owner's
-check of every page, key and setting on the panel, M9's, M13's and M14's
-included; the build on a second board, a Pico 2 W; the release build's
-core 0 share under §14's workloads,
+changed. A disc missing from the card was not tried on the board. The
+owner decided against a checksum of each disc in a state (2026-10-10).
+**The release soak**, run by the owner on the Plus 2 W the same day
+(`out/m15/soak/swd-20261010-170642.log`), the build at `49ff740`,
+`SOAK.tap` loaded from the card: 181 samples over 30.0 minutes, one
+boot, rt 1.000 at its lowest, every failure counter 0, the card's
+changes and the parks unchanged from the program's start, the envelope
+started in every window (13 to 546), the count rising from 5 to 534
+over 166 of 180 screen dumps, core 0 38.8–39.6 % busy, the audio
+consumed at 36,618–36,624 Hz, the gauge at 93 % and never charging, the
+die at 20 °C. It fails one rule only: H and J were not pressed, so the
+screen dumps show no key read; the keyboard reached the guest before
+the run, which is how `CLOAD"SOAK"` was typed (35 key events), but not
+during it. **The owner checked the menus on a Pico 2 W** the same day,
+and they are right: the build runs on the second board.
+**Outstanding:** the release soak's keys, H and J held during a run;
+whether the owner's check of the menus covers every key and setting, as
+M15's done-when has it; the release build's core 0 share under §14's
+workloads,
 which `perf-run.sh` types over the UART the release build does not have.
 
 **M16, the vertical-sync modification** (`src/core/vsync.*`; the run
