@@ -125,9 +125,9 @@ void tapeio_rewind(void) {
     s_wrapped = false;
 }
 
-/* A name as a file in TAPEIO_DIR: trailing spaces gone, and anything FAT
- * will not take as '_'. False for an empty name. */
-static bool name_path(const uint8_t *name, size_t n, char out[ORIC_PATH_MAX]) {
+/* A name as a file in TAPEIO_DIR, with `ext` after it: trailing spaces
+ * gone, and anything FAT will not take as '_'. False for an empty name. */
+static bool name_path(const uint8_t *name, size_t n, const char *ext, char out[ORIC_PATH_MAX]) {
     char s[ORIC_TAP_NAME_MAX + 1];
     size_t k = 0;
     for (size_t i = 0; i < n; i++) {
@@ -138,7 +138,7 @@ static bool name_path(const uint8_t *name, size_t n, char out[ORIC_PATH_MAX]) {
     }
     s[k] = 0;
     if (!k) return false;
-    snprintf(out, ORIC_PATH_MAX, "%s/%s.tap", TAPEIO_DIR, s);
+    snprintf(out, ORIC_PATH_MAX, "%s/%s%s", TAPEIO_DIR, s, ext);
     return true;
 }
 
@@ -218,15 +218,28 @@ static void give_up(oric_t *m, const char *why) {
     log_core1("  tape         : given up: %s; the reset button\n", why);
 }
 
-/* CLOAD's name chooses a file, if the card has one of that name; with
- * the deck empty, the first tape whose first header has the name. */
+/* CLOAD's name chooses a file, if the card has one of that name: the
+ * name as it is, then NAME.tap. A title in parts asks for the next by
+ * its file's name, CLOAD "GAME.TA1" or "GAME2.TAP", as the emulators
+ * its tapes were made for served it (design.md §10.3, M12's corpus).
+ * With the deck empty, the first tape whose first header has the name. */
+static bool exists(const char *path) {
+    if (open_read(&s_f, path) != FR_OK) return false;
+    f_close(&s_f);
+    return true;
+}
+
 static void choose_tape(const tape_t *t) {
     char named[ORIC_PATH_MAX], found[ORIC_PATH_MAX];
     size_t n = strlen((const char *)t->want);
-    if (!name_path(t->want, n, named) || strcasecmp(named, s_path) == 0) return;
-    FRESULT fr = open_read(&s_f, named);
-    if (fr == FR_OK) {
-        f_close(&s_f);
+    if (!name_path(t->want, n, "", named) || strcasecmp(named, s_path) == 0) return;
+    bool have = exists(named);
+    if (!have) {
+        (void)name_path(t->want, n, ".tap", named);
+        if (strcasecmp(named, s_path) == 0) return;
+        have = exists(named);
+    }
+    if (have) {
         set_deck(named, false);
         log_core1("  tape         : %s found by name\n", named);
     } else if (!s_path[0] && find_by_header(t, found)) {
@@ -289,15 +302,24 @@ static void serve_load(oric_t *m, const tape_t *t) {
         return;
     }
     uint32_t got_all = 0;
+    bool failed = false;
     while (oric_tape_load_wants(m)) {
         UINT want = t->len - t->done < sizeof s_buf ? (UINT)(t->len - t->done)
                                                     : (UINT)sizeof s_buf;
         UINT got = 0;
-        if (f_read(&s_f, s_buf, want, &got) != FR_OK || got == 0) break;
+        if (f_read(&s_f, s_buf, want, &got) != FR_OK) {
+            failed = true;
+            break;
+        }
+        if (got == 0) break;
         oric_tape_load_data(m, s_buf, got);
         got_all += got;
     }
     f_close(&s_f);
+    /* The file ends one byte short, as many archive tapes do: the byte
+     * in memory is kept, and the load ends whole (tape.h). Only at the
+     * file's end: a card that failed part-way is not a short tape. */
+    bool kept = !failed && oric_tape_load_keep(m);
     bool whole = t->done == t->len;
     uint32_t len = t->len;
     bool verify = t->verify;
@@ -310,13 +332,14 @@ static void serve_load(oric_t *m, const tape_t *t) {
     g_tape_stats.loads++;
     g_tape_stats.bytes = got_all;
     if (!whole) {
-        say(" Tape ended: %.24s", base(s_path));
+        say(failed ? " Cannot read %.24s" : " Tape ended: %.24s", base(s_path));
         g_tape_stats.errors++;
-        give_up(m, "the file is cut short");
+        give_up(m, failed ? "cannot read the tape" : "the file is cut short");
     }
     log_core1("  tape         : %s %lu of %lu bytes at #%04X from %s%s\n",
               verify ? "verified" : "loaded", (unsigned long)got_all, (unsigned long)len,
-              start, base(s_path), whole ? "" : "; the tape ends there");
+              start, base(s_path), failed ? "; a read failed" : !whole ? "; the tape ends there"
+                                   : kept ? "; the last byte missing, kept" : "");
 }
 
 /* ---- save ------------------------------------------------------------------- */
@@ -387,7 +410,7 @@ static FRESULT append(const oric_t *m, const tape_t *t, const char *path) {
 
 static void serve_save(oric_t *m, const tape_t *t) {
     char named[ORIC_PATH_MAX];
-    const char *path = s_user ? s_path : name_path(t->name, t->name_len, named) ? named : "";
+    const char *path = s_user ? s_path : name_path(t->name, t->name_len, ".tap", named) ? named : "";
     log_core1("  tape         : CSAVE \"%.*s\"%s, #%04X-#%04X\n", (int)t->name_len,
               (const char *)t->name, t->slow ? ",S" : "", t->start, t->end);
     if (!path[0]) {

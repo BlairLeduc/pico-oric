@@ -152,6 +152,13 @@ void oric_tape_load_data(struct oric_s *m, const uint8_t *src, size_t n);
 bool oric_tape_load_wants(const struct oric_s *m);
 void oric_tape_load_end(struct oric_s *m);
 
+/* A load the tape ends one byte short of, as 8% of the archive's tapes
+ * do (design.md §10.3, M12's corpus): the last address keeps the byte it
+ * holds, as if read off tape, so that the ROM finishes the load; then
+ * end. False, and nothing done, unless exactly one byte is wanted.
+ * Oricutron allows the same byte "for broken tape images" (tape.c). */
+bool oric_tape_load_keep(struct oric_s *m);
+
 /* Serving TAPE_SAVE: the file is the kept header (tap_encode_header of
  * raw and name) and the request's len bytes from start, read with
  * oric_peek; once it is on the card, end. */

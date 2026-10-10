@@ -318,7 +318,7 @@ All estimates, against 520 KiB. Every fixed capacity lives in
 | Guest RAM, 64 KiB (48 K + 16 K overlay) | 64 K | statically sized for the largest machine |
 | ROM, the one in use | 16 K | loaded from the card at power-on (§10.2) |
 | Microdisc EPROM | 8 K | only from M14 |
-| Tape image buffer | 64 K | the signal's `.tap` and the recorder's output, from M13. The trap (M10) holds none: it reads the card a sector at a time |
+| Tape image buffer | 64 K | the signal's `.tap` and the recorder's output, from M13, a file at a time: the archive's largest file is 49,152 bytes (M12's corpus), its largest tape 92,160. The trap (M10) holds none: it reads the card a sector at a time |
 | Frame snapshots, 3 × (`#9800–#BFFF` + status) | 31 K | §4.4 |
 | Presenter shadow: decoded cells, 224 × 40 × 2 B | 17.5 K | §7.3 |
 | Two RGB565 line buffers, 240 px | 1 K | |
@@ -331,8 +331,8 @@ All estimates, against 520 KiB. Every fixed capacity lives in
 
 This is pico-atom's size, not the Ace's. SRAM is comfortable on an RP2350,
 and impossible on an RP2040's 264 KB (§17). The two big buffers trade
-against each other: if SRAM gets tight, the tape buffer shrinks first (the
-archive's largest `.tap` sets its floor, to find in M12's corpus run).
+against each other: if SRAM gets tight, the tape buffer shrinks first, to
+its floor of 48 K, the archive's largest file (M12's corpus run).
 
 ---
 
@@ -497,13 +497,23 @@ exact cycles, page-crossing and branch penalties, NMOS decimal mode with
 every flag, `JMP (xxFF)`, the B flag, the read-modify-write double write.
 **Undocumented opcodes are trapped and counted** on the heartbeat (EL §3.1).
 
-Oric software, unlike the Atom's ROMs, is known to include titles that use
-the stable undocumented opcodes. **Evidence decides** (EL §4.2): M12 runs the
-archive's tapes on the host and counts undocumented opcodes per title. If
-any title the user cares about executes one, the stable NMOS subset (`LAX`,
-`SAX`, `DCP`, `ISC`, `SLO`, `RLA`, `SRE`, `RRA`, `ANC`, `ALR`, `ARR`, `SBX`,
-the multi-byte `NOP`s) is implemented then, each checked against an
-independent per-opcode suite (§5.4).
+Oric software, unlike the Atom's ROMs, was thought to include titles that
+use the stable undocumented opcodes. **Evidence decides** (EL §4.2), and
+M12's corpus run decided: **the stable subset is not implemented** (the
+owner's decision, 2026-10-09). TOSEC's 1,061 tapes, each loaded and run
+for a minute on the Atmos 48K and the Oric-1 48K with every undocumented
+opcode counted (`tools/corpus-run.sh`), show 62 titles executing one on
+the Atmos and 198 on the Oric-1. Tracing the instructions before each
+title's first shows no title using one on purpose: each is reached
+through a corrupt dump (in Harrier Attack, what looks like `09` for an
+`STA`'s `8D` throws the stream out of step onto an `#80`), a bad return or jump into data, the ROM's
+autorun of a data file, or a title for the other ROM calling into it. The
+one title that loops through one, Archeron's Rage, executes `#7A`, which
+the trap's one-byte two-cycle NOP already runs as an NMOS 6502 does. A
+title that turns out to need the subset (`LAX`, `SAX`, `DCP`, `ISC`,
+`SLO`, `RLA`, `SRE`, `RRA`, `ANC`, `ALR`, `ARR`, `SBX`, the multi-byte
+`NOP`s) reopens this, with each checked against an independent per-opcode
+suite (§5.4).
 
 ### 5.2 Implementation
 
@@ -1014,6 +1024,15 @@ first bytes at the handler, and stands aside for any other ROM.
   the file not found, where the real machine and EL §8.2 would leave the
   ROM waiting for a signal: the owner found the wait read as a hang
   (2026-10-09).
+- **A name chooses a file as it is, then with `.tap` after it.** A title
+  in parts asks for its next part by the file's name (`CLOAD"GAME.TA1"`,
+  `"GAME2.TAP"`), as Euphoric served it; TOSEC keeps such titles' parts
+  under those names (M12, 2026-10-09).
+- **A file one byte short at the tape's end loads**, the last address
+  keeping what it holds (`oric_tape_load_keep`), as Oricutron allows "for
+  broken tape images": 83 of TOSEC's 1,061 tapes end so, their data
+  running from start to end exclusive. Short by more, the emulator gives
+  up as above (M12, the owner's choice 2026-10-09).
 - A **`.tap` holds several files**; the deck keeps a position and plays on
   from it, as a recorder would.
 - **Tested** by running the ROM's own routine with only the byte-level
@@ -1279,9 +1298,16 @@ an AY loop (`MUSIC` and `SOUND` with noise and an envelope), and one with
 redefined characters. Find out which is heaviest (EL §12). As found in M7
 (`tools/perf-run.sh`): idle at `Ready` is the lightest, unlike the Atom's;
 at tier 2 the rest lie within a point of each other (30.1–31.3 % of core
-0), and at tier 0 the hires loop was heaviest (47.5 %). Each feature is
-measured against a control build in the same sitting; the previous release
-too.
+0), and at tier 0 the hires loop was heaviest (47.5 %). As measured in
+M12, with audio, the menu, the tape trap and snapshots in the build, on
+the Oric-1 16K the card's settings chose (`out/m12/perf-summary.txt`,
+2026-10-09, one sitting; M7's were on the Atmos 48K, so the two do not
+compare): at tier 2, the shipped tier, idle 29.3 %, scroll 33.6 %, hires 33.7 %, scroll at 60 Hz
+33.9 %, compute 35.2 %, glyphs 35.5 %, glyphs at 60 Hz 35.8 %, and the AY
+loop heaviest at 36.3 %; at tier 0, 33.1–51.6 %, so tier 2 saves 3.8–15.8
+points; with the tape trap compiled out, 0.5–1.2 points less than tier 2.
+Each feature is measured against a control build in the same sitting; the
+previous release too.
 
 ---
 
@@ -1638,7 +1664,7 @@ date, in this table when it changes.
 | AY tick phase | ticks at cycles that are multiples of 8, counted from power-on | none | low, 2026-10-08 (M8). The chip divides its clock by 8 internally, in a phase no program can read; the choice moves every event by at most 7 µs |
 | RND seed from zeroed RAM | | ROMs, executed | **settled** 2026-10-08: the seed is the ROM's, not RAM's. Both ROMs give `.270011996`, `.139756248`, `.690102028` for the first three `RND(1)` after every power-on, however long the machine idles first (`test_boot`). Zeroed RAM does not stick it, and nothing needs seeding |
 | Tape routines (each ROM) | | ROMs, read and executed | **settled** 2026-10-08 (M10, `test_tape`). Read: 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`, clean-up `#E93D` / `#E804`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0. The trap's four steps, from the routines that call these: find a header `#E4AC` / `#E4B2`, read the data `#E4E0` / `#E4EB`, write the header `#E607` / `#E57B`, write the data `#E62E` / `#E5A7` (tape.c has their variables). Executed on all four machines: the ROM's own save, the ROM with only these byte routines hooked, and the trap leave the same machine at the clean-up, fast and slow; a find wants a `#16` and three more, starting over on any other byte |
-| `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | **settled** 2026-10-08 by execution (M10): the header in tape order is two unused bytes, the type (`#00` BASIC, `#80` code, bit 6 an array, which 1.1's CLOAD passes over), autorun, end and start addresses high byte first, one unused byte; 1.1 stores it from `#02B0` down, 1.0 from `#66` down. The data runs from start to end inclusive, one byte if the end is below the start (both ROMs' loops). The trap's file equals, byte for byte, what the ROM's own byte routine writes after its leader (`test_tape`); the leader is four `#16`s, as Oricutron writes, which reads three or more |
+| `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | **settled** 2026-10-08 by execution (M10): the header in tape order is two unused bytes, the type (`#00` BASIC, `#80` code, bit 6 an array, which 1.1's CLOAD passes over), autorun, end and start addresses high byte first, one unused byte; 1.1 stores it from `#02B0` down, 1.0 from `#66` down. The data runs from start to end inclusive, one byte if the end is below the start (both ROMs' loops). The trap's file equals, byte for byte, what the ROM's own byte routine writes after its leader (`test_tape`); the leader is four `#16`s, as Oricutron writes, which reads three or more. 83 of TOSEC's 1,061 tapes hold one byte fewer than the header says, start to end exclusive (M12; §10.3) |
 | Tape bit timings, fast and slow | | ROM's T1 writer, counted and executed | to find in M13 |
 | Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13 |
 | Microdisc control/status bits | | Microdisc schematic; EPROM and Sedoric, read | low |
@@ -1657,10 +1683,10 @@ Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
 | Jasmin disc interface | dropped | a smaller user base than the Microdisc, and a second DOS and controller wiring |
 | Telestrat, Pravetz 8D | dropped | different machines, not configurations of these two |
 | Printer (Centronics on PA) | dropped | no known software dependency; PA and PB4 are modelled as the VIA's pins, unconnected |
-| Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the M12 corpus shows titles that read only a joystick |
+| Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the corpus shows titles that read only a joystick (M12's run did not look: M15's layouts will) |
 | The vertical-sync modification (sync to CB1) | M16 | an owner's modification some demos use; cheap to add as a setting once the first active line is settled, which M16 does first |
 | Mid-field raster effects | deferred | the snapshot is one point in the field (§7). A per-line record is the path if a known title needs it |
-| Undocumented 6502 opcodes | decided by M12's corpus | EL §4.2: evidence first |
+| Undocumented 6502 opcodes | not implemented | M12's corpus shows no title using one on purpose (§5.1); a title that needs them reopens it |
 | Scaled display | dropped | 240×224 fits 1:1 (EL §5.4) |
 | Monochrome or colour themes | dropped | the Oric is a colour machine; the palette is a pointer if ever wanted |
 | Hardware vertical scroll | dropped | scrolling is memory moves the cell diff catches (EL §5.4) |
@@ -1758,4 +1784,6 @@ To obtain and record (with revision or date) before transcribing constants:
 - **Klaus Dormann's 6502 tests**, **Bruce Clark's decimal test**, and if
   needed **Tom Harte's SingleStepTests**: fetched, not committed (§5.4).
 - **An Oric software archive** (tapes and discs): the M12 corpus and the
-  evidence for §17's deferrals.
+  evidence for §17's deferrals. TOSEC's *Tangerine Oric 1 and Atmos*
+  (2012-04-23), from the Internet Archive, SHA-1 `6a105e73…`: 1,061 titles
+  on tape and 221 disc images, fetched by `tools/fetch-corpus.sh`.

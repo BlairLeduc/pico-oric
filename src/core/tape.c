@@ -234,6 +234,14 @@ void oric_tape_load_data(oric_t *m, const uint8_t *src, size_t n) {
     }
 }
 
+bool oric_tape_load_keep(oric_t *m) {
+    tape_t *t = &m->tape;
+    if (t->op != TAPE_LOAD || t->done + 1u != t->len) return false;
+    uint8_t b = oric_peek(m, (uint16_t)(t->start + t->done));
+    oric_tape_load_data(m, &b, 1);
+    return true;
+}
+
 void oric_tape_load_end(oric_t *m) {
     tape_t *t = &m->tape;
     if (t->op != TAPE_LOAD) return;

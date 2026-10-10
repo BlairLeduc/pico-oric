@@ -67,6 +67,10 @@ static void deck_put(deck_t *d, const uint8_t *p, size_t n) {
  * waits for a signal; or give up, back to Ready (tape.h). */
 static bool s_give_up;
 
+/* tapeio's choice at a file one byte short: keep the byte in memory
+ * (oric_tape_load_keep), or leave the ROM waiting for it. */
+static bool s_keep;
+
 static void serve(oric_t *m, deck_t *d) {
     const tape_t *t = oric_tape_pending(m);
     if (!t) return;
@@ -88,6 +92,7 @@ static void serve(oric_t *m, deck_t *d) {
         size_t n = d->len - d->pos;
         if (n > t->len) n = t->len;
         oric_tape_load_data(m, d->buf + d->pos, n);
+        if (s_keep) (void)oric_tape_load_keep(m);
         d->pos += n;
         d->skip = 0;
         oric_tape_load_end(m);
@@ -449,6 +454,35 @@ static int machine(rom_id_t rom, oric_ram_t ram) {
     uint32_t len = tap_data_len(start, tap_end(h.raw));
     CHECK(!ended && ptr == start + len - 5u, "%s: a short file: ended %d, #33 = #%04X, "
           "not #%04X", n, ended, ptr, (unsigned)(start + len - 5u));
+
+    /* One byte short, as the archive's tapes often are: kept, the load
+     * ends as the ROM's own does, the last address unchanged. Left to
+     * wait, the control, it does not end. */
+    uint16_t last = (uint16_t)(start + len - 1u);
+    cut.len = prog.len - 1u;
+    for (int keep = 1; keep >= 0; keep--) {
+        /* g stands in the last CLOAD's set-up: the reset button. */
+        oric_nmi(&g.m);
+        guest_fields(&g, 50);
+        CHECK(start_at_setup(r, "CLOAD\"PROG\""), "%s: CLOAD never reached the set-up", n);
+        s_start.ram[last] = 0xA5u;
+        oric_copy(&s_run, &s_start);
+        static deck_t in;
+        memcpy(&in, &cut, sizeof in);
+        in.pos = in.skip = 0;
+        s_keep = keep;
+        ended = run_to(&s_run, NULL, r->cleanup, TRAPPED, r, &in, NULL, 2000000u);
+        s_keep = false;
+        bool same = memcmp(&s_run.ram[start], &prog.buf[h.data_at], len - 1u) == 0;
+        if (keep)
+            CHECK(ended && same && s_run.ram[last] == 0xA5u, "%s: one byte short, kept: ended "
+                  "%d, the data %s, #%04X = #%02X", n, ended, same ? "loaded" : "not loaded",
+                  last, s_run.ram[last]);
+        else
+            CHECK(!ended, "%s: one byte short, not kept: the load ended", n);
+    }
+    oric_nmi(&g.m);
+    guest_fields(&g, 50);
     return 0;
 }
 

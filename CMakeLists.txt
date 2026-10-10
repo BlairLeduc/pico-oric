@@ -75,6 +75,12 @@ if (PICO_ORIC_HOST)
 
     enable_testing()
     add_subdirectory(test/host)
+
+    # M12's corpus run: archive tapes loaded and run on the guest harness
+    # (design.md §15, M12; tools/corpus-run.sh).
+    add_executable(oric-corpus tools/corpus/oric-corpus.c)
+    target_link_libraries(oric-corpus PRIVATE pico_oric_guest)
+    target_compile_options(oric-corpus PRIVATE ${PICO_ORIC_WARNINGS})
 else()
     # One pico2 image for every RP2350 board (design.md §3.1).
     if (NOT DEFINED PICO_BOARD)

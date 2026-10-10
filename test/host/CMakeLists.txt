@@ -62,7 +62,7 @@ target_compile_definitions(pico_oric_guest PRIVATE
     PICO_ORIC_DEFAULT_ROMS="${CMAKE_SOURCE_DIR}/roms")
 
 foreach(t test_audio_rom test_boot test_font test_keyboard test_romset test_snapshot_rom
-        test_tape)
+        test_soak test_tape)
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_oric_guest)
     target_compile_options(${t} PRIVATE ${PICO_ORIC_WARNINGS})
