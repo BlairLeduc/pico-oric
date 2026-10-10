@@ -24,6 +24,10 @@
  *             write arms the recorder and is declined, and the ROM writes
  *             the signal; the data steps are never requests.
  *
+ *   test_cassette --write DIR   also writes each recording, as the
+ *                               recorder made it, to DIR/<machine>-
+ *                               <speed>.tap, for tools/trace-diff.py tape
+ *
  * Without the ROMs, so that CI runs it, one more: the CB1 flag is set on
  * the edge's cycle, seen by the first read of IFR at or after it.
  */
@@ -37,6 +41,7 @@
 #include "test_util.h"
 
 static guest_t g;
+static const char *s_write_dir;
 static oric_t s_start, s_run, s_walker;
 
 typedef struct {
@@ -323,6 +328,14 @@ static int machine(rom_id_t rom) {
               (unsigned)to, want->len);
         CHECK(g.m.cas.rec.errors == 0, "%s: %s: %u errors recording", n, cmd,
               (unsigned)g.m.cas.rec.errors);
+        if (s_write_dir) {
+            char path[512];
+            snprintf(path, sizeof path, "%s/%s-%s.tap", s_write_dir,
+                     rom == ROM_BASIC11 ? "atmos" : "oric1", s ? "slow" : "fast");
+            FILE *f = fopen(path, "wb");
+            CHECK(f && fwrite(rec, 1, to, f) == to && fclose(f) == 0, "cannot write %s", path);
+            printf("%s: %u bytes recorded\n", path, (unsigned)to);
+        }
         oric_cassette_saved(&g.m);
         oric_cassette_record(&g.m, NULL, 0);
     }
@@ -417,7 +430,8 @@ static int flag_on_cycle(void) {
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--write") == 0) s_write_dir = argv[2];
     if (flag_on_cycle()) return 1;
     const char *dir;
     if (!guest_find_roms(&dir)) {
