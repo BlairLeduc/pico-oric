@@ -116,7 +116,14 @@
  * "boot_tape = " and a path. */
 #define ORIC_SETTINGS_FILE_MAX 2048u
 #define ORIC_SETTINGS_LINE_MAX (ORIC_PATH_MAX + 32u)
-#define ORIC_KEYMAP_NAME_LEN    16u  /* a layout's name (§9.4)              */
+
+/* Game layouts (§9.4), as pico-ace sizes them. */
+#define ORIC_KEYMAP_NAME_LEN    16u  /* a layout's name                     */
+#define ORIC_KEYMAP_LAYOUTS      8u  /* built-in and card layouts together  */
+#define ORIC_KEYMAP_BINDINGS    16u  /* bindings per layout                 */
+#define ORIC_KEYMAP_FILES        4u  /* tapes and discs a layout names      */
+#define ORIC_KEYMAP_FILE_LEN    16u  /* one of them, without its extension  */
+#define ORIC_KEYMAP_FILE_MAX  1024u  /* the largest .map file read          */
 
 /* The longest name a .tap header may carry (§10.3). Both ROMs take 16
  * characters from CLOAD and CSAVE; 1.1 stores 16 of a longer name read

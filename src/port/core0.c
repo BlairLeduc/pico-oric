@@ -288,6 +288,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     uint64_t disc_parked_us = 0;
     park_init(m);
     (void)apply_ui(m);
+    keymatrix_set_layout(k, g_ui.layout);
 
     for (;;) {
         uint64_t now;
@@ -337,6 +338,9 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                 ready = false;
                 start_us = time_us_32();
             }
+            /* The menu, or a tape or disc a layout names, may have
+             * changed it; a key down keeps its binding (§9.4). */
+            keymatrix_set_layout(k, g_ui.layout);
             window_start(&hb, m, late);
             window_start(&sec, m, late);
 #if PICO_ORIC_AUDIO

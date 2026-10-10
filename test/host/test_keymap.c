@@ -643,5 +643,284 @@ int main(void) {
               "a modifier left down after a burst");
     }
 
+    /* ---- game layouts: the built-ins (§9.4) --------------------------- */
+    CHECK(keylayout_builtin_len == 3 && strcmp(keylayout_builtin[0].name, "ZX") == 0 &&
+              strcmp(keylayout_builtin[1].name, "AZ") == 0 &&
+              strcmp(keylayout_builtin[2].name, "QAOP") == 0,
+          "ZX, AZ and QAOP are the built-in layouts");
+    for (size_t li = 0; li < keylayout_builtin_len; li++) {
+        const keylayout_t *l = &keylayout_builtin[li];
+        CHECK(l->n <= ORIC_KEYMAP_BINDINGS && l->n_files == 0,
+              "%s: over config.h's capacities, or names a game", l->name);
+        for (unsigned i = 0; i < l->n; i++) {
+            const keymap_t *e = &l->bind[i];
+            CHECK(keymap_picocalc_canonical(e->code) == e->code,
+                  "%s: 0x%02X is not a canonical code, so it would never match", l->name,
+                  e->code);
+            CHECK(e->flags == 0, "%s: 0x%02X carries flags", l->name, e->code);
+            CHECK(e->row < ORIC_KEY_ROWS && e->col < ORIC_KEY_COLS, "%s: off the matrix",
+                  l->name);
+            for (unsigned j = i + 1; j < l->n; j++) {
+                CHECK(l->bind[j].code != e->code, "%s: 0x%02X bound twice", l->name, e->code);
+            }
+        }
+    }
+
+    /* ---- game layouts: the overlay in the held set -------------------- */
+    {
+        const keylayout_t *zx = &keylayout_builtin[0];
+
+        /* Left is Z: the game sees the cell. The standard map's Left is
+         * the Oric's left arrow, the control. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press(PICOCALC_KEY_LEFT);
+        fields(1);
+        CHECK(cell_down(2, 5) && !cell_down(4, 5) && !shift_l(), "Left under ZX is Z");
+        fresh();
+        press(PICOCALC_KEY_LEFT);
+        fields(1);
+        CHECK(cell_down(4, 5) && !cell_down(2, 5), "Left under the standard map is the arrow");
+
+        /* Moving and firing: both cells, and each lets go on its own
+         * release. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press(PICOCALC_KEY_RIGHT);
+        press(' ');
+        fields(1);
+        CHECK(cell_down(0, 6) && cell_down(4, 0) && !shift_l(),
+              "Right and Space held: X and SPACE together");
+        fields(10);
+        release(PICOCALC_KEY_RIGHT);
+        fields(1);
+        CHECK(!cell_down(0, 6) && cell_down(4, 0), "Right let go, Space still held");
+        release(' ');
+        fields(1);
+        CHECK(matrix_empty() && k.n == 0, "both let go");
+
+        /* With Shift, Down arrives as Page Down, and is the same key; a
+         * layout's cell takes the host's Shift as it finds it, so under
+         * ZX it is SHIFT and /, which types ?. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press(PICOCALC_KEY_SHIFT_L);
+        press(PICOCALC_KEY_PAGE_DOWN);
+        fields(2);
+        CHECK(cell_down(7, 3) && shift_l() && !cell_down(4, 6), "Shift+Down under ZX is ?");
+
+        /* An unmentioned key keeps its standard binding. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press('r');
+        fields(1);
+        CHECK(cell_down(1, 2) && !shift_l(), "r keeps R");
+
+        /* The Alt layer and the F-keys are never overlaid. */
+        static keylayout_t greedy;
+        unsigned bad = 0;
+        const char *gr = "m = Q\nf = A\n";
+        CHECK(keylayout_parse(&greedy, "GREEDY", gr, strlen(gr), &bad) == KL_OK,
+              "greedy parses");
+        fresh();
+        keymatrix_set_layout(&k, &greedy);
+        press(PICOCALC_KEY_ALT);
+        press('M');
+        fields(1);
+        CHECK(k.menu_request && !cell_down(1, 6), "Alt+M is the menu under any layout");
+        fresh();
+        keymatrix_set_layout(&k, &greedy);
+        press(PICOCALC_KEY_F1 + 2);
+        fields(1);
+        CHECK(k.menu_request && k.menu_page == KM_PAGE_SNAPSHOT,
+              "F3 is the menu under any layout");
+        fresh();
+        keymatrix_set_layout(&k, &greedy);
+        press('M');   /* Shift+m */
+        fields(1);
+        CHECK(cell_down(1, 6) && !cell_down(2, 0) && !k.menu_request,
+              "a layout binds the key, shifted or not");
+
+        /* A key keeps the binding it went down with: its release undoes
+         * that even when the layout changed in between. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press(PICOCALC_KEY_RIGHT);
+        fields(1);
+        keymatrix_set_layout(&k, NULL);
+        fields(1);
+        CHECK(cell_down(0, 6) && !cell_down(4, 7), "Right held keeps X across a change");
+        release(PICOCALC_KEY_RIGHT);
+        fields(10);
+        CHECK(matrix_empty() && k.n == 0, "and lets go of it");
+        press(PICOCALC_KEY_RIGHT);
+        fields(3);
+        CHECK(cell_down(4, 7) && !cell_down(0, 6), "the next press takes the standard map");
+
+        /* The pacing and bounds of the held set hold with a layout. */
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        press(PICOCALC_KEY_LEFT);
+        release(PICOCALC_KEY_LEFT);
+        unsigned down = 0;
+        for (int f = 0; f < 20; f++) {
+            fields(1);
+            if (cell_down(2, 5)) down++;
+        }
+        CHECK(down == ORIC_KEY_MIN_FIELDS, "a tap of Left is %u fields of Z, want %u", down,
+              (unsigned)ORIC_KEY_MIN_FIELDS);
+        fresh();
+        keymatrix_set_layout(&k, zx);
+        for (int rep = 0; rep < 60; rep++) {
+            press(PICOCALC_KEY_LEFT);
+            press(' ');
+            release(PICOCALC_KEY_LEFT);
+            press('z');
+            release(' ');
+            release('z');
+        }
+        for (int f = 0; f < 4000 && !keymatrix_idle(&k); f++) fields(1);
+        CHECK(keymatrix_idle(&k) && k.n_open == 0 && matrix_empty(),
+              "stuck keys under a layout: %u held, %u open", k.n, k.n_open);
+    }
+
+    /* ---- game layouts: the .map parser -------------------------------- */
+    {
+        static keylayout_t l;
+        unsigned line = 99;
+
+        /* The built-in ZX, written as a file (§9.4). */
+        const char *ex = "# ZX: Centipede's keys on the PicoCalc's arrows\n"
+                         "name  = ZX\n"
+                         "left  = Z\n"
+                         "right = X\n"
+                         "up    = '\n"
+                         "down  = /\n";
+        CHECK(keylayout_parse(&l, "mine", ex, strlen(ex), &line) == KL_OK && line == 0,
+              "the example parses");
+        const keylayout_t *b = &keylayout_builtin[0];
+        CHECK(strcmp(l.name, b->name) == 0 && l.n == b->n && l.n_files == b->n_files,
+              "the example is the built-in layout");
+        CHECK(memcmp(l.bind, b->bind, sizeof(keymap_t) * b->n) == 0, "same bindings");
+        CHECK(!keylayout_for_file(&l, "/oric/tapes/ZX.tap") && !keylayout_for_file(&l, ""),
+              "no tapes line, no file selects it");
+
+        /* A card file may name its own files, tapes and discs in one
+         * list. */
+        const char *tp = "left = O\ntapes = Centipede, ROCKET\ndiscs = sedoric3\n";
+        CHECK(keylayout_parse(&l, "mine", tp, strlen(tp), &line) == KL_OK && l.n_files == 3,
+              "tapes and discs lines parse");
+        CHECK(keylayout_for_file(&l, "/oric/tapes/CENTIPEDE.tap") &&
+                  keylayout_for_file(&l, "/oric/tapes/rocket.TAP") &&
+                  keylayout_for_file(&l, "/oric/discs/SEDORIC3.dsk") &&
+                  keylayout_for_file(&l, "centipede"),
+              "the files it names select it, ignoring case and the extension");
+        CHECK(!keylayout_for_file(&l, "/oric/tapes/CENTIPED.tap") &&
+                  !keylayout_for_file(&l, "/oric/tapes/ROCKETS.tap") &&
+                  !keylayout_for_file(&l, "/oric/tapes/.tap") && !keylayout_for_file(&l, ""),
+              "nothing else does");
+
+        /* '#' is a comment, unless it is the key being bound. */
+        const char *hash = "# a comment = not a binding\n#=SPACE\n  # indented comment\n";
+        CHECK(keylayout_parse(&l, "hash", hash, strlen(hash), &line) == KL_OK && l.n == 1,
+              "# binds once, line %u, %u binding(s)", line, l.n);
+        CHECK(l.bind[0].code == keymap_picocalc_canonical('#') && l.bind[0].row == 4 &&
+                  l.bind[0].col == 0,
+              "# = SPACE binds the # key to SPACE");
+
+        /* CRLF, blank lines, no final newline, the file's own name, and
+         * column 4's keys as targets. */
+        const char *crlf = "\r\n  A = SPACE\r\n\r\n\tSPACE=z\r\n= = lshift\r\n; = Ctrl\r\n"
+                           "tab = rshift\r\nenter = funct";
+        CHECK(keylayout_parse(&l, "fire", crlf, strlen(crlf), &line) == KL_OK,
+              "CRLF parses, line %u", line);
+        CHECK(strcmp(l.name, "FIRE") == 0 && l.n == 6, "name from the file name, 6 bindings");
+        CHECK(l.bind[0].code == 'a' && l.bind[0].row == 4 && l.bind[0].col == 0 &&
+                  l.bind[0].flags == 0, "A = SPACE");
+        CHECK(l.bind[1].code == ' ' && l.bind[1].row == 2 && l.bind[1].col == 5, "space = Z");
+        CHECK(l.bind[2].code == '=' && l.bind[2].row == OK_ROW_SHIFT_L &&
+                  l.bind[2].col == OK_COL_MODS && l.bind[2].flags == 0,
+              "'=' binds the left SHIFT, as a cell");
+        CHECK(l.bind[3].code == ';' && l.bind[3].row == OK_ROW_CTRL &&
+                  l.bind[3].col == OK_COL_MODS, "; = CTRL");
+        CHECK(l.bind[4].row == OK_ROW_SHIFT_R && l.bind[5].row == OK_ROW_FUNCT &&
+                  l.bind[5].col == OK_COL_MODS, "Tab = right SHIFT, Enter = FUNCT");
+
+        /* A layout's SHIFT is a cell held like a key: a game reading the
+         * right SHIFT alone sees it, and no other cell. */
+        fresh();
+        keymatrix_set_layout(&k, &l);
+        press(PICOCALC_KEY_TAB);
+        fields(1);
+        CHECK(shift_r() && !shift_l() && !cell_down(OK_ROW_FUNCT, OK_COL_MODS),
+              "Tab under the layout is the right SHIFT alone");
+
+        /* Every failure names its line, and nothing is guessed. */
+        static const struct { const char *text; keylayout_status_t st; unsigned line; } bad[] = {
+            { "left = Z\nright\n",               KL_SYNTAX,     2 },
+            { "left =\n",                        KL_SYNTAX,     1 },
+            { "left up = Z\n",                   KL_SYNTAX,     1 },
+            { "\n\nf1 = Z\n",                    KL_BAD_KEY,    3 },
+            { "left = BREAK\n",                  KL_BAD_TARGET, 1 },
+            { "left = ?\n",                      KL_BAD_TARGET, 1 },
+            { "left = Z X\n",                    KL_BAD_TARGET, 1 },
+            { "left = Z\nLEFT = X\n",            KL_DUPLICATE,  2 },
+            { "a = Z\nA = X\n",                  KL_DUPLICATE,  2 },
+            { "name = A NAME FAR TOO LONG\n",    KL_TOO_LONG,   1 },
+            { "tapes = A B C\ndiscs = D E\n",    KL_TOO_MANY,   2 },
+            { "tapes = SEVENTEEN_LETTERS\n",     KL_TOO_LONG,   1 },
+        };
+        for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            keylayout_status_t st = keylayout_parse(&l, "x", bad[i].text, strlen(bad[i].text),
+                                                    &line);
+            CHECK(st == bad[i].st && line == bad[i].line,
+                  "\"%s\": got %s at line %u, want %s at line %u", bad[i].text,
+                  keylayout_status_str(st), line, keylayout_status_str(bad[i].st),
+                  bad[i].line);
+        }
+
+        /* Every built-in binding, written back as the menu shows it,
+         * parses to itself. */
+        for (size_t li = 0; li < keylayout_builtin_len; li++) {
+            const keylayout_t *bl = &keylayout_builtin[li];
+            static char text[512];
+            size_t at = 0;
+            for (unsigned i = 0; i < bl->n; i++) {
+                char one[24];
+                keymap_binding_str(&bl->bind[i], one, sizeof one);
+                at += (size_t)snprintf(text + at, sizeof text - at, "%s\n", one);
+            }
+            CHECK(keylayout_parse(&l, bl->name, text, at, &line) == KL_OK && l.n == bl->n &&
+                      memcmp(l.bind, bl->bind, sizeof(keymap_t) * bl->n) == 0,
+                  "%s written back does not parse to itself:\n%s", bl->name, text);
+        }
+        /* And every Oric key as a target: each cell by one name. */
+        unsigned named = 0;
+        for (unsigned r = 0; r < ORIC_KEY_ROWS; r++)
+            for (unsigned c = 0; c < ORIC_KEY_COLS; c++) {
+                char one[24];
+                keymap_t e = { 'a', (uint8_t)r, (uint8_t)c, 0 };
+                keymap_binding_str(&e, one, sizeof one);
+                if (strcmp(one, "a=?") == 0) continue;
+                named++;
+                CHECK(keylayout_parse(&l, "x", one, strlen(one), &line) == KL_OK &&
+                          l.bind[0].row == r && l.bind[0].col == c,
+                      "cell (%u,%u) as \"%s\" does not parse back", r, c, one);
+            }
+        CHECK(named == 58, "%u cells have names, want the 58 keys", named);
+        char one[24];
+        keymap_binding_str(&keylayout_builtin[0].bind[0], one, sizeof one);
+        CHECK(strcmp(one, "left=Z") == 0, "ZX's first binding reads \"%s\"", one);
+
+        /* One more binding than config.h allows. */
+        static char many[1024];
+        size_t at = 0;
+        for (unsigned i = 0; i <= ORIC_KEYMAP_BINDINGS; i++) {
+            at += (size_t)snprintf(many + at, sizeof many - at, "%c = SPACE\n", 'a' + i);
+        }
+        CHECK(keylayout_parse(&l, "x", many, at, &line) == KL_TOO_MANY &&
+                  line == ORIC_KEYMAP_BINDINGS + 1u, "too many bindings");
+    }
+
     TEST_DONE();
 }

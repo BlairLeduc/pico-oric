@@ -8,6 +8,10 @@ void keymatrix_init(keymatrix_t *k) {
     memset(k, 0, sizeof(*k));
 }
 
+void keymatrix_set_layout(keymatrix_t *k, const keylayout_t *l) {
+    k->layout = l;
+}
+
 static void enqueue(keymatrix_t *k, uint8_t state, uint8_t code, uint8_t canon) {
     unsigned tail = (k->q_head + k->q_len) % ORIC_KEY_EVENT_QUEUE;
     k->queue[tail] = (keymatrix_event_t){ state, code, canon };
@@ -67,8 +71,16 @@ static const keymap_t *find(uint8_t code, uint8_t layer) {
     return NULL;
 }
 
-/* M15: a game layout's overlay goes first here, by physical key (§9.4). */
+/* With Alt down the Alt layer only, so no layout can take the menu,
+ * pause or reset away. Otherwise the layout first, by physical key, then
+ * the standard map (§9.4). */
 static const keymap_t *lookup(const keymatrix_t *k, uint8_t code) {
+    if (!k->alt && k->layout) {
+        uint8_t canon = keymap_picocalc_canonical(code);
+        for (unsigned i = 0; i < k->layout->n; i++) {
+            if (k->layout->bind[i].code == canon) return &k->layout->bind[i];
+        }
+    }
     if (!k->alt) return find(code, 0);
     const keymap_t *e = find(code, KM_ALT);
     /* A function key pressed with Alt still held arrives as itself

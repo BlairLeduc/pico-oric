@@ -967,9 +967,36 @@ need no wait at the replay's rate.
 pico-ace's layouts as they are (EL §7.3): overlays, built-ins named by
 shape, card files in `/oric/keymaps/` naming the tapes and discs they go
 with, a whole-file reject on a bad line, never in snapshots. The Oric's own
-arrows and space already make many games playable on the standard map; the
-built-ins are chosen in M15 by what the archive's games read (QAOP and
-space, and Z X with the arrows' up and down, are the likely shapes).
+arrows and space already make many games playable on the standard map.
+
+**The built-ins, chosen from what the archive's games read** (M15,
+2026-10-10, `tools/layout-survey.sh`). TOSEC's tapes were run 90 s each
+on the Atmos 48K, with 1 pressed at a third of the run, Space at a half
+and RETURN at two thirds to pass a title's menu, and every read of ORB
+made from RAM noted with the row and the columns it tested
+(`oric-corpus -k`). Of 973 tapes that loaded, 123 read the matrix
+themselves: 14 scan every key, 18 test only the cell port A is left on,
+44 read several columns at once, and 47 test particular keys. Of those,
+the arrows with Space are six titles (Frelon, Starter, Skramble, Xenon,
+Cobra Pinball 2, DOTSRECORD), which the standard map already serves;
+**Z X ' /** with RETURN or Space is five (Centipede: Z left, X right,
+' up, / down, RETURN fire, from its own instructions; Zebbie, Probe 3,
+Grendel and Chuckford use Z and X), and **A Z , .** is Mr Wimpy. The
+tapes' BASIC was read too: of 438 programs that read KEY$ or GET and
+compare single characters, most compare a menu's letters, and the few
+whose keys move something use QAOP (Oric Worm, Caterpillar, Maze Chase,
+Simon), A Z , . (Flight 401, Light Track) or Z X. The design's guesses
+were half right: QAOP is a few BASIC games', and Z X goes with ' and /,
+not the arrows.
+
+So three built-ins, each binding only the four arrows, and leaving Space
+and RETURN, the fire keys those games use, as they are: **ZX** (Left Z,
+Right X, Up ', Down /), **AZ** (Left `,`, Right `.`, Up A, Down Z) and
+**QAOP** (Left O, Right P, Up Q, Down A), the family's. A layout's cell
+takes the host's Shift as it finds it, so Shift+Down under ZX is `?`,
+Zebbie's jump. `test_keyboard` types each through both ROMs. A title that
+reads its keys through the ROM's own scan notes nothing at the matrix, so
+the survey undercounts; the BASIC scan covers part of that.
 
 ---
 
@@ -1840,7 +1867,7 @@ Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
 | Jasmin disc interface | dropped | a smaller user base than the Microdisc, and a second DOS and controller wiring |
 | Telestrat, Pravetz 8D | dropped | different machines, not configurations of these two |
 | Printer (Centronics on PA) | dropped | no known software dependency; PA and PB4 are modelled as the VIA's pins, unconnected |
-| Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the corpus shows titles that read only a joystick (M12's run did not look: M15's layouts will) |
+| Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the corpus shows titles that read only a joystick. M15's survey (§9.4) looked only at the keyboard's matrix, not for joysticks |
 | The vertical-sync modification (sync to CB1) | built in M16 | an owner's modification some demos use: a Machine-page row (§11.1) |
 | Mid-field raster effects | deferred | the snapshot is one point in the field (§7). A per-line record is the path if a known title needs it |
 | Undocumented 6502 opcodes | not implemented | M12's corpus shows no title using one on purpose (§5.1); a title that needs them reopens it |

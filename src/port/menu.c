@@ -23,6 +23,7 @@
 #include "display.h"
 #include "handoff.h"
 #include "kbd.h"
+#include "keymapio.h"
 #include "keymatrix.h"
 #include "log.h"
 #include "pico_oric_version.h"
@@ -181,7 +182,8 @@ static void draw_main(void) {
              roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), settings_rom_str(s.m->cfg.rom),
              s.m->cfg.microdisc ? ", Microdisc" : "");
     textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
-    textpage_line(s_scr, ROW_TOP + I_COUNT + 3, " Keys: standard", false);
+    snprintf(line, sizeof line, " Keys: %s", g_ui.layout ? g_ui.layout->name : "standard");
+    textpage_line(s_scr, ROW_TOP + I_COUNT + 3, line, false);
     if (s.m->cfg.microdisc) {
         const char *d = discio_inserted(0);
         snprintf(line, sizeof line, " Disc A: %.30s", d[0] ? base(d) : "none");
@@ -288,8 +290,9 @@ static void draw_setup(void) {
             snprintf(line, sizeof line, " Volume          < %u >", g_ui.volume);
             break;
         case D_KEYS:
-            /* M15: the card's layouts (§9.4). */
-            snprintf(line, sizeof line, " Keys            < standard >");
+            /* A card layout's name is cut to keep the column. */
+            snprintf(line, sizeof line, " Keys            < %.11s >",
+                     g_ui.layout ? g_ui.layout->name : "standard");
             break;
         case D_FAST:
             snprintf(line, sizeof line, " Fast tape       < %s >", on_off(g_ui.fast_tape));
@@ -432,9 +435,25 @@ static void draw_help(void) {
         { "Bksp",   "DEL" },
     };
     char line[TEXT_COLS + 1];
+    int row = ROW_TOP;
     for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++) {
         snprintf(line, sizeof line, " %-11s %s", keys[i][0], keys[i][1]);
-        textpage_line(s_scr, ROW_TOP + (int)i, line, false);
+        textpage_line(s_scr, row++, line, false);
+    }
+
+    /* The layout in force, two bindings a row as a .map file writes them
+     * (§9.4), as many as fit above the status row. */
+    const keylayout_t *l = g_ui.layout;
+    if (!l) return;
+    snprintf(line, sizeof line, " Keys %s:", l->name);
+    textpage_line(s_scr, ++row, line, false);
+    row++;
+    for (unsigned i = 0; i < l->n && row < ROW_STATUS - 1; i += 2, row++) {
+        char a[20], b[20] = "";
+        keymap_binding_str(&l->bind[i], a, sizeof a);
+        if (i + 1 < l->n) keymap_binding_str(&l->bind[i + 1], b, sizeof b);
+        snprintf(line, sizeof line, " %-17s %s", a, b);
+        textpage_line(s_scr, row, line, false);
     }
 }
 
@@ -581,11 +600,14 @@ static void save_settings(void) {
      * file's (settings.h; EL §8.7). */
     if (s_bkl_set) out.backlight = g_ui.backlight;
     /* The deck's tape, if the menu or boot_tape put it there, and drive
-     * A's disc. M15: the layout as it is; until then, as the file has
-     * it. */
+     * A's disc. */
     settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "",
                        out.boot_tape);
     settings_card_name(SETTINGS_DISC_DIR, discio_inserted(0), out.boot_disc);
+    /* A layout a loaded file chose is not the user's choice, so the file
+     * keeps what it had (§9.4). */
+    if (!keymapio_chosen_by()[0])
+        snprintf(out.layout, sizeof out.layout, "%s", g_ui.layout ? g_ui.layout->name : "");
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
     say(err ? " Not saved: %.20s" : " Settings saved", err);
@@ -839,6 +861,16 @@ static void key_main(uint8_t c) {
     }
 }
 
+/* Standard, then keymapio's list, round and round, as pico-atom's Keys
+ * row goes. */
+static void cycle_keys(int dir) {
+    int n = (int)keymapio_count() + 1, at = 0;
+    for (unsigned i = 0; i < keymapio_count(); i++)
+        if (keymapio_get(i) == g_ui.layout) at = (int)i + 1;
+    at = (at + n + dir) % n;
+    keymapio_choose(at ? keymapio_get((unsigned)(at - 1)) : NULL);
+}
+
 static void set_backlight(int dir) {
     int v = (int)g_ui.backlight + dir;
     v = v < 1 ? 1 : v > 15 ? 15 : v;
@@ -873,7 +905,7 @@ static void key_setup(uint8_t c) {
         }
         break;
     case D_KEYS:
-        say(" No layouts in this firmware yet", "");
+        if (dir) cycle_keys(dir);
         break;
     case D_FAST:
         /* Off, the deck plays the signal and the trap is its cue
@@ -972,13 +1004,19 @@ void menu_run(oric_t *m, unsigned page, bool alt) {
 
     s.card = sd_present() && storage_mount() == 0;
     if (!s.card) say(" No card: no tapes", "");
-    /* The tape's last word, then the first problem (§12): the running
-     * ROM, then the settings file. */
+    /* The card's layouts afresh: a file may have been added or edited
+     * on a computer since (keymapio.h). */
+    if (s.card) keymapio_scan();
+    /* A layout a file chose says so (§9.4), then the tape's last word,
+     * then the first problem (§12): the running ROM, the settings file,
+     * the layouts' files. */
+    if (g_ui.layout && keymapio_chosen_by()[0]) say(" Keys chosen by %.16s", keymapio_chosen_by());
     const char *t = tapeio_said();
     if (!s.status[0] && t[0]) say("%s", t);
     if (!s.status[0] && !s_rom_known)
         say(" %.18s: unrecognised image", romset_images[m->cfg.rom].file);
     if (!s.status[0] && settingsio_error()[0]) say(" %.38s", settingsio_error());
+    if (!s.status[0] && keymapio_error()[0]) say(" %.38s", keymapio_error());
 
     /* Opened by a function key or Alt+H: that page, keeping what the
      * status row says, and closing it closes the menu. */

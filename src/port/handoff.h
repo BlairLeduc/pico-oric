@@ -16,6 +16,7 @@
 #include "board.h"
 #include "card.h"
 #include "config.h"
+#include "keymatrix.h"
 #include "oric.h"
 #include "romset.h"
 #include "settings.h"
@@ -127,6 +128,9 @@ typedef struct {
     volatile bool     status;      /* the bottom line                      */
     volatile unsigned backlight;   /* 1-15 as the Setup page has it; 0 unread */
     volatile bool     fast_tape;   /* the trap, or the signal (M13)        */
+    /* The game layout over the standard map, NULL for none (§9.4):
+     * core 0 takes it after every park (keymapio.h). */
+    const keylayout_t *volatile layout;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it   */
     /* The Machine page's Apply (§12): power on as restart_cfg, with the
      * ROM core 1 has left in g_boot.image. Core 0 clears it. */

@@ -133,7 +133,7 @@ int main(void) {
                err[0] ? ": " : "", err, (unsigned long)g_boot.job.settings_us,
                settings_rom_str(st->rom), settings_ram_str(st->ram), st->microdisc ? "on" : "off",
                st->vsync_hack ? "on" : "off", st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
-               st->layout[0] ? st->layout : "standard", st->fast_tape ? "on" : "off",
+               g_ui.layout ? g_ui.layout->name : "standard", st->fast_tape ? "on" : "off",
                st->boot_tape[0] ? st->boot_tape : "none", st->boot_disc[0] ? st->boot_disc : "none",
                roms_machine_name(g_boot.want, g_boot.ram),
                g_boot.want != st->rom || g_boot.ram != st->ram ? " (the build's, over the file)" : "");

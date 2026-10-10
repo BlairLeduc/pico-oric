@@ -32,6 +32,8 @@
 
 #include "keymatrix.h"
 
+#include <ctype.h>
+
 /* Oric keys as "row, col". */
 #define OK_7      0, 0
 #define OK_N      0, 1
@@ -168,6 +170,125 @@ const keymap_t keymap_picocalc[] = {
 };
 
 const size_t keymap_picocalc_len = sizeof keymap_picocalc / sizeof keymap_picocalc[0];
+
+/* The built-in layouts (§9.4), chosen from what the archive's titles
+ * read (M15): each puts the PicoCalc's arrows on a game's movement keys,
+ * and leaves Space and RETURN, the fire keys those games use, as they
+ * are. ZX is Z X ' / (Centipede, Zebbie, Probe 3); AZ is A Z , .
+ * (Mr Wimpy); QAOP is the family's, and a few BASIC games'. None names a
+ * game: the user chooses one in the menu. */
+const keylayout_t keylayout_builtin[] = {
+    {
+        .name = "ZX",
+        .n = 4,
+        .bind = {
+            { PICOCALC_KEY_LEFT, OK_Z, 0 },     { PICOCALC_KEY_RIGHT, OK_X, 0 },
+            { PICOCALC_KEY_UP,   OK_QUOTE, 0 }, { PICOCALC_KEY_DOWN,  OK_SLASH, 0 },
+        },
+    },
+    {
+        .name = "AZ",
+        .n = 4,
+        .bind = {
+            { PICOCALC_KEY_LEFT, OK_COMMA, 0 }, { PICOCALC_KEY_RIGHT, OK_DOT, 0 },
+            { PICOCALC_KEY_UP,   OK_A, 0 },     { PICOCALC_KEY_DOWN,  OK_Z, 0 },
+        },
+    },
+    {
+        .name = "QAOP",
+        .n = 4,
+        .bind = {
+            { PICOCALC_KEY_LEFT, OK_O, 0 }, { PICOCALC_KEY_RIGHT, OK_P, 0 },
+            { PICOCALC_KEY_UP,   OK_Q, 0 }, { PICOCALC_KEY_DOWN,  OK_A, 0 },
+        },
+    },
+};
+
+const size_t keylayout_builtin_len = sizeof keylayout_builtin / sizeof keylayout_builtin[0];
+
+/* strcasecmp is POSIX, not C11. */
+static bool same_name(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) {
+        if (toupper((unsigned char)*a) != toupper((unsigned char)*b)) return false;
+    }
+    return *a == *b;
+}
+
+typedef struct { const char *name; uint8_t code; } key_name_t;
+
+static const key_name_t picocalc_keys[] = {
+    { "left", PICOCALC_KEY_LEFT }, { "right", PICOCALC_KEY_RIGHT },
+    { "up", PICOCALC_KEY_UP },     { "down", PICOCALC_KEY_DOWN },
+    { "space", ' ' }, { "enter", PICOCALC_KEY_ENTER },
+    { "backspace", PICOCALC_KEY_BACKSPACE }, { "tab", PICOCALC_KEY_TAB },
+    { "del", PICOCALC_KEY_DEL }, { "esc", PICOCALC_KEY_ESC },
+};
+
+bool keymap_picocalc_key_named(const char *name, uint8_t *code) {
+    /* A printable character names the key it is on, shifted or not. */
+    if (name[0] > ' ' && name[0] < 0x7F && name[1] == 0) {
+        *code = keymap_picocalc_canonical((uint8_t)name[0]);
+        return true;
+    }
+    for (size_t i = 0; i < sizeof picocalc_keys / sizeof picocalc_keys[0]; i++) {
+        if (same_name(name, picocalc_keys[i].name)) {
+            *code = picocalc_keys[i].code;
+            return true;
+        }
+    }
+    return false;
+}
+
+typedef struct { const char *name; uint8_t row, col; } oric_target_t;
+
+/* Every Oric key, by the name or the unshifted character on its keycap.
+ * The SHIFTs, CTRL and FUNCT are cells like the rest (§2.4), so a game
+ * that reads them alone can have them. */
+static const oric_target_t oric_targets[] = {
+    { "LSHIFT", OK_ROW_SHIFT_L, OK_COL_MODS }, { "RSHIFT", OK_ROW_SHIFT_R, OK_COL_MODS },
+    { "CTRL", OK_ROW_CTRL, OK_COL_MODS },       { "FUNCT", OK_FUNCT },
+    { "RETURN", OK_RETURN }, { "SPACE", OK_SPACE }, { "ESC", OK_ESC }, { "DEL", OK_DEL },
+    { "LEFT", OK_LEFT }, { "RIGHT", OK_RIGHT }, { "UP", OK_UP }, { "DOWN", OK_DOWN },
+    { "0", OK_0 }, { "1", OK_1 }, { "2", OK_2 }, { "3", OK_3 }, { "4", OK_4 },
+    { "5", OK_5 }, { "6", OK_6 }, { "7", OK_7 }, { "8", OK_8 }, { "9", OK_9 },
+    { "A", OK_A }, { "B", OK_B }, { "C", OK_C }, { "D", OK_D }, { "E", OK_E },
+    { "F", OK_F }, { "G", OK_G }, { "H", OK_H }, { "I", OK_I }, { "J", OK_J },
+    { "K", OK_K }, { "L", OK_L }, { "M", OK_M }, { "N", OK_N }, { "O", OK_O },
+    { "P", OK_P }, { "Q", OK_Q }, { "R", OK_R }, { "S", OK_S }, { "T", OK_T },
+    { "U", OK_U }, { "V", OK_V }, { "W", OK_W }, { "X", OK_X }, { "Y", OK_Y },
+    { "Z", OK_Z },
+    { "-", OK_MINUS }, { "=", OK_EQUALS }, { "[", OK_LBRACK }, { "]", OK_RBRACK },
+    { "\\", OK_BSLASH }, { ";", OK_SEMI }, { "'", OK_QUOTE }, { ",", OK_COMMA },
+    { ".", OK_DOT }, { "/", OK_SLASH },
+};
+
+bool keymap_oric_target_named(const char *name, keymap_t *out) {
+    for (size_t i = 0; i < sizeof oric_targets / sizeof oric_targets[0]; i++) {
+        const oric_target_t *t = &oric_targets[i];
+        if (same_name(name, t->name)) {
+            *out = (keymap_t){ 0, t->row, t->col, 0 };
+            return true;
+        }
+    }
+    return false;
+}
+
+void keymap_binding_str(const keymap_t *e, char *out, size_t n) {
+    char ch[2] = { (char)e->code, 0 };
+    const char *key = ch, *target = "?";
+    for (size_t i = 0; i < sizeof picocalc_keys / sizeof picocalc_keys[0]; i++)
+        if (picocalc_keys[i].code == e->code) key = picocalc_keys[i].name;
+    for (size_t i = 0; i < sizeof oric_targets / sizeof oric_targets[0]; i++)
+        if (oric_targets[i].row == e->row && oric_targets[i].col == e->col)
+            target = oric_targets[i].name;
+    /* By hand: src/core/ leaves printf, and whatever it may allocate,
+     * to the port. */
+    size_t at = 0;
+    for (const char *p = key; *p && at + 1 < n; p++) out[at++] = *p;
+    if (at + 1 < n) out[at++] = '=';
+    for (const char *p = target; *p && at + 1 < n; p++) out[at++] = *p;
+    if (n) out[at] = 0;
+}
 
 uint8_t keymap_picocalc_canonical(uint8_t code) {
     if (code >= 'A' && code <= 'Z') return (uint8_t)(code + ('a' - 'A'));

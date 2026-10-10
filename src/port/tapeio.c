@@ -18,6 +18,7 @@
 
 #include "cassette.h"
 #include "handoff.h"
+#include "keymapio.h"
 #include "log.h"
 #include "storage.h"
 #include "tap.h"
@@ -92,6 +93,8 @@ static void set_deck(const char *path, bool user) {
     s_user = user && s_path[0];
     s_pos = s_skip = s_index = 0;
     s_wrapped = false;
+    /* A tape a layout's tapes line names chooses it (design.md §9.4). */
+    if (s_path[0]) keymapio_file_loaded(s_path);
 }
 
 /* The file, or the .new a save left without its rename. */

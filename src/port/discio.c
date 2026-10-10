@@ -10,6 +10,7 @@
 
 #include "ff.h"
 
+#include "keymapio.h"
 #include "log.h"
 #include "mfmdisk.h"
 #include "microdisc.h"
@@ -89,6 +90,7 @@ const char *discio_insert(oric_t *m, unsigned drive, const char *path) {
     log_core1("  disc         : drive %c: %s, %u side%s of %u tracks%s\n", 'A' + drive, path,
               g.sides, g.sides > 1 ? "s" : "", g.tracks,
               s_drive[drive].protect ? ", write-protected" : "");
+    keymapio_file_loaded(path);   /* a layout may name it (design.md §9.4) */
     return NULL;
 }
 
