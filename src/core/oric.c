@@ -114,6 +114,10 @@ static void ORIC_HOT1(wire)(oric_t *m) {
     ay8912_bus(&m->ay, mode, via6522_pa_out(v), m->cpu.cycles, &m->pcm);
     via6522_set_pa(v, m->ay.driving ? m->ay.bus_out : 0xFFu);
 
+    /* The relay closes while PB6 is driven high (§2.3, §16). */
+    bool motor = (v->orb & v->ddrb & 0x40u) != 0;
+    if (__builtin_expect(motor != m->cas.motor, 0)) cassette_motor(m, motor);
+
     uint8_t row = (uint8_t)(via6522_pb_out(v) & 7u);
     uint8_t enabled = (uint8_t)~ay8912_port_a(&m->ay);
     bool down = (m->keys[row] & enabled) != 0;
@@ -155,6 +159,7 @@ void oric_reset(oric_t *m) {
 
 void oric_restored(oric_t *m) {
     m->tape.op = TAPE_NONE;
+    cassette_stop_all(m);
     memset(m->keys, 0, sizeof m->keys);
     pcm_restart(&m->pcm, (uint32_t)m->cpu.cycles);
     /* Which generators are stepped and which averaged follows from the
@@ -251,6 +256,8 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
         /* Less what an access to page #03 already brought it through. */
         via6522_tick(&m->via, c - m->via_early);
         m->via_early = 0;
+        /* The deck, only while it plays or records (cassette.h). */
+        if (__builtin_expect(m->cas.live, 0)) cassette_run(m, m->cpu.cycles);
         m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
     }
     m->instructions += n;

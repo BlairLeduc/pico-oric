@@ -9,7 +9,8 @@
  * the AY's bus and the keyboard (§2.3), and adds NMI, power-on and the
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
  * M8 the AY's sound, box-filtered into PCM a field at a time (§8); M10
- * the tape's traps (§10.3); M11 the restore after a snapshot (§10.6).
+ * the tape's traps (§10.3); M11 the restore after a snapshot (§10.6);
+ * M13 the signal (§10.4).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -19,6 +20,7 @@
 #include <stdint.h>
 
 #include "ay8912.h"
+#include "cassette.h"
 #include "config.h"
 #include "m6502.h"
 #include "pcm.h"
@@ -68,6 +70,11 @@ typedef struct oric_s {
      * A snapshot saves only the trap's carry-over, the kept header: a
      * request is served before the field ends (snapshot.h). */
     tape_t    tape;
+
+    /* The signal: the player on CB1, the recorder on PB7, the relay on
+     * PB6 (cassette.h). Not machine state: a snapshot leaves it, and a
+     * load stops it. */
+    cassette_t cas;
 
     /* The AY's level as PCM (§8.2), drained by the port once a field
      * with oric_audio_drain. Not the chip's state: RESET leaves it. */

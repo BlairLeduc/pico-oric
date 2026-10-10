@@ -15,6 +15,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/ay8912.c
     src/core/pcm.c
     src/core/bus.c
+    src/core/cassette.c
     src/core/font.c
     src/core/font_fallback.c
     src/core/keymap_picocalc.c

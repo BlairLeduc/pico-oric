@@ -7,6 +7,7 @@
 
 #include "bus.h"
 
+#include "cassette.h"
 #include "hot.h"
 #include "via6522.h"
 
@@ -14,6 +15,8 @@
 
 uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        /* CB1 as the tape has it at this cycle (cassette.h). */
+        if (m->cas.live) cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         /* Reading T1C-L or T2C-L clears a flag, and reading ORA or ORB
          * clears CA/CB flags, so the IRQ line can drop on a read (§6.4). */
@@ -29,6 +32,8 @@ uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
 
 void ORIC_HOT1(bus_write_slow)(oric_t *m, uint16_t a, uint8_t v) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        /* CB1 as the tape has it at this cycle (cassette.h). */
+        if (m->cas.live) cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         via6522_write(&m->via, VIA_REG(a), v);
         /* A write to ORA, ORB, the DDRs or the PCR is what the AY's bus
