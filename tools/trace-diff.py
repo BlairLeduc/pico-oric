@@ -390,6 +390,9 @@ def disc(args):
     cmd = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach, "-q", "-s",
            "-d", str(Path(args.dsk).resolve()), "-c", str(end + 2 * FIELD),
            "-k", str(OUT / "disc-keys.txt")]
+    if args.tap:
+        # A tape in the deck too, played by the signal (tape's).
+        cmd += ["-t", str(Path(args.tap).resolve())]
     print("ROM %s, 48K, %s: %g s, %r, %g s, %r" % (args.rom, args.dsk, args.boot, args.keys,
                                                    args.wait, args.then))
     return subprocess.call(cmd, stdout=subprocess.DEVNULL)
@@ -424,6 +427,7 @@ def main():
     k.add_argument("--keys", default="X")
     k.add_argument("--then", default="DIR\\n")
     k.add_argument("--wait", type=float, default=5.0)
+    k.add_argument("--tap")
     args = p.parse_args()
     if args.cmd == "run":
         if args.keys is not None:
