@@ -1090,6 +1090,18 @@ protected or headerless, and turbo is free.
   own save, edge for edge, which catches a count one T out in any branch;
   a tolerance-based check would not. The Ace's held 9,924 edges and the
   gap between header and data.
+- **When the writer times bits with a hardware timer, play the timer's
+  periods.** The Oric's ROMs leave a 6522's T1 free-running with its
+  output on the tape line and write the latch for each half-cycle, so
+  every half is a period, the latch + 2, in the order the latch is set;
+  the code between only decides when it waits. Record the ROM's own save
+  with each edge placed by the timer's count, not at the instruction
+  boundary where it is seen, and only for edges the timer made: a write
+  that hands the timer the pin is an edge of its own, and back-dating it
+  by the count throws a recording thousands of cycles out. Where the
+  writer is busy between blocks (printing a name), count its cycles
+  against the period: the Oric-1's gap grows a period every eleven
+  letters.
 - **Settle which bit carries the tape, and its polarity, by execution.** The
   Ace's speaker follows the port access while its tape output is D3 of each
   `OUT`; recording the ROM's save, the access line decoded to nothing and D3
@@ -1101,12 +1113,22 @@ protected or headerless, and turbo is free.
   so the ROM reads the signal. A block the buffer cannot hold is saved by
   the trap instead, and a recording waiting for a missing card is kept until
   the card changes.
+- **Do not check the deck every instruction.** End the run slice at its
+  next edge (after each instruction only while recording), and let a
+  device access that brings the edge nearer, a motor relay closing, cut
+  the slice. On the Oric the slice's end and the relay test cost 0.6-0.8
+  points of core 0 against a control with the deck compiled out; a
+  compare per instruction had cost about twice that, against a control
+  measured in another sitting. Bring the input up to date on every access to its chip as
+  well, so a polling reader sees the edge on its cycle, and test that
+  with a control: the ROM's own loader still loads with it removed.
 - **Settle clock questions by execution.** The Atom's ROM writes a tape
   correctly at 2 MHz (it times bits against a reference that keeps wall time)
   but cannot read one (it times input with its own loops). The deck therefore
   plays only at the stock clock, and says so.
 
-Turbo (§9.3) loaded an Ace tape off the signal at 3.18–3.19× real time.
+Turbo (§9.3) loaded an Ace tape off the signal at 3.18–3.19× real time,
+an Oric tape at 2.03×.
 Core 1 does not present every field while it runs, and its dropped
 snapshots are expected there.
 
@@ -1272,7 +1294,14 @@ field counter, so zeroed RAM leaves nothing stuck.
 the audio queue up with silence to its start depth without blocking. Because
 the tape is clocked in guest cycles the guest cannot tell; a 300-baud Atom
 load finished 2.7–2.8× faster, and an Ace load off the signal 3.2×. Keep a
-paced build as the control.
+paced build as the control, and measure core 0's share in it while the
+tape plays, not idle: that is turbo's ceiling. The Oric's ROM reads the
+tape by polling the VIA every few cycles, each access a slow-path one;
+paced, core 0 was 48% busy against 30% idle, and turbo reached 2.03×.
+A reader that is all I/O is worth making cheap: not re-wiring the AY and
+the keyboard after a VIA read that changes nothing took 9% off a field
+of loading on the host, and ending the slice at the next edge, rather
+than calling the deck every instruction, 18% more.
 
 **A faster guest clock** (an owner's modification on the original) needs a
 rule for every timed quantity:

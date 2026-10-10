@@ -37,7 +37,12 @@ PicoCalc power-cycled and the game played on by the owner. **M12
 decided against (`docs/design.md` §5.1), two tape rules from the corpus
 in `tapeio`, the workloads measured against two controls, and the
 30-minute soak passed, and archive tapes loaded with the release build
-by the owner.
+by the owner. **M13 (signal-level tape) is built** and run on the board:
+the player matches both ROMs' CSAVE edge for edge on the host, CLOAD
+reads it, the recorder's files load in Oricutron (one made on the
+board among them), and turbo runs a load at 2.03×; an archive title
+that loads only by the signal (L'Immonde Dr Kokus) is checked on the
+host, not yet on the board, and the owner's check is outstanding.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -109,6 +114,8 @@ tools/build.sh -DPICO_ORIC_UART=OFF build/pico-release  # the build that ships
 tools/build.sh -DPICO_ORIC_RAM_TIER=2 build/bench-t2    # one directory per tier
 tools/build.sh -DPICO_ORIC_BOOT_ROM=10 -DPICO_ORIC_BOOT_RAM=16 build/boot-10-16  # another machine
 tools/build.sh -DPICO_ORIC_AUDIO=OFF build/timer          # paced on the timer: audio's control
+tools/build.sh -DPICO_ORIC_TURBO=OFF build/m13-noturbo    # a tape paced: turbo's control
+tools/build.sh -DPICO_ORIC_DECK=OFF build/m13-nodeck      # the signal's checks out: their control
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
@@ -133,10 +140,12 @@ tools/render-diff.sh                             # the goldens, drawn by Oricutr
 build/host/test/host/test_tape --write out/m10/host-taps  # the trap's saves as .tap files
 tools/trace-diff.py tape out/m10/host-taps/atmos-48k.tap  # CLOADed by Oricutron, off the signal
 tools/build.sh -DPICO_ORIC_TAPE=OFF build/notape         # the trap's check out: its control
+build/host/test/host/test_cassette --write out/m13/rec    # the recorder's files, for trace-diff tape
 
 # M12's corpus (TOSEC, fetched into out/corpus, not committed) and soak
 tools/fetch-corpus.sh                                # out/corpus/tap, out/corpus/dsk
 tools/corpus-run.sh                                  # out/m12/corpus/report.txt
+build/corpus/oric-corpus -r 11 -f 20000 -t TAPE...   # by the signal (fast tape off), M13
 tools/soak.sh build/pico/pico-oric.elf 30 out/m12/soak   # tools/soak.bas; test_soak first
 ```
 
@@ -197,6 +206,11 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   every keyboard scan makes, must not. Run `test_audio` and
   `test_audio_rom` after touching `ay8912.c` or `pcm.c`: both hold every
   sample to the cycle-stepped model in `ay_model.h`.
+- **The signal is the ROM's own CSAVE, edge for edge** (design.md §10.4,
+  `cassette.h`): halves of 210 or 418 cycles, T1's periods. Run
+  `test_cassette` after touching `cassette.c`, the run slice in
+  `oric_run`, or `bus.c`'s VIA path; the run loop must stay free of a
+  per-instruction deck check (the slice ends at the deck's `due`).
 - **The tape trap resumes inside the ROM's own loops** (design.md §10.3,
   `tape.h`): a served step leaves the machine where the ROM is after its
   last byte, and the ROM finishes. It sets only what the ROM goes on to
