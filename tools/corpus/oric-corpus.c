@@ -545,6 +545,10 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+    if (dsk && ram == ORIC_RAM_16K) {   /* the overlay RAM is a 48K machine's (microdisc.h) */
+        fprintf(stderr, "oric-corpus: -d needs -m 48\n");
+        return 2;
+    }
     const char *dir;
     if (!guest_find_roms(&dir)) {
         fprintf(stderr, "oric-corpus: no BASIC ROMs in %s\n", dir);
