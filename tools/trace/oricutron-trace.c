@@ -48,7 +48,8 @@
 
 #include "keyscript.h"
 
-extern char atmosromfile[1024], oric1romfile[1024];
+extern char atmosromfile[1024], oric1romfile[1024], mdiscromfile[1024];
+void load_diskroms(struct machine *oric);
 
 /* ---- the trace -------------------------------------------------------- */
 
@@ -87,7 +88,8 @@ static void press(const ks_event_t *e) {
 
 int main(int argc, char **argv) {
     const char *rombase = NULL, *keyfile = NULL, *mach = "atmos", *tapefile = NULL;
-    int screen = 0;
+    const char *discfile = NULL;
+    int screen = 0, pattern = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc)      max_insns = strtoull(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "-c") && i + 1 < argc) max_cycles = strtoull(argv[++i], NULL, 0);
@@ -96,6 +98,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-s"))                 screen = 1;
         else if (!strcmp(argv[i], "-q"))                 quiet = 1;
         else if (!strcmp(argv[i], "-t") && i + 1 < argc) tapefile = argv[++i];
+        else if (!strcmp(argv[i], "-d") && i + 1 < argc) discfile = argv[++i];
+        else if (!strcmp(argv[i], "-p"))                 pattern = 1;
         else if (!rombase)                               rombase = argv[i];
         else rombase = NULL, argc = 0;
     }
@@ -103,7 +107,7 @@ int main(int argc, char **argv) {
              : !strcmp(mach, "o16k") ? MACH_ORIC1_16K : -1;
     if (!rombase || type < 0 || (max_insns == ~0ull && max_cycles == ~0ull)) {
         fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s] "
-                "[-t TAPE] [-q]\n", argv[0]);
+                "[-t TAPE] [-d DISC] [-p] [-q]\n", argv[0]);
         return 2;
     }
     if (!ks_load(&ks, keyfile)) return 2;
@@ -115,15 +119,29 @@ int main(int argc, char **argv) {
     memset(&oric, 0, sizeof oric);
     preinit_ula(&oric);
     preinit_machine(&oric);
-    oric.drivetype = DRV_NONE;
+    /* -d: the Microdisc, its EPROM microdis.rom beside ROMBASE, and the
+     * disc in drive 0 (design.md §10.5, M14). */
+    oric.drivetype = discfile ? DRV_MICRODISC : DRV_NONE;
     snprintf(atmosromfile, sizeof atmosromfile, "%s", rombase);
     snprintf(oric1romfile, sizeof oric1romfile, "%s", rombase);
+    if (discfile) {
+        const char *slash = strrchr(rombase, '/');
+        snprintf(mdiscromfile, sizeof mdiscromfile, "%.*smicrodis",
+                 slash ? (int)(slash - rombase + 1) : 0, rombase);
+        load_diskroms(&oric);
+    }
     if (!init_ula(&oric) || !init_machine(&oric, type, SDL_TRUE)) {
         fprintf(stderr, "Oricutron's machine did not initialise\n");
         return 2;
     }
-    /* Zeroed RAM, as this project powers on (§6.3); ROM untouched. */
-    memset(oric.mem, 0, type == MACH_ORIC1_16K ? 16384 : 65536);
+    /* Zeroed RAM below #C000, as this project powers on (§6.3); the
+     * overlay RAM above keeps Oricutron's pattern, which is ours there.
+     * -p keeps the pattern throughout. */
+    if (!pattern) memset(oric.mem, 0, type == MACH_ORIC1_16K ? 16384 : 0xC000);
+    if (discfile && !diskimage_load(&oric, (char *)discfile, 0)) {
+        fprintf(stderr, "%s: Oricutron would not load it\n", discfile);
+        return 2;
+    }
     m6502_reset(&oric.cpu);
     oric.tapeturbo = SDL_FALSE;
     if (tapefile && !tape_load_tap(&oric, (char *)tapefile)) {
@@ -139,6 +157,7 @@ int main(int argc, char **argv) {
         m6502_set_icycles(cpu, SDL_FALSE, NULL);
         via_clock(&oric.via, cpu->icycles);
         ay_ticktock(&oric.ay, cpu->icycles);
+        if (discfile) wd17xx_ticktock(&oric.wddisk, cpu->icycles);
         cpu->rastercycles -= cpu->icycles;
         if (m6502_inst(cpu)) { fprintf(stderr, "JAM %02X at %04X\n", cpu->calcop, cpu->lastpc); break; }
         if (cpu->rastercycles <= 0) {

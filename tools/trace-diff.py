@@ -79,8 +79,16 @@ LINE = 25 * FIELD       # after RETURN, for the ROM to act on it
 NAMES = ["PC", "A", "X", "Y", "S", "P", "cycles", "bytes"]
 
 
+# The Microdisc's EPROM (design.md §10.2), for the disc subcommand.
+MICRODISC = "0d2ef6e67322f48f4b7e08d8bbe68827e2074561"
+
+
 def find_rom(version):
     base, digest, table = ROMS[version]
+    return find_image(digest, version)
+
+
+def find_image(digest, what):
     where = Path(os.environ.get("PICO_ORIC_ROMS", ROOT / "roms"))
     for f in sorted(where.iterdir()) if where.is_dir() else []:
         try:
@@ -89,7 +97,7 @@ def find_rom(version):
             continue
         if hashlib.sha1(data).hexdigest() == digest:
             return data
-    sys.exit("trace-diff: no ROM %s (SHA-1 %s) in %s" % (version, digest, where))
+    sys.exit("trace-diff: no ROM %s (SHA-1 %s) in %s" % (what, digest, where))
 
 
 def cell_for(rom, table, ch):
@@ -278,6 +286,26 @@ def tape(args):
     return subprocess.call(cmd, stdout=subprocess.DEVNULL)
 
 
+def disc(args):
+    """Oricutron boots a disc image with its Microdisc (M14) and is typed
+    at, as tape does with a tape: a disc we wrote, read back by it."""
+    rom = find_rom(args.rom)
+    base, _, table = ROMS[args.rom]
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / (base + ".rom")).write_bytes(rom)
+    (OUT / "microdis.rom").write_bytes(find_image(MICRODISC, "microdis.rom"))
+    ks, t = keyscript(rom, table, args.keys, int(args.boot * 1000000))
+    then, end = keyscript(rom, table, args.then, t + int(args.wait * 1000000))
+    (OUT / "disc-keys.txt").write_text(ks + "".join(then.splitlines(True)[1:]))
+    mach = "oric1" if args.rom == "1.0" else "atmos"
+    cmd = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach, "-q", "-s",
+           "-d", str(Path(args.dsk).resolve()), "-c", str(end + 2 * FIELD),
+           "-k", str(OUT / "disc-keys.txt")]
+    print("ROM %s, 48K, %s: %g s, %r, %g s, %r" % (args.rom, args.dsk, args.boot, args.keys,
+                                                   args.wait, args.then))
+    return subprocess.call(cmd, stdout=subprocess.DEVNULL)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -296,14 +324,21 @@ def main():
     t.add_argument("--keys", default='CLOAD""\\n')
     t.add_argument("--then", default="RUN\\n")
     t.add_argument("--wait", type=float, default=10.0)
+    k = sub.add_parser("disc")
+    k.add_argument("dsk")
+    k.add_argument("--rom", choices=sorted(ROMS), default="1.1")
+    k.add_argument("--boot", type=float, default=15.0)
+    k.add_argument("--keys", default="X")
+    k.add_argument("--then", default="DIR\\n")
+    k.add_argument("--wait", type=float, default=5.0)
     args = p.parse_args()
     if args.cmd == "run":
         args.keys = args.keys.encode().decode("unicode_escape")
         sys.exit(run(args))
-    if args.cmd == "tape":
+    if args.cmd in ("tape", "disc"):
         args.keys = args.keys.encode().decode("unicode_escape")
         args.then = args.then.encode().decode("unicode_escape")
-        sys.exit(tape(args))
+        sys.exit(tape(args) if args.cmd == "tape" else disc(args))
     sys.exit(diff(args.ours, args.ref))
 
 
