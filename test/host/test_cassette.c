@@ -22,7 +22,9 @@
  *             port serves it: CLOAD's find puts the tape in the deck and
  *             is declined, and the ROM reads the signal; CSAVE's header
  *             write arms the recorder and is declined, and the ROM writes
- *             the signal; the data steps are never requests.
+ *             the signal; the data steps are never requests. With the
+ *             tape played to its end, a CLOAD leaves the ROM in its
+ *             reader (oric_tape_reading), which at Ready it is not.
  *
  *   test_cassette --write DIR   also writes each recording, as the
  *                               recorder made it, to DIR/<machine>-
@@ -389,6 +391,25 @@ static int machine(rom_id_t rom) {
     guest_type(&g, "RUN\r");
     guest_fields(&g, 20);
     CHECK(guest_find_row(&g.m, "TAPE OK", 1) >= 0, "%s: cued CLOAD: RUN does not say TAPE OK", n);
+    CHECK(!oric_tape_reading(&g.m), "%s: at Ready, the ROM is taken as reading the tape", n);
+
+    /* The deck played to its end: another CLOAD waits in the reader. */
+    while (!g.m.cas.ended) {
+        oric_cassette_play(&g.m, true);
+        guest_fields(&g, 50);
+    }
+    oric_cassette_play(&g.m, false);
+    guest_type(&g, "CLOAD\"\"");
+    enter();
+    for (int i = 0; i < 100; i++) {
+        guest_fields(&g, 1);
+        signal_port(&g.m, &fast, rec, sizeof rec);
+    }
+    CHECK(g.m.cas.motor && g.m.cas.ended && oric_tape_reading(&g.m),
+          "%s: CLOAD at the tape's end: relay %d, ended %d, PC #%04X not in the reader", n,
+          g.m.cas.motor, g.m.cas.ended, g.m.cpu.pc);
+    oric_nmi(&g.m);
+    guest_fields(&g, 50);
     g.m.cfg.tape_signal = false;
     return 0;
 }

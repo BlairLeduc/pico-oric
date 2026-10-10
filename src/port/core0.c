@@ -407,6 +407,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         bool turbo = turbo_now(m);
         if (turbo) turbo_fields++;
         bool deck = oric_cassette_running(m);
+        g_c0.deck = m->cas.rec.on ? DECK_RECORDING : m->cas.playing ? DECK_PLAYING : DECK_IDLE;
         if (deck && !deck_was) {
             deck_us = time_us_64();
             deck_cycles = m->cpu.cycles;
