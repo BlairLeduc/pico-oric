@@ -49,6 +49,7 @@
 
 #include "config.h"
 #include "oric.h"
+#include "snapshot.h"
 
 #define TAPEIO_DIR "/oric/tapes"
 
@@ -76,6 +77,15 @@ const char *tapeio_new(void);
 bool        tapeio_chosen(void);       /* put in by the menu or boot_tape, not found by name */
 void        tapeio_rewind(void);
 uint32_t    tapeio_position(void);     /* files passed since the start */
+
+/* The deck in a save state (snapshot.h, design.md §10.6): its file and
+ * its place into md, and back from a loaded state's, with the card
+ * mounted. A restore puts the file in the deck where the state left it,
+ * or at its start if the file is now shorter than that place; "" empties
+ * the deck. NULL, or why the file could not be put in, which leaves the
+ * deck empty. */
+void        tapeio_media(snap_media_t *md);
+const char *tapeio_restore(const snap_media_t *md);
 
 /* PLAY by hand with fast tape off, for a loader that never closes the
  * relay, or STOP. NULL, or why not. The card must be mounted. */

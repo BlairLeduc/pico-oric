@@ -42,6 +42,19 @@ the card's machine, an Oric-1 16K at Ready (`out/m15/perf/`): core 0
 development build, six SWD reads 5 s apart each, rt 0.9998, no
 underruns; the release image 177,672 bytes text and 309,532 bss, a
 348,160-byte `.uf2`, against 180,700, 311,608 and 353,792 with the UART.
+**States carry their media** (version 2, design.md §10.6), at the owner's
+request: each drive's file and the deck's, with its place, put back
+after a load. `test_snapshot` holds the section to the CRC, its paths to
+their fields, and version 1 states loading as before. On the board, the
+Atmos 48K with the Microdisc (`out/m15/media/`): Sedoric booted off the
+card, saved to slot 4, drive A emptied, slot 4 loaded (160 ms), drive A
+back and `DIR` listing its 52 files; with a tape in the deck too, both
+came back from the state, the tape at its place. **Found on the way:** a
+load refused as busy (a disc command waiting on an empty drive) was taken
+by the port for one that had changed the machine, which it then powered
+on again; `snapio_load` now refuses a busy machine before the card is
+touched, and on the board the same load was refused with nothing
+changed. A disc missing from the card was not tried on the board.
 **Outstanding:** the release soak over SWD, which needs the owner at the
 PicoCalc (`CLOAD"SOAK"`, then H and J held during the run); the owner's
 check of every page, key and setting on the panel, M9's, M13's and M14's

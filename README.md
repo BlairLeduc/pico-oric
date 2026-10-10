@@ -207,8 +207,12 @@ formats, and a disc it writes reads in Oricutron.
 ### Snapshots
 
 The *Snapshots* page (`F3`) saves the whole machine to one of four slots
-in `/oric/states/`, and loads it back. A disc in a drive is not part of
-a state.
+in `/oric/states/`, and loads it back. A state records which discs were
+in the drives and which tape was in the deck, and where; loading it puts
+them back, so a disc program resumes with its discs in. The discs and
+tapes themselves stay on the card: a state whose disc is no longer there
+is refused, naming it, and one whose tape has gone loads with the deck
+empty. A disc written to after the save goes back in as it now is.
 
 > [!IMPORTANT]
 > A saved state is in this emulator's own format, and loads only into

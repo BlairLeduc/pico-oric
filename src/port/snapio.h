@@ -9,8 +9,8 @@
  * §7.1), so the recovery policy is on the load side. A load checks
  * slotN.sav whole — header, CRC, machine, ROM (snapshot.h) — and if it
  * is missing or damaged falls back to a whole slotN.new, which is what an
- * interrupted publish leaves. Nothing changes in the machine until a file
- * has passed.
+ * interrupted publish leaves. Nothing changes in the machine, the drives
+ * or the deck until a file, and every disc it names, has passed.
  */
 #ifndef PICO_ORIC_SNAPIO_H
 #define PICO_ORIC_SNAPIO_H
@@ -34,6 +34,13 @@ snap_status_t snapio_save(const oric_t *m, unsigned slot, uint32_t *us);
 snap_status_t snapio_load(oric_t *m, unsigned slot, snap_info_t *info, bool *recovered,
                           bool *changed, uint32_t *us);
 bool          snapio_exists(unsigned slot);
+
+/* A save records the drives' discs and the deck's tape and place, and a
+ * load puts them back (snapshot.h's media), the discs checked before
+ * anything changes: a state whose disc is not on the card is refused,
+ * SNAP_NO_DISC. What the menu should say about the last load's media,
+ * the disc it needs or a tape that has gone; "" for nothing. */
+const char   *snapio_said(void);
 bool          snapio_delete(unsigned slot);
 
 #endif /* PICO_ORIC_SNAPIO_H */

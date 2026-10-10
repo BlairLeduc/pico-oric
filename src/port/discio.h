@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "mfmdisk.h"
 #include "oric.h"
 
 #define DISCIO_DIR "/oric/discs"
@@ -50,6 +51,11 @@ unsigned discio_list(discio_entry_t *out, unsigned max);
  * has written and not yet put back goes first. Returns NULL, or why the
  * disc did not go in, and the drive is then empty. */
 const char *discio_insert(oric_t *m, unsigned drive, const char *path);
+
+/* Would this image go in a drive? As discio_insert judges it, changing
+ * nothing: a save state's discs are checked before the load (snapio.h).
+ * g and protect, either may be NULL, are the image's. NULL, or why not. */
+const char *discio_probe(const char *path, mfm_geom_t *g, bool *protect);
 const char *discio_inserted(unsigned drive);   /* "" when none          */
 bool        discio_protected(unsigned drive);
 

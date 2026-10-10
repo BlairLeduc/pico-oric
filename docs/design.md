@@ -1232,7 +1232,7 @@ section's reserved bytes, zero without a Microdisc: the latch, the WD1793's
 registers and lines, each drive's head and the chip's next event; a
 state records whether the Microdisc is fitted and is refused by the other
 fit, named, and is refused while a command runs or a track waits for the
-card. The discs are not in a state. From M16 a state records whether the
+card. The discs' contents are not in a state; from version 2 their names are (below). From M16 a state records whether the
 vertical-sync modification is fitted, refused by the other setting by
 name, and with it the pulse's lines, delay and width, refused when they
 differ; the pulse itself is worked out again from the boundary, where CB1
@@ -1256,6 +1256,23 @@ stalled on a tape request; the refusal names the machine a state needs.
 Loading releases every key and restarts the sample grid at the restored
 clock; the samples not yet drained, the rate and the DC blocker are the
 port's and stay.
+
+**Version 2 adds the media** (M15, 2026-10-10, at the owner's request): a
+section after the RAM, inside the CRC, with each drive's file and the
+deck's, and the deck's place (the next header, the data passed over, the
+files found, rewound, and whether the user chose the tape). Names, not
+contents: the files stay on the card. The core carries them and never
+opens them (`snap_media_t`); the port fills them on a save and, after a
+load, puts them back, emptying a drive or the deck that was empty, so a
+disc program resumes with its discs in and a tape where it stood. A disc
+the state names that is not on the card, or is not an image, refuses the
+load in the check pass, before anything changes, by drive and file; a
+tape that has gone does not, since the program it loaded is in memory,
+and the deck is left empty and the status line says so. A tape now
+shorter than the state's place goes in at its start. Version 1 states
+load as before, leaving the drives and the deck as they are. A disc
+written to after the save is put back as it now is; a DOS resumed with
+an older picture of it in memory can disagree with it.
 
 **No community snapshot format is imported**: the Oric archive is tapes and
 discs (§17).

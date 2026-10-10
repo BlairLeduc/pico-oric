@@ -19,6 +19,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "core1.h"
 #include "discio.h"
 #include "display.h"
 #include "handoff.h"
@@ -625,6 +626,9 @@ static void snap_load(void) {
     log_core1("  snapshot     : load slot %u: %s%s, %lu us\n", s_slot + 1u, snapshot_status_str(st),
               recovered ? " (from the unpublished .new)" : "", (unsigned long)us);
     if (st == SNAP_OK) {
+        /* A tape the state had in the deck and the card no longer has:
+         * said on the status line, since the menu closes (snapio.h). */
+        if (snapio_said()[0]) core1_note(snapio_said() + 1);
         s.done = true;
         return;
     }
@@ -636,7 +640,9 @@ static void snap_load(void) {
         s.done = true;
         return;
     }
-    if (st == SNAP_IO && !s.used[s_slot]) {
+    if (st == SNAP_NO_DISC) {
+        say("%s", snapio_said());
+    } else if (st == SNAP_IO && !s.used[s_slot]) {
         snprintf(s.status, sizeof s.status, " Slot %u is empty", s_slot + 1u);
     } else if (st == SNAP_OTHER_MACHINE && in.microdisc != s.m->cfg.microdisc) {
         say(" Not loaded: needs the Microdisc %s", on_off(in.microdisc));

@@ -15,6 +15,7 @@ static const uint8_t magic[8] = { 'P', 'O', 'R', 'C', 'S', 'N', 'A', 'P' };
  * SDK's 2 KiB, and the card's driver is below them. One call at a time. */
 static uint8_t s_st[SNAP_STATE_LEN];
 static uint8_t s_piece[256];
+static uint8_t s_media[SNAP_MEDIA_LEN];
 
 /* ---- CRC-32 ---------------------------------------------------------- */
 
@@ -135,6 +136,17 @@ _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its leng
 #define T_HEADER_KEPT  0x01u
 #define T_PASS         0x02u
 
+/* The media section (snapshot.h): the paths, then the deck's place. */
+#define MD_TAPE_PATH   (ORIC_DISC_DRIVES * ORIC_PATH_MAX)
+#define MD_TAPE_POS    ((ORIC_DISC_DRIVES + 1u) * ORIC_PATH_MAX)
+#define MD_TAPE_SKIP   (MD_TAPE_POS + 4u)
+#define MD_TAPE_INDEX  (MD_TAPE_POS + 8u)
+#define MD_TAPE_FLAGS  (MD_TAPE_POS + 12u)
+_Static_assert(MD_TAPE_FLAGS + 4u == SNAP_MEDIA_LEN, "the media section's length");
+
+#define DK_WRAPPED     0x01u
+#define DK_USER        0x02u
+
 /* What is fitted besides the ROM and RAM: the Microdisc (M14), the
  * vertical-sync modification (M16). A state is for one set of them. */
 static uint8_t machine_of(const oric_t *m) {
@@ -237,18 +249,61 @@ static void state_encode(const oric_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put64(st + S_WD_DUE, f->due);
 }
 
+/* A path into its field, NUL-padded; one too long for the field is
+ * written empty, which a port never keeps (ORIC_PATH_MAX). */
+static void put_path(uint8_t *p, const char *path) {
+    memset(p, 0, ORIC_PATH_MAX);
+    size_t n = strlen(path);
+    if (n < ORIC_PATH_MAX) memcpy(p, path, n);
+}
+
+static void media_encode(const snap_media_t *md, uint8_t out[SNAP_MEDIA_LEN]) {
+    memset(out, 0, SNAP_MEDIA_LEN);
+    if (!md) return;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) put_path(out + d * ORIC_PATH_MAX, md->disc[d]);
+    put_path(out + MD_TAPE_PATH, md->tape);
+    put32(out + MD_TAPE_POS, md->tape_pos);
+    put32(out + MD_TAPE_SKIP, md->tape_skip);
+    put32(out + MD_TAPE_INDEX, md->tape_index);
+    out[MD_TAPE_FLAGS] = (uint8_t)((md->tape_wrapped ? DK_WRAPPED : 0) |
+                                   (md->tape_user ? DK_USER : 0));
+}
+
+/* Every path ends inside its field, and the flags are known ones. */
+static bool media_plausible(const uint8_t in[SNAP_MEDIA_LEN]) {
+    for (unsigned i = 0; i <= ORIC_DISC_DRIVES; i++)
+        if (!memchr(in + i * ORIC_PATH_MAX, 0, ORIC_PATH_MAX)) return false;
+    return (in[MD_TAPE_FLAGS] & ~(DK_WRAPPED | DK_USER)) == 0;
+}
+
+static void media_decode(const uint8_t in[SNAP_MEDIA_LEN], snap_media_t *md) {
+    memset(md, 0, sizeof *md);
+    md->present = true;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+        memcpy(md->disc[d], in + d * ORIC_PATH_MAX, ORIC_PATH_MAX);
+    memcpy(md->tape, in + MD_TAPE_PATH, ORIC_PATH_MAX);
+    md->tape_pos = get32(in + MD_TAPE_POS);
+    md->tape_skip = get32(in + MD_TAPE_SKIP);
+    md->tape_index = get32(in + MD_TAPE_INDEX);
+    md->tape_wrapped = (in[MD_TAPE_FLAGS] & DK_WRAPPED) != 0;
+    md->tape_user = (in[MD_TAPE_FLAGS] & DK_USER) != 0;
+}
+
 /* ---- the stream -------------------------------------------------------- */
 
-snap_status_t snapshot_save(const oric_t *m, snap_write_fn write, void *ctx) {
+snap_status_t snapshot_save(const oric_t *m, const snap_media_t *media, snap_write_fn write,
+                            void *ctx) {
     if (m->tape.op != TAPE_NONE || oric_disc_busy(m)) return SNAP_BUSY;
 
     uint8_t *st = s_st;
     state_encode(m, st);
+    media_encode(media, s_media);
 
     /* The CRC goes in the header, ahead of what it covers; the machine is
      * the buffer, and nothing changes it in between. */
     uint32_t crc = snapshot_crc32(0, st, SNAP_STATE_LEN);
     crc = snapshot_crc32(crc, m->ram, sizeof m->ram);
+    crc = snapshot_crc32(crc, s_media, SNAP_MEDIA_LEN);
 
     uint8_t hdr[SNAP_HEADER_LEN];
     memcpy(hdr, magic, sizeof magic);
@@ -261,19 +316,23 @@ snap_status_t snapshot_save(const oric_t *m, snap_write_fn write, void *ctx) {
     if (!write(ctx, st, SNAP_STATE_LEN)) return SNAP_IO;
     for (uint32_t off = 0; off < sizeof m->ram; off += ORIC_PAGE_SIZE * 16u)
         if (!write(ctx, m->ram + off, ORIC_PAGE_SIZE * 16u)) return SNAP_IO;
+    if (!write(ctx, s_media, SNAP_MEDIA_LEN)) return SNAP_IO;
     return SNAP_OK;
 }
 
-static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc) {
+/* Version 1 is the state and the RAM; version 2 adds the media. */
+static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc, unsigned *version) {
     uint8_t hdr[SNAP_HEADER_LEN];
     if (!read(ctx, hdr, sizeof hdr)) return SNAP_IO;
     if (memcmp(hdr, magic, sizeof magic) != 0) return SNAP_NOT_SNAPSHOT;
-    if (get16(hdr + 8) > SNAP_VERSION) return SNAP_NEWER;
-    if (get16(hdr + 8) == 0 || get16(hdr + 10) != SNAP_HEADER_LEN ||
-        get32(hdr + 12) != SNAP_PAYLOAD_LEN) {
+    unsigned v = get16(hdr + 8);
+    if (v > SNAP_VERSION) return SNAP_NEWER;
+    if (v == 0 || get16(hdr + 10) != SNAP_HEADER_LEN ||
+        get32(hdr + 12) != (v == 1 ? SNAP_PAYLOAD_V1 : SNAP_PAYLOAD_LEN)) {
         return SNAP_NOT_SNAPSHOT;
     }
     *crc = get32(hdr + 16);
+    *version = v;
     return SNAP_OK;
 }
 
@@ -356,9 +415,11 @@ static snap_status_t compatible(const oric_t *m, const uint8_t st[SNAP_STATE_LEN
     return SNAP_OK;
 }
 
-snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap_info_t *info) {
+snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap_info_t *info,
+                             snap_media_t *media) {
     uint32_t want;
-    snap_status_t r = read_header(read, ctx, &want);
+    unsigned version;
+    snap_status_t r = read_header(read, ctx, &want, &version);
     if (r != SNAP_OK) return r;
 
     uint8_t *st = s_st;
@@ -368,14 +429,23 @@ snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap
         if (!read(ctx, s_piece, sizeof s_piece)) return SNAP_IO;
         crc = snapshot_crc32(crc, s_piece, sizeof s_piece);
     }
+    if (version >= 2) {
+        if (!read(ctx, s_media, SNAP_MEDIA_LEN)) return SNAP_IO;
+        crc = snapshot_crc32(crc, s_media, SNAP_MEDIA_LEN);
+    }
     if (crc != want) return SNAP_CORRUPT;
     info_of(st, info);
+    if (version >= 2 && !media_plausible(s_media)) return SNAP_NOT_SNAPSHOT;
+    if (media) {
+        if (version >= 2) media_decode(s_media, media);
+        else memset(media, 0, sizeof *media);
+    }
     return compatible(m, st);
 }
 
-/* The Microdisc's fields onto m. The discs are the port's and stay in
- * their drives; the heads are where the state left them, so the track in
- * hand is dropped. Without the Microdisc these bytes are zero and are not
+/* The Microdisc's fields onto m. The discs are the port's, which puts
+ * the state's media back after the load (snapshot.h); the heads are
+ * where the state left them, so the track in hand is dropped. Without the Microdisc these bytes are zero and are not
  * read: its reset values stay. */
 static void md_decode(oric_t *m, const uint8_t *st) {
     wd1793_t *f = &m->fdc;
@@ -399,8 +469,12 @@ static void md_decode(oric_t *m, const uint8_t *st) {
 snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx) {
     if (m->tape.op != TAPE_NONE || oric_disc_busy(m)) return SNAP_BUSY;
     uint32_t want;
-    snap_status_t r = read_header(read, ctx, &want);
+    unsigned version;
+    snap_status_t r = read_header(read, ctx, &want, &version);
     if (r != SNAP_OK) return r;
+    /* The media follow the RAM in version 2; they are the port's, which
+     * has them from snapshot_check, so the load stops at the RAM. */
+    (void)version;
     uint8_t *st = s_st;
     if (!read(ctx, st, SNAP_STATE_LEN)) return SNAP_IO;
     r = compatible(m, st);
@@ -495,6 +569,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_OTHER_MACHINE: return "for another machine";
     case SNAP_OTHER_FIELD:   return "another field timing";
     case SNAP_BUSY:          return "the tape or the disc is busy";
+    case SNAP_NO_DISC:       return "a disc it needs is missing";
     }
     return "?";
 }
