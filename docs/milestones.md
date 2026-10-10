@@ -97,9 +97,10 @@ the hack on (`build/m16-vsync`) against the same tree without it
 (`out/m16/perf`): idle 31.5% against 31.4%, compute 37.8% and 37.8%,
 sound 38.8% against 38.7%, scroll at 60 Hz 36.0% and 36.0%, rt 1.000
 and no underruns in all. Image 172,848 bytes text, bss 308,468.
-**Not checked**: DOTSRECORD on the board; whether the owner's run set
-the hack from the Machine page (the card's file has no `vsync_hack`
-line, so it was not saved there); the Tapes page's note and the
+The owner set the hack on the Machine page, with the Microdisc off, and
+did not save the settings (the card's file has no `vsync_hack` line), so
+the row and *Apply and restart* are checked on the panel. **Not
+checked**: DOTSRECORD on the board; the Tapes page's note and the
 snapshot refusal on the panel; anything at 60 Hz against a measurement,
 or against Oricutron, whose trace never leaves 50 Hz; the release build
 on the board.
