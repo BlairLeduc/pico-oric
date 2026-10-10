@@ -136,7 +136,9 @@ void oric_cassette_rewind(struct oric_s *m);
 void oric_cassette_play(struct oric_s *m, bool on);
 
 /* Arm the recorder into buf, or disarm it (NULL), which ends a file in
- * progress as cut short. Recording stops the player. */
+ * progress as cut short and keeps the whole ones until
+ * oric_cassette_saved. A buffer other than the last starts empty.
+ * Recording stops the player. */
 void oric_cassette_record(struct oric_s *m, uint8_t *buf, uint32_t cap);
 
 /* Playing or recording now: the guest may run unpaced (§11.2). */

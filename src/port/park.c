@@ -65,6 +65,7 @@ static void uart_release(void) {
 
 void park_init(oric_t *m) {
     s_m = m;
+    tapeio_attach(m);
 }
 
 uint32_t park(uint32_t why, unsigned page, bool alt) {
@@ -120,6 +121,7 @@ static bool serve_hold(void) {
         card_check(&s, &j);
     } else if (card_poll()) {
         log_core1("  card         : %s while parked\n", card_present() ? "in" : "out");
+        tapeio_card_changed();
         card_check(&s, &j);
     }
     if (!g_release) return true;

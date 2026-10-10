@@ -477,7 +477,7 @@ void oric_cassette_record(oric_t *m, uint8_t *buf, uint32_t cap) {
     cassette_rec_t *r = &m->cas.rec;
     rec_stop(m);
     r->armed = buf != NULL;
-    if (buf != r->buf) {
+    if (buf && buf != r->buf) {
         r->buf = buf;
         r->cap = cap;
         r->len = r->mark = 0;

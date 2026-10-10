@@ -40,6 +40,14 @@
  * and the ROM goes on at once. The data write that follows is, and the
  * port writes the whole file, header and data, so that a tape on the
  * card only ever holds whole files.
+ *
+ * With the signal on (oric_config_t.tape_signal, fast tape off; design.md
+ * §10.4, EL §8.3) the trap is the port's cue and serves nothing: the
+ * find is still a request, so that the port can put the tape the user
+ * meant in the deck before declining it, and the ROM reads the signal;
+ * the header write is TAPE_RECORD, with the header and the addresses
+ * kept, so that the port can arm the recorder before declining it; the
+ * data steps are the ROM's.
  */
 #ifndef PICO_ORIC_TAPE_H
 #define PICO_ORIC_TAPE_H
@@ -58,6 +66,7 @@ typedef enum {
     TAPE_FIND,        /* find the next header                             */
     TAPE_LOAD,        /* read the data, or verify it (1.1's CLOAD "",V)   */
     TAPE_SAVE,        /* write the file: the kept header, then the data   */
+    TAPE_RECORD,      /* the signal's: the header is about to go out      */
 } tape_op_t;
 
 /* One ROM's routines and variables, read off the ROM (§16). */
@@ -76,6 +85,7 @@ typedef struct {
     uint16_t verify;     /* 1.1's verify flag; 0 for 1.0, which has none        */
     uint16_t verify_errors;
     uint16_t slow;       /* nonzero for CLOAD and CSAVE's ,S                    */
+    uint16_t read_lo, read_hi;  /* the byte, bit, edge and sync readers     */
 } tape_rom_t;
 
 /* Both ROMs' byte routines leave the byte in zero page #2F, and their
@@ -139,6 +149,12 @@ void oric_tape_decline(struct oric_s *m);
  * ROM's warm start, program kept (§2.1). The owner's choice over the
  * real machine's wait (2026-10-09). */
 void oric_tape_give_up(struct oric_s *m);
+
+/* The ROM in the socket is waiting in its own tape reader for a signal:
+ * the PC is in its byte, bit, edge or sync routines (#E6C9-#E759 in
+ * 1.1, #E630-#E6B9 in 1.0). A played tape that has ended leaves it there
+ * for ever, as a real one does (design.md §10.4). */
+bool oric_tape_reading(const struct oric_s *m);
 
 /* Serving TAPE_FIND with the next header on the tape. */
 void oric_tape_found(struct oric_s *m, const tap_header_t *h);

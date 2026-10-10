@@ -208,6 +208,7 @@ void core1_main(void) {
          * card work waits for a park (card.h). */
         if (!park_serve() && card_poll()) {
             log_core1("  card         : %s\n", card_present() ? "in" : "out");
+            tapeio_card_changed();
             if (!g_boot.claimed) boot_rom_again();
         }
         if (g_boot.claimed) draw_status();

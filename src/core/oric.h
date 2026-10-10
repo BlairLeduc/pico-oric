@@ -59,6 +59,9 @@ typedef struct {
     /* The tape's traps (tape.h). The port may change it at any boundary;
      * off, CLOAD and CSAVE are the ROM's alone. */
     bool       tape_traps;
+    /* Fast tape off: the traps are only the port's cues, and the ROM
+     * reads and writes the signal (tape.h, cassette.h). */
+    bool       tape_signal;
 } oric_config_t;
 
 typedef struct oric_s {

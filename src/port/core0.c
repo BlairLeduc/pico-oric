@@ -23,6 +23,7 @@
 #include "park.h"
 #include "roms.h"
 #include "settingsio.h"
+#include "tapeio.h"
 #include "southbridge.h"
 #include "ula.h"
 
@@ -102,6 +103,17 @@ static bool uart_keys(keymatrix_t *k, const oric_t *m) {
     return false;
 }
 
+#ifndef PICO_ORIC_TURBO
+#define PICO_ORIC_TURBO 1
+#endif
+
+/* While the deck plays or records the guest runs unpaced: the tape is
+ * clocked in guest cycles, so it cannot tell (design.md §11.2; EL §9.3).
+ * PICO_ORIC_TURBO=OFF paces it, the control for M13's measurement. */
+static bool turbo_now(const oric_t *m) {
+    return PICO_ORIC_TURBO && oric_cassette_running(m);
+}
+
 /* The ROM's prompt anywhere on the text screen: the boot reaching it,
  * as test_boot has it (§15.2 M3). */
 static bool ready_shown(const oric_t *m) {
@@ -155,6 +167,8 @@ static bool apply_ui(oric_t *m) {
 #if PICO_ORIC_AUDIO
     audio_set_volume(g_ui.volume * 32u);
 #endif
+    /* Fast tape off: the trap is the signal's cue (tapeio.h). */
+    m->cfg.tape_signal = !g_ui.fast_tape;
     if (g_ui.reset) {
         g_ui.reset = false;
         oric_reset(m);
@@ -164,6 +178,7 @@ static bool apply_ui(oric_t *m) {
         oric_config_t cfg = g_ui.restart_cfg;
         g_ui.restart = false;
         core0_power_on(m, &cfg, g_boot.image);
+        m->cfg.tape_signal = !g_ui.fast_tape;
         log_printf("  menu         : powered on as the %s, ROM %s, %lu cycles a field\n",
                    roms_machine_name(cfg.rom, cfg.ram),
                    romset_images[cfg.rom].file, (unsigned long)oric_field_cycles(m));
@@ -253,6 +268,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     window_start(&hb, m, late);
     window_start(&sec, m, late);
     uint32_t fields60 = 0;   /* since boot */
+    uint32_t turbo_fields = 0;   /* run unpaced, since boot */
     bool ready = false;
     uint32_t why = PARK_NONE;
     unsigned page = 0;
@@ -266,7 +282,11 @@ void core0_run(oric_t *m, keymatrix_t *k) {
 #if !PICO_ORIC_AUDIO
         uint64_t due = sched_us + sched_cycles * 1000000u / ORIC_CPU_HZ;
         now = time_us_64();
-        if (now < due) {
+        if (turbo_now(m)) {
+            /* Unpaced: the schedule starts again when the deck stops. */
+            sched_us = now;
+            sched_cycles = 0;
+        } else if (now < due) {
             /* Core 0's own alarm: sleeping here interrupts nothing. */
             sleep_until(from_us_since_boot(due));
         } else if (now > due) {
@@ -287,8 +307,9 @@ void core0_run(oric_t *m, keymatrix_t *k) {
          * the guest's. A screenshot's are, and their releases wait in the
          * ring for it, as a tape request's do. A tape request goes first,
          * then whatever the keys asked for. */
-        while (why != PARK_NONE || oric_tape_pending(m)) {
-            uint32_t w = oric_tape_pending(m) ? PARK_TAPE : why;
+        while (why != PARK_NONE || oric_tape_pending(m) || tapeio_wanted(m)) {
+            bool tape = oric_tape_pending(m) || tapeio_wanted(m);
+            uint32_t w = tape ? PARK_TAPE : why;
             uint32_t parked = park(w, page, alt);
             if (w != PARK_TAPE) {
                 if (w != PARK_SHOT) keymatrix_init(k);
@@ -379,13 +400,28 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         size_t n = oric_audio_drain(m, pcm, ORIC_AUDIO_BUF_LEN);
 #endif
         uint32_t busy = time_us_32() - t_busy;
+        bool turbo = turbo_now(m);
+        if (turbo) turbo_fields++;
 #if PICO_ORIC_AUDIO
-        /* Blocks while the queue is full: this is the throttle, on the
-         * PWM wrap, which shares clk_sys with nothing that drifts (EL
-         * §6.3). The conversion to compare words inside is not counted
-         * as busy; it is ~731 short loops a field. M13: turbo tops the
-         * queue up with silence instead, never blocking (EL §9.3). */
-        audio_push(pcm, n);
+        if (turbo) {
+            /* Never block: the guest's samples are dropped, and the queue
+             * kept at its start depth with silence, so it never runs dry
+             * (EL §9.3). */
+            static const int16_t silence[256];
+            size_t room = audio_room();
+            const size_t keep = ORIC_PCM_QUEUE_LEN - ORIC_PCM_QUEUE_START;
+            while (room > keep) {
+                size_t k = room - keep < 256u ? room - keep : 256u;
+                audio_push(silence, k);
+                room -= k;
+            }
+        } else {
+            /* Blocks while the queue is full: this is the throttle, on
+             * the PWM wrap, which shares clk_sys with nothing that drifts
+             * (EL §6.3). The conversion to compare words inside is not
+             * counted as busy; it is ~731 short loops a field. */
+            audio_push(pcm, n);
+        }
 #endif
         hb.run_us += run_us;
         sec.run_us += run_us;
@@ -461,6 +497,17 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        hpi_s, cpi_s, (unsigned long long)insns, (unsigned long)fields,
                        hz60 ? 60u : 50u, take_s, (unsigned long)hb.scan_us,
                        (unsigned long)hb.scan_max_us, scan_s);
+            /* The deck (design.md §10.4): rt above is turbo's speed
+             * while it runs. */
+            const cassette_t *cas = &m->cas;
+            log_printf("  tape         : %s, relay %s, signal %s, turbo %lu fields, "
+                       "%lu edges played, file %lu, %lu files recorded (%lu errors)\n",
+                       cas->rec.on ? "recording" : cas->playing ? "playing"
+                       : cas->loaded ? (cas->ended ? "at its end" : "stopped") : "empty",
+                       cas->motor ? "closed" : "open", m->cfg.tape_signal ? "on" : "off",
+                       (unsigned long)turbo_fields, (unsigned long)cas->edges,
+                       (unsigned long)cas->files, (unsigned long)cas->rec.files,
+                       (unsigned long)cas->rec.errors);
 #if PICO_ORIC_AUDIO
             /* The consumed-sample rate against the microsecond timer is
              * the control quantity: it is the PWM wrap, measured, and it

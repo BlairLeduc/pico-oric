@@ -268,6 +268,14 @@ else()
     endif()
 
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})
+    # Turbo while the deck plays or records (design.md §11.2); OFF paces
+    # it, the control M13 measures the speed-up against.
+    option(PICO_ORIC_TURBO "Run unpaced while the tape plays or records" ON)
+    if (PICO_ORIC_TURBO)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_TURBO=1)
+    else()
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_TURBO=0)
+    endif()
     target_link_libraries(pico-oric
         pico_oric_fatfs
         hardware_dma

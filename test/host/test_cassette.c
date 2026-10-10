@@ -18,6 +18,11 @@
  *   record    CSAVE with the trap off and the recorder armed: its file
  *             is the trap's, byte for byte, at both speeds. One cut off
  *             by RESET part-way is not kept, and is counted.
+ *   cues      the trap with the signal on, served between fields as the
+ *             port serves it: CLOAD's find puts the tape in the deck and
+ *             is declined, and the ROM reads the signal; CSAVE's header
+ *             write arms the recorder and is declined, and the ROM writes
+ *             the signal; the data steps are never requests.
  *
  * Without the ROMs, so that CI runs it, one more: the CB1 flag is set on
  * the edge's cycle, seen by the first read of IFR at or after it.
@@ -122,6 +127,42 @@ static bool run_load(int max_fields) {
     bool closed = false;
     for (int i = 0; i < max_fields; i++) {
         guest_fields(&g, 1);
+        if (g.m.cas.motor) closed = true;
+        else if (closed) {
+            guest_fields(&g, 20);
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The port's part with the signal on (tape.h): a find puts `deck` in
+ * the cassette, a header write arms the recorder into `rec`; both are
+ * declined. Anything else is a request the signal does not make. */
+static unsigned s_finds, s_records, s_others;
+
+static void signal_port(oric_t *m, const tape_buf_t *deck, uint8_t *rec, uint32_t cap) {
+    const tape_t *t = oric_tape_pending(m);
+    if (!t) return;
+    if (t->op == TAPE_FIND) {
+        s_finds++;
+        if (!m->cas.loaded) oric_cassette_insert(m, deck->buf, (uint32_t)deck->len);
+    } else if (t->op == TAPE_RECORD) {
+        s_records++;
+        oric_cassette_record(m, rec, cap);
+    } else {
+        s_others++;
+    }
+    oric_tape_decline(m);
+}
+
+/* Fields with the port between them, until the relay has closed and
+ * opened again. */
+static bool run_signal(const tape_buf_t *deck, uint8_t *rec, uint32_t cap, int max_fields) {
+    bool closed = false;
+    for (int i = 0; i < max_fields; i++) {
+        guest_fields(&g, 1);
+        signal_port(&g.m, deck, rec, cap);
         if (g.m.cas.motor) closed = true;
         else if (closed) {
             guest_fields(&g, 20);
@@ -303,6 +344,39 @@ static int machine(rom_id_t rom) {
     CHECK(!oric_cassette_unsaved(&g.m, &from, &to), "%s: a save cut off by RESET was kept", n);
     CHECK(g.m.cas.rec.errors == errors + 1u, "%s: the cut-off save was not counted", n);
     oric_cassette_record(&g.m, NULL, 0);
+
+    /* ---- cues ---------------------------------------------------------------- */
+    g.m.cfg.tape_traps = true;
+    g.m.cfg.tape_signal = true;
+    s_finds = s_records = s_others = 0;
+    oric_cassette_insert(&g.m, NULL, 0);
+    /* RESET was a cold start: the program again, as fast saved it. */
+    guest_type(&g, "NEW\r");
+    guest_type(&g, "10 PRINT \"TAPE OK\"\r");
+    guest_type(&g, "20 REM A SECOND LINE\r");
+    guest_type(&g, "CSAVE\"AB\"");
+    enter();
+    CHECK(run_signal(&fast, rec, sizeof rec, 400), "%s: cued CSAVE: the relay never opened", n);
+    CHECK(s_records == 1 && s_finds == 0 && s_others == 0,
+          "%s: cued CSAVE: %u records, %u finds, %u others", n, s_records, s_finds, s_others);
+    CHECK(oric_cassette_unsaved(&g.m, &from, &to) && to == fast.len &&
+          memcmp(rec, fast.buf, to) == 0, "%s: cued CSAVE: the recording is not the file", n);
+    oric_cassette_saved(&g.m);
+    oric_cassette_record(&g.m, NULL, 0);
+
+    guest_type(&g, "NEW\r");
+    s_finds = s_records = s_others = 0;
+    uint32_t served = g.m.tape.served;
+    guest_type(&g, "CLOAD\"\"");
+    enter();
+    CHECK(run_signal(&fast, rec, sizeof rec, 400), "%s: cued CLOAD: the relay never opened", n);
+    CHECK(s_finds == 1 && s_records == 0 && s_others == 0 && g.m.tape.served == served,
+          "%s: cued CLOAD: %u finds, %u records, %u others, %u served", n, s_finds, s_records,
+          s_others, (unsigned)(g.m.tape.served - served));
+    guest_type(&g, "RUN\r");
+    guest_fields(&g, 20);
+    CHECK(guest_find_row(&g.m, "TAPE OK", 1) >= 0, "%s: cued CLOAD: RUN does not say TAPE OK", n);
+    g.m.cfg.tape_signal = false;
     return 0;
 }
 
