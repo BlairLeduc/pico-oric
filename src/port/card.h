@@ -71,12 +71,19 @@ void card_roms(card_job_t *job, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]);
  * it: the job's mount fields are left as they are. */
 void card_roms_mounted(card_job_t *job, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]);
 
+/* microdis.rom into eprom, with the card mounted, from the file the
+ * listing found: false unless one is the image by SHA-1 (§10.2), since
+ * a near-miss EPROM has nowhere to be marked unrecognised. */
+bool card_eprom(const card_job_t *job, uint8_t eprom[ORIC_EPROM_SIZE]);
+
 /* The boot's job (design.md §10.7, §10.2): the settings file into *s, or
  * the defaults without a card or a file; then the machine they and the
  * build name into *cfg (boot_machine, handoff.h); then card_roms for its
- * ROM, in one mount. */
+ * ROM, in one mount; with the Microdisc, its EPROM into eprom, or the
+ * Microdisc off, named, if the card has none; and boot_disc in drive A
+ * (discio.h). */
 void card_boot(settings_t *s, card_job_t *job, oric_config_t *cfg,
-               uint8_t image[ORIC_ROM_SIZE]);
+               uint8_t image[ORIC_ROM_SIZE], uint8_t eprom[ORIC_EPROM_SIZE]);
 
 /* The UART's hold (park.h): the settings file read again into *s, and
  * the ROMs listed and hashed, loading none; everything logged. */

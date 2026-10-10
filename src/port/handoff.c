@@ -24,6 +24,12 @@ void boot_machine(const settings_t *s, oric_config_t *cfg) {
 #ifdef PICO_ORIC_BOOT_RAM
     cfg->ram = PICO_ORIC_BOOT_RAM == 16 ? ORIC_RAM_16K : ORIC_RAM_48K;
 #endif
+    cfg->microdisc = s->microdisc;
+#ifdef PICO_ORIC_BOOT_MICRODISC
+    cfg->microdisc = true;
+#endif
+    /* The overlay RAM is a 48K machine's (microdisc.h). */
+    if (cfg->ram != ORIC_RAM_48K) cfg->microdisc = false;
 }
 
 void handoff_init(void) {

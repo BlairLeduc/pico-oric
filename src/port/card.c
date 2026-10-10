@@ -9,6 +9,7 @@
 #include "pico/stdlib.h"
 
 #include "config.h"
+#include "discio.h"
 #include "ff.h"
 #include "handoff.h"
 #include "log.h"
@@ -201,6 +202,17 @@ void card_roms_mounted(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE
     }
 }
 
+bool card_eprom(const card_job_t *j, uint8_t eprom[ORIC_EPROM_SIZE]) {
+    if (j->rom[ROM_MICRODISC] != ROMFILE_KNOWN) return false;
+    FIL f;
+    if (f_open(&f, j->path[ROM_MICRODISC], FA_READ) != FR_OK) return false;
+    UINT got = 0;
+    FRESULT fr = f_read(&f, eprom, ORIC_EPROM_SIZE, &got);
+    f_close(&f);
+    return fr == FR_OK && got == ORIC_EPROM_SIZE &&
+           romset_identify(eprom, ORIC_EPROM_SIZE) == ROM_MICRODISC;
+}
+
 void card_roms(card_job_t *j, rom_id_t want, uint8_t image[ORIC_ROM_SIZE]) {
     if (!begin(j)) return;
     card_roms_mounted(j, want, image);
@@ -225,11 +237,31 @@ static void boot_tape(const settings_t *s) {
               err ? err : "");
 }
 
+/* boot_disc: a bare name is a file in /oric/discs/, into drive A
+ * (design.md §10.7); PICO_ORIC_BOOT_DISC wins over the file's (EL §8.7).
+ * The machine is not built yet: discio keeps the drive, and core 0's
+ * power-on puts it in (discio_attach). */
+static void boot_disc(const settings_t *s) {
+    const char *name = s->boot_disc;
+#ifdef PICO_ORIC_BOOT_DISC
+    name = PICO_ORIC_BOOT_DISC;
+#endif
+    if (!name[0]) return;
+    char path[ORIC_PATH_MAX + sizeof SETTINGS_DISC_DIR];
+    if (strchr(name, '/')) snprintf(path, sizeof path, "%s", name);
+    else snprintf(path, sizeof path, "%s/%s", SETTINGS_DISC_DIR, name);
+    const char *err = discio_insert(NULL, 0, path);
+    if (err) settingsio_fail("boot_disc", err);
+    log_core1("  card         : boot_disc %s%s%s\n", path, err ? ": " : " in drive A",
+              err ? err : "");
+}
+
 void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
-               uint8_t image[ORIC_ROM_SIZE]) {
+               uint8_t image[ORIC_ROM_SIZE], uint8_t eprom[ORIC_EPROM_SIZE]) {
     if (!begin(j)) {
         settingsio_none(s);
         boot_machine(s, cfg);
+        cfg->microdisc = false;   /* no card, no EPROM */
         return;
     }
     /* The settings first: `rom` says which ROM to load (§10.7). */
@@ -239,6 +271,13 @@ void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
     boot_machine(s, cfg);
     boot_tape(s);
     card_roms_mounted(j, cfg->rom, image);
+    if (cfg->microdisc && !card_eprom(j, eprom)) {
+        cfg->microdisc = false;
+        settingsio_fail("microdisc", "no microdis.rom");
+        log_core1("  card         : the Microdisc is off: no %s by its SHA-1\n",
+                  romset_images[ROM_MICRODISC].file);
+    }
+    if (cfg->microdisc) boot_disc(s);
     storage_unmount();
 }
 

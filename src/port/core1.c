@@ -15,6 +15,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "discio.h"
 #include "display.h"
 #include "handoff.h"
 #include "kbd.h"
@@ -52,9 +53,10 @@ void core1_note(const char *text) {
 }
 
 /* The status line at the foot (§12), while it is on: the running ROM's
- * problem, if it has one, or the tape in the deck and whether it plays
- * or records (M14: the disc); or a
- * note, until it has been up for NOTE_US. Drawn only when it changes. */
+ * problem, if it has one; or the deck while it records or plays; or
+ * with the Microdisc, drive A's disc, and the drive a command runs on;
+ * or the tape in the deck; or a note, until it has been up for NOTE_US.
+ * Drawn only when it changes. */
 static void draw_status(void) {
     if (s_note[0]) {
         if ((int32_t)(time_us_32() - s_note_until) < 0) return;
@@ -67,6 +69,12 @@ static void draw_status(void) {
         if (rom[0]) snprintf(text, sizeof text, "%s", rom);
         else if (g_c0.deck == DECK_RECORDING) {
             snprintf(text, sizeof text, "Tape: recording");
+        } else if (g_c0.disc != DISC_OFF && g_c0.deck != DECK_PLAYING &&
+                   (discio_inserted(0)[0] || g_c0.disc != DISC_IDLE)) {
+            const char *d = discio_inserted(0), *b = strrchr(d, '/');
+            char busy[8] = "";
+            if (g_c0.disc != DISC_IDLE) snprintf(busy, sizeof busy, ", %c", 'A' + (int)g_c0.disc);
+            snprintf(text, sizeof text, "Disc: %.30s%s", d[0] ? (b ? b + 1 : d) : "none", busy);
         } else if (tape[0]) {
             const char *b = strrchr(tape, '/');
             snprintf(text, sizeof text, "Tape: %.33s%s", b ? b + 1 : tape,
@@ -117,9 +125,10 @@ static void show_rom(void) {
 static void boot_card(void) {
     display_status("");
     oric_config_t cfg;
-    card_boot(&g_boot.settings, &g_boot.job, &cfg, g_boot.image);
+    card_boot(&g_boot.settings, &g_boot.job, &cfg, g_boot.image, g_boot.eprom);
     g_boot.want = cfg.rom;
     g_boot.ram = cfg.ram;
+    g_boot.microdisc = cfg.microdisc;
 
     const settings_t *st = &g_boot.settings;
     g_ui.volume = st->volume;

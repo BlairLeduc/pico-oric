@@ -141,6 +141,7 @@ int main(void) {
     oric_config_default(&cfg);
     cfg.rom = g_boot.want;
     cfg.ram = g_boot.ram;
+    cfg.microdisc = g_boot.microdisc;
 
     /* Returns at once when the ROM is already here. */
     bool page = g_boot.job.loaded != cfg.rom;
@@ -160,10 +161,10 @@ int main(void) {
     audio_init();
 #endif
     core0_power_on(&g_oric, &cfg, g_boot.image);
-    log_printf("  guest        : %s, ROM %s%s, %lu cycles a field at %lu Hz, "
+    log_printf("  guest        : %s%s, ROM %s%s, %lu cycles a field at %lu Hz, "
                "hot code in SRAM to tier %u (hot.h)\n",
-               roms_machine_name(cfg.rom, cfg.ram), romset_images[cfg.rom].file,
-               g_boot.job.loaded_known ? "" : " (UNRECOGNISED)",
+               roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
+               romset_images[cfg.rom].file, g_boot.job.loaded_known ? "" : " (UNRECOGNISED)",
                (unsigned long)oric_field_cycles(&g_oric), (unsigned long)ORIC_CPU_HZ,
                (unsigned)PICO_ORIC_RAM_TIER);
 

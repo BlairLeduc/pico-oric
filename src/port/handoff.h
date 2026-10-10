@@ -76,9 +76,13 @@ typedef struct {
     rom_id_t   want;         /* the machine's ROM: the settings' and the
                                 build's (boot_machine)                    */
     oric_ram_t ram;          /* and its RAM, for the missing-ROM page     */
+    bool       microdisc;    /* and the Microdisc, if its EPROM is here   */
     settings_t settings;     /* what the card's file said, over the defaults */
     card_job_t job;          /* what the card had, and which was loaded   */
     uint8_t    image[ORIC_ROM_SIZE];   /* job.loaded's bytes              */
+    /* microdis.rom, read by the boot's job or the Machine page's Apply
+     * when the machine has the Microdisc (design.md §10.5). */
+    uint8_t    eprom[ORIC_EPROM_SIZE];
     uint32_t   ready_us;     /* core 1's bring-up done, since boot        */
     volatile bool     busy;        /* core 1: a job is running          */
     volatile bool     claimed;     /* core 0: job and image are mine    */
@@ -99,11 +103,17 @@ typedef struct {
     /* The deck, every field (design.md §10.4): DECK_IDLE, DECK_PLAYING
      * or DECK_RECORDING, for the status line. */
     uint32_t deck;
+    uint32_t disc;
 } core0_perf_t;
 
 #define DECK_IDLE      0u
 #define DECK_PLAYING   1u
 #define DECK_RECORDING 2u
+
+/* The disc, every field: the drive a command runs on, DISC_IDLE, or
+ * DISC_OFF without the Microdisc. */
+#define DISC_IDLE      0xFFu
+#define DISC_OFF       0xFEu
 
 extern volatile core0_perf_t g_c0;
 

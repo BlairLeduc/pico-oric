@@ -17,9 +17,11 @@
 
 #include "audio.h"
 #include "card.h"
+#include "discio.h"
 #include "handoff.h"
 #include "kbd.h"
 #include "log.h"
+#include "microdisc.h"
 #include "park.h"
 #include "roms.h"
 #include "settingsio.h"
@@ -147,13 +149,16 @@ static uint32_t requests(keymatrix_t *k, oric_t *m) {
 }
 
 /* The machine powered on as cfg with the ROM in `image` (design.md
- * §6.3): oric_init empties the socket, so the ROM goes in and the
- * machine powers on again, for the reset vector (oric.h). The AY's
- * samples take the PWM's real rate. */
+ * §6.3): oric_init empties the socket, so the ROM goes in, and with the
+ * Microdisc its EPROM, from g_boot.eprom, and the machine powers on
+ * again, for the reset vector (oric.h); the drives get their discs back
+ * (discio.h). The AY's samples take the PWM's real rate. */
 void core0_power_on(oric_t *m, const oric_config_t *cfg, const uint8_t image[ORIC_ROM_SIZE]) {
     oric_init(m, cfg);
     oric_load_rom(m, image, ORIC_ROM_SIZE);
+    if (m->cfg.microdisc) oric_load_eprom(m, g_boot.eprom, ORIC_EPROM_SIZE);
     oric_power_on(m);
+    discio_attach(m);
 #if PICO_ORIC_AUDIO
     uint32_t rate_num, rate_den;
     audio_rate(&rate_num, &rate_den);
@@ -278,6 +283,9 @@ void core0_run(oric_t *m, keymatrix_t *k) {
     unsigned page = 0;
     bool alt = false;
     uint32_t start_us = power_on_us;   /* the guest's power-on, for Ready */
+    /* The disc's parks, a track each (§15.2 M14). */
+    uint32_t disc_parks = 0, disc_park_max = 0;
+    uint64_t disc_parked_us = 0;
     park_init(m);
     (void)apply_ui(m);
 
@@ -309,13 +317,19 @@ void core0_run(oric_t *m, keymatrix_t *k) {
          * count its silence as consumed samples. After a hold, the menu
          * or a pause the keys start again from none held: theirs were not
          * the guest's. A screenshot's are, and their releases wait in the
-         * ring for it, as a tape request's do. A tape request goes first,
-         * then whatever the keys asked for. */
-        while (why != PARK_NONE || oric_tape_pending(m) || tapeio_wanted(m)) {
-            bool tape = oric_tape_pending(m) || tapeio_wanted(m);
-            uint32_t w = tape ? PARK_TAPE : why;
+         * ring for it, as a tape request's do. A disc's track goes first,
+         * then a tape request, then whatever the keys asked for. */
+        while (why != PARK_NONE || oric_disc_request(m) || oric_tape_pending(m) ||
+               tapeio_wanted(m)) {
+            bool disc = oric_disc_request(m) != NULL;
+            bool tape = !disc && (oric_tape_pending(m) || tapeio_wanted(m));
+            uint32_t w = disc ? PARK_DISC : tape ? PARK_TAPE : why;
             uint32_t parked = park(w, page, alt);
-            if (w != PARK_TAPE) {
+            if (w == PARK_DISC) {
+                disc_parks++;
+                disc_parked_us += parked;
+                if (parked > disc_park_max) disc_park_max = parked;
+            } else if (w != PARK_TAPE) {
                 if (w != PARK_SHOT) keymatrix_init(k);
                 why = PARK_NONE;
             }
@@ -332,8 +346,10 @@ void core0_run(oric_t *m, keymatrix_t *k) {
             sched_us = time_us_64() + 1000u;
             sched_cycles = 0;
 #endif
-            log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
-                       (unsigned long)parked);
+            /* A disc's park is every track: the heartbeat counts them. */
+            if (w != PARK_DISC)
+                log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
+                           (unsigned long)parked);
         }
 
         uint32_t t_busy = time_us_32();
@@ -408,6 +424,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
         if (turbo) turbo_fields++;
         bool deck = oric_cassette_running(m);
         g_c0.deck = m->cas.rec.on ? DECK_RECORDING : m->cas.playing ? DECK_PLAYING : DECK_IDLE;
+        g_c0.disc = !m->cfg.microdisc ? DISC_OFF : wd_busy(&m->fdc) ? m->fdc.drive : DISC_IDLE;
         if (deck && !deck_was) {
             deck_us = time_us_64();
             deck_cycles = m->cpu.cycles;
@@ -532,6 +549,18 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        (unsigned long)turbo_fields, (unsigned long)cas->edges,
                        (unsigned long)cas->files, (unsigned long)cas->rec.files,
                        (unsigned long)cas->rec.errors);
+            if (m->cfg.microdisc) {
+                const wd1793_t *f = &m->fdc;
+                log_printf("  disc         : %lu sectors read, %lu written, %lu tracks "
+                           "formatted; %lu tracks in, %lu out, %lu parks (%llu us, max %lu us); "
+                           "latch #%02X, head %u, track %u\n",
+                           (unsigned long)f->sectors_read, (unsigned long)f->sectors_written,
+                           (unsigned long)f->tracks_written, (unsigned long)discio_tracks(false),
+                           (unsigned long)discio_tracks(true), (unsigned long)disc_parks,
+                           (unsigned long long)disc_parked_us, (unsigned long)disc_park_max,
+                           (unsigned)m->md_latch, (unsigned)f->drv[f->drive].cyl,
+                           (unsigned)f->track);
+            }
 #if PICO_ORIC_AUDIO
             /* The consumed-sample rate against the microsecond timer is
              * the control quantity: it is the PWM wrap, measured, and it
