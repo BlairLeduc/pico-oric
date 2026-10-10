@@ -147,7 +147,7 @@ boot; without it neither gets past its RAM test.
 | PA0–PA7 | AY data/address bus; printer data | |
 | CA1 | printer ACK | |
 | CA2 | AY BC1 | settled by both ROMs' register write and by executing it (§16) |
-| CB1 | tape input | an edge interrupt the ROM's reader uses |
+| CB1 | tape input | an edge interrupt the ROM's reader uses; with the vertical-sync modification, the ULA's sync (M16, §11.1) |
 | CB2 | AY BDIR | |
 | PB0–PB2 | keyboard row select | through a 1-of-8 decoder |
 | PB3 | keyboard sense (input) | high while a key is down in the selected row, in a column AY port A enables with a zero bit (§16) |
@@ -222,7 +222,8 @@ has the consequences.
 ### 2.6 What the Oric does not have
 
 No video interrupt and no vertical-sync flag a program can read (a common
-owner's modification wires one to CB1; M16). No sound beyond the AY. No
+owner's modification wires one to CB1, built in M16 as a Machine-page row:
+§11.1). No sound beyond the AY. No
 disc without an add-on. No wait states: the ULA and the CPU are believed to
 take alternate halves of each cycle (§6.5).
 
@@ -541,9 +542,22 @@ diff (§13.4), each fixing a divergence from Oricutron and the datasheets:
   to take an IRQ at the end of that cycle, so an IRQ asserted in the last
   cycle waits for the next instruction. CLI, SEI and PLP keep their old I
   for that one poll (§5.1).
+- **A read in cycle k sees the VIA k ticks into the instruction, and a
+  write lands a tick later** (M16). The T1 a write starts counts from
+  there, which is M3's finding; a read in the last cycle sees the VIA as
+  the boundary leaves it. M3 had both a tick later, so a read in an
+  instruction's last cycle saw the next instruction's first tick, and a
+  flag that tick set was taken by this instruction's IRQ poll: a loop
+  polling T1's flag, and one writing the VIA, each parted from Oricutron
+  at their first interrupt that fell on it (§13.4). A write's tick past
+  the instruction's end is ticked back off by the run loop, and the flags
+  it set wait for the next poll (`via_late`).
 
 Nothing else is checked per instruction. The AY and the disc controller
-are brought up to date when accessed and at the field boundary. The tape
+are brought up to date when accessed and at the field boundary. The
+vertical-sync modification's two edges a field are events the slice ends
+at, as the player's are, and an access to the VIA brings them to its cycle
+(§11.1, `vsync.h`). The tape
 (§10.4) is brought up to date when the VIA is accessed, and the run slice
 ends at its next edge, or after every instruction while it records: idle,
 the slice is the field, and the deck costs 0.6–0.8 points of core 0
@@ -1165,6 +1179,18 @@ among the four drives. **Formatting is supported**: Sedoric's `INIT` formats
 a blank image (a header and unformatted tracks) through the chip's Write
 Track, so a new disc is a file made on a computer and formatted by the DOS.
 
+**A tape that loads over page 4 hangs with Sedoric resident**, as it does in
+Oricutron (2026-10-10, after M16). Sedoric points the ROM's IRQ vector in
+page 2 (`#0244`) at its own trampoline in page 4 (`JMP #0488`); a tape
+whose file covers `#0400`, Defence Force's Impossible Mission (`#0400–#BFDF`,
+autorun) among them, overwrites it, and the next interrupt runs into the
+game's bytes. The game then waits at `#73C5` for an interrupt with I set,
+for ever, the screen part drawn. Oricutron, loading the same tape by the
+signal under Sedoric 3.006, ends in the same loop (`trace-diff.py disc
+--tap`, `oricutron-trace -M`), and so does this core, by the trap and by
+the signal (`oric-corpus -d`). Play such a tape with the Microdisc off, as
+the owner found; the emulator does nothing to protect page 4.
+
 ### 10.6 Snapshots
 
 EL §8.5 as pico-ace built it: explicit little-endian fields, zero as reset,
@@ -1179,7 +1205,11 @@ section's reserved bytes, zero without a Microdisc: the latch, the WD1793's
 registers and lines, each drive's head and the chip's next event; a
 state records whether the Microdisc is fitted and is refused by the other
 fit, named, and is refused while a command runs or a track waits for the
-card. The discs are not in a state.
+card. The discs are not in a state. From M16 a state records whether the
+vertical-sync modification is fitted, refused by the other setting by
+name, and with it the pulse's lines, delay and width, refused when they
+differ; the pulse itself is worked out again from the boundary, where CB1
+is always high between two pulses.
 
 As built in M11 (`snapshot.h`): "PORCSNAP", version 1, a 320-byte state
 section and then `oric_t.ram` whole, the overlay included, so a file is
@@ -1206,8 +1236,9 @@ discs (§17).
 ### 10.7 Settings
 
 pico-ace's `settings.c` and rewriter with the Oric's keys: `rom` (`1.0`,
-`1.1`), `ram` (`16`, `48`), `microdisc` (`off`, `on`), `volume`, `perf`,
-`status`, `backlight`, `layout`, `fast_tape`, `boot_tape`, `boot_disc`.
+`1.1`), `ram` (`16`, `48`), `microdisc` (`off`, `on`), `vsync_hack` (`off`,
+`on`; M16), `volume`, `perf`, `status`, `backlight`, `layout`, `fast_tape`,
+`boot_tape`, `boot_disc`.
 EL §8.7's rules unchanged; build-time `PICO_ORIC_BOOT_*` win.
 
 ---
@@ -1222,14 +1253,31 @@ bit (§2.5). The ROM selects 50 Hz; some programs switch.
 
 `oric_run_field` ends each field **at the first active line**, where the
 snapshot is taken (EL §5.6): the ULA is then about to draw the frame from
-the top, and the snapshot is what it will draw. There is no vertical-sync
-flag or interrupt to split the field at (§2.6), so the field is one run,
-sliced only at VIA events (§5.3).
+the top, and the snapshot is what it will draw. That is line 0 of the
+ULA's counter: the picture is lines 0–223, and the sync lines 256–259 at
+50 Hz (§16, settled in M16). There is no vertical-sync flag or interrupt
+to split the field at (§2.6), so the field is one run, sliced only at VIA
+events (§5.3).
 
-Which line is the first active one, the number of active lines (224), and
-when a frequency change alters the field's length are unverified (§16).
-Until settled they are runtime configuration (EL §14.2), and the
-50/60 Hz length is applied from the next field.
+**The vertical-sync modification** (M16, `vsync.h`), a Machine-page row
+kept in the settings file, wires the sync to the tape input and so to
+CB1. CB1 is then the sync, not the tape: low 12 µs after line 256 begins
+(234 at 60 Hz), for 260 µs, Oricutron's pulse on the sync's line, two
+edges a field placed from the field's start. Both ROMs set the PCR to
+`#DD` at boot, CB1 on its rising edge, and their AY writes keep its CB1
+bit (`AND #11` before each `ORA`, `#F5A6` in 1.1), so at `Ready` the
+interrupt is the pulse's end; a program that wants its start clears the
+bit. The signal tape is
+disconnected while the row is on, and the Tapes page says so; the trap
+does not read CB1 and loads as before. The presenter still shows one
+snapshot a field, taken 52 lines (at 50 Hz) after the pulse ends, so a
+program that redraws in the sync is seen whole; mid-field raster effects
+stay out (§17).
+
+The number of active lines (224) and when a frequency change alters the
+field's length are unverified (§16), as is everything at 60 Hz. Until
+settled they are runtime configuration (EL §14.2), and the 50/60 Hz
+length is applied from the next field.
 
 ### 11.2 Turbo
 
@@ -1354,7 +1402,17 @@ traces for good, so the build script corrects them in its copy, by name:
 poll) and `ORICUTRON_BRANCH_PAGE` (a taken branch's page cycle counted from
 its opcode, not the next instruction). A third, `ORICUTRON_VIA_AHEAD`
 (the VIA clocked by an instruction before it runs), has not yet shown in a
-trace.
+trace. M16 adds two for its VSync hack: `ORICUTRON_VSYNC_LINE` (the pulse
+started at its raster's wrap, 44 lines before the picture it centres; moved
+to the sync's line, counted from the line's own cycle) and
+`ORICUTRON_VSYNC_COARSE` (CB1 set to the level the pulse has at the start
+of the instruction about to run; set to its level at the instruction's
+end, as a timer's flag is). `trace-diff.py run --vsync` turns the hack on
+in both, puts a test program in RAM before the keys and calls it: CB1's
+falls polled with interrupts masked, then its rises taken by an interrupt
+handler ahead of the ROM's, on all four machines. `--test` puts the
+program in without the hack, for its loops that poll T1's flag and write
+the VIA (§5.3).
 
 - **Resync or keep the same time**: Oricutron's VIA and ULA are
   cycle-based, so the two should keep the same time from reset; a
@@ -1730,7 +1788,7 @@ date, in this table when it changes.
 | Overlay RAM under the ROM, `/ROMDIS` | 48K machines only | schematic; Microdisc schematic | medium. BN0130: `ROMDIS` (PL2 2) disables the ROM's chip select (IC9, a 23128, or two 2764s through IC11) against a pull-up; `MAP` (PL2 1) goes to the ULA (pin 26). Brown: with `MAP` low the ULA maps RAM at `#C000–#FFFF` (and, he says, no RAM below it). The service manual (§3) settles the main board's side: `MAP` with `#C000–#FFFF` addressed inhibits the ROM and enables the whole 64 KiB of RAM, so the overlay RAM appears (the Microdisc's DOS lives there); `MAP` with `#0000–#BFFF` addressed inhibits all RAM for an expansion's memory. `MAP` is a 250 ns low pulse leading Φ2 by 80–100 ns. **Executed** 2026-10-10 (M14): with the latch's bit 1 clear the overlay RAM at `#C000–#FFFF`, under the EPROM at `#E000` while bit 7 is clear, and writes to the ROM's or the EPROM's addresses lost, as MAME's views and Oricutron's handlers both have it; Sedoric boots, runs from the overlay and calls the BASIC ROM by setting bit 1, in both ROMs (`test_disc`). The Microdisc's schematic (BN0136) has not been read: medium-high |
 | VIA decode | `#0300–#030F`, mirrored through `#03FF` unless `/I/O CONTROL` | schematic | **settled** 2026-10-08 from the service manual (§3, "I/O and Expansion"): the ULA asserts `I/O` for every address `#0300–#03FF`, which enables the VIA (IC6) and goes to PL2; an expansion answering in the page must assert `I/O CONTROL` to inhibit the VIA. So the VIA answers throughout the page, registers on A0–A3 (its RS0–RS3). Brown and BN0130 agree; Oricutron decodes the same way |
 | AY wiring | BC2 high; BC1, BDIR from the VIA; data on PA | schematic | **settled** 2026-10-08 from BN0130 (sheet 1): AY pin 20 (BC1) to VIA pin 39 (CA2), pin 18 (BDIR) to VIA pin 19 (CB2), BC2 (pin 19) to +5 V, DA0–DA7 (28–21) to PA0–PA7 (VIA 2–9), IOA0–IOA7 (14–7) to the keyboard connector as COL 0–7, CLOCK (15) from the 6502's Φ1, so 1 MHz. Agrees with both ROMs, read and executed |
-| VIA access timing and the IRQ poll | | datasheets; trace vs Oricutron | **settled** 2026-10-08 by trace (§5.3, §13.4): the VIA is brought to the cycle of an access part-way into an instruction, and runs two cycles behind the CPU at boundaries. With both, boot and typing agree with Oricutron (its two errata corrected) on all four machines |
+| VIA access timing and the IRQ poll | | datasheets; trace vs Oricutron | **settled** 2026-10-08 by trace (§5.3, §13.4): the VIA is brought to the cycle of an access part-way into an instruction, and runs two cycles behind the CPU at boundaries. With both, boot and typing agree with Oricutron (its two errata corrected) on all four machines. **Refined** 2026-10-10 (M16): a read in cycle k sees the VIA k ticks on, a write lands k + 1, and the flags a write's tick past the instruction's end sets wait for the next poll. Before, a read was k + 1 too; a loop polling T1's flag (`LDA IFR : AND : BEQ`) and one writing T2's latch (`STA : JMP`) each parted from Oricutron at the first interrupt that fell on that tick, and agree to the end after, with the boot traces unchanged (`test_bus`, with controls). Two emulators, not hardware: medium-high |
 | CA2 / CB2 to BC1 / BDIR | CA2 = BC1, CB2 = BDIR | schematic; the ROM's AY routine, executed | **settled** 2026-10-08, and confirmed by BN0130 the same day (the AY wiring row): both ROMs' register write (`#F535` in 1.0, `#F590` in 1.1) sets the PCR to `#EE` (both high: latch) then `#EC` (CA2 low, CB2 high: write); executed by `test_ay8912`, whose swapped-wiring control fails, and by typing through both ROMs |
 | AY port A to keyboard columns; PB3 sense polarity | as §2.3 | schematic; ROM's scan, executed | **settled** 2026-10-08: both scans (`#F4C8`/`#F506` in 1.0, `#F523`/`#F561` in 1.1) write port A with one zero bit per column (`#7F`, `#BF`, …), the row to PB0–PB2 with ORB = row \| `#B8`, and take PB3 **high** as a key down; reg 7 bit 6 makes port A an output. Executed: `PRINT 2+2` typed through the matrix prints 4 on all four machines, and an inverted PB3 fails it |
 | Keyboard matrix | §2.4 | **both ROMs, executed** (M5) | **settled** 2026-10-08 by M5's sweep (`test_keyboard`): every one of the 64 cells pressed at the prompt in both ROMs, alone, with each SHIFT, with CTRL and with FUNCT, and the decoder's result caught where the interrupt handler stores it (`STX #02DF`, `#FC64` in 1.0, `#EE68` in 1.1) and read back from the screen. The ROMs agree in every cell, and with their 128-byte tables (column × 8 + row, unshifted then shifted, `#FF70` in 1.0, `#FF78` in 1.1). The keyboard drawing BN0138 agrees in the three columns checked against it (2, 4 and 5): rows from a 4051B addressed by PB0–PB2, whose common line is the sense (PL3 13), columns from AY port A (PL3 1–5, 9, 11, 12). A planted swap of two cells fails the sweep |
@@ -1740,8 +1798,9 @@ date, in this table when it changes.
 | T1 interrupt period | 10,000 cycles (100 Hz) | ROM, executed | **settled** 2026-10-08: both ROMs load T1's latch with `#2710` in free-run mode and enable T1 alone (`IER` = `#40`), so the period is 10,002 cycles (latch + 2), 99.98 Hz; `test_boot` counts 99–100 handler entries a second, and the service manual's waveform for the VIA's IRQ (pin 21, measured on an Atmos) shows a pulse every 10 ms, low for 25–30 µs. The IRQ vector points at page 2 (`#0244` in 1.1, `#0228` in 1.0) |
 | VIA and AY on the reset line; reset button is NMI | yes; yes | schematic | **settled** 2026-10-08 from BN0130: the AY's RESET (pin 16) and the VIA's RST (pin 34) are on the 6502's RST line (pin 40), with the expansion's `RESET` (PL2 4); SW1, marked RESET, pulls the 6502's NMI (pin 6) to 0 V against R6. Executed the same day: NMI warm-starts both ROMs (screen cleared, program kept), RESET cold-starts them |
 | Field length | 312 / 264 lines × 64 cycles | ULA documentation; Oricutron; MAME | medium. 50 Hz: Brown measured 64 µs lines and the counter resets at 312; Oricutron agrees. **60 Hz disputed**: Brown resets at 260 lines (16,640 cycles), Oricutron runs 264 ("260 + 4 VSync"). Configuration until measured (`oric_config_t`) |
-| First active line; active lines | ?; 224 | ULA documentation | low-medium. Brown: the picture is lines 0–223 of the counter, with blanking and sync after (sync 4 lines long); Oricutron centres the picture instead (from line 44 at 50 Hz). Software cannot see the counter; it matters for the vertical-sync modification and T1-timed raster tricks. To settle in M16 |
+| First active line; active lines | line 0 of the counter; 224 | ULA documentation | **settled** for 50 Hz 2026-10-10 (M16), medium-high. Brown's "External Signals Timing Diagram — Video" (v1.02, sheet 2, "actual measured figures"): the picture is lines 0–223, bottom blank 224–255, the sync 256–259 with no serrations, top blank 260–311, and the counter resets at 312; Clock Signal's `Video.cpp` (read 2026-10-10) has the same, 256–259. So the field's boundary is line 0, and the sync begins 256 lines after it. Brown's equations (`VSYNC = V8 AND V2`, lines 260–263) disagree with his own measurement and are not used; the diagram cannot place the sync within a line, and line 256's start is taken. Oricutron centres its picture (from line 44) and starts its pulse at its wrap, 12 lines later in the frame than Brown's sync (`ORICUTRON_VSYNC_LINE`, §13.4). **60 Hz**: low. Brown gives no 60 Hz figures; Clock Signal has the sync at 234–237 of 264 lines, and `vsync_line_60hz` is 234 until measured |
 | When a mode attribute takes effect | from the next cell, mode persists across fields | ULA documentation; Oricutron | **bounded** 2026-10-08 (M4): Oricutron's `ula.c` and MAME's `oric.cpp` (`screen_update_oric`, read at `e4c1c2b`) agree: the attribute's own cell shows paper, the fetch moves to the new mode's line from the next cell, and the mode lasts across lines and into the next field. `ula.c` does the same, and the `mode_split` golden equals Oricutron's drawing of it. Two emulators, not hardware: medium |
+| The vertical-sync modification's pulse on CB1 | low 12 µs after the sync begins, for 260 µs | the modification's drawing; a scope | low, 2026-10-10 (M16). The modification's own drawing was not found (searched 2026-10-10); Oricutron's `ula.c` draws the waveform it models, CB1 low 12 µs after the RGB socket's vertical sync falls and for 260 µs, which reads as the composite sync's four lines through the tape input's filter; Clock Signal puts CB1 at the inverted sync, 256 µs and no delay. Oricutron's is built, as `oric_config_t`'s `vsync_delay` and `vsync_low`; executed against Oricutron line for line on all four machines (§13.4) |
 | When a 50/60 Hz change alters the field | the next field | ULA documentation | low. Oricutron applies the frequency bit at its raster's wrap, so a change drawn in one frame lengthens the next; `oric_run_field` scans each frame at the field's end and applies what it finds to the next field (`test_field`, M4). Nothing settles which line the wrap is on |
 | Attribute groups | §2.5 | Oric Advanced User Guide; ULA documentation; executed | medium-high. Oricutron and MAME decode the four groups by bits 4–3 alike, and both ROMs start each line with `#17 #00` (paper white, ink black), executed in M4 |
 | Hires: bytes `#20–#3F` and `#A0–#BF` | pixels from bits 0–5 | ULA documentation; golden vs Oricutron | medium, 2026-10-08 (M4). Brown's decoder takes any byte with bit 6 clear as an attribute, which cannot be right in text mode (space is `#20`); Oricutron and MAME both test bits 6 and 5 in either mode, and `ula.c` does. All three agree that hires ends at line 200 whatever the attributes, and that the whole screen, the text window included, takes its character set from `#9800` in hires mode; the `hires` golden equals Oricutron's |
@@ -1781,7 +1840,7 @@ Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
 | Telestrat, Pravetz 8D | dropped | different machines, not configurations of these two |
 | Printer (Centronics on PA) | dropped | no known software dependency; PA and PB4 are modelled as the VIA's pins, unconnected |
 | Joystick interfaces (IJK, PASE, Altai) | deferred | keyboard layouts cover games that also read keys; revisit if the corpus shows titles that read only a joystick (M12's run did not look: M15's layouts will) |
-| The vertical-sync modification (sync to CB1) | M16 | an owner's modification some demos use; cheap to add as a setting once the first active line is settled, which M16 does first |
+| The vertical-sync modification (sync to CB1) | built in M16 | an owner's modification some demos use: a Machine-page row (§11.1) |
 | Mid-field raster effects | deferred | the snapshot is one point in the field (§7). A per-line record is the path if a known title needs it |
 | Undocumented 6502 opcodes | not implemented | M12's corpus shows no title using one on purpose (§5.1); a title that needs them reopens it |
 | Scaled display | dropped | 240×224 fits 1:1 (EL §5.4) |
@@ -1861,7 +1920,12 @@ To obtain and record (with revision or date) before transcribing constants:
   Guide"**, v1.02, 1 June 1996 (<http://oric.free.fr/HARDWARE/ula.html>).
   A reconstruction from observed behaviour, with line and sync timings
   measured by oscilloscope on a real Oric; it says itself that it is not
-  authoritative. Trust its measurements over its internal logic.
+  authoritative. Trust its measurements over its internal logic. *Read
+  2026-10-10 (M16):* its sheet 2, "External Signals Timing Diagram —
+  Video" (`timing2.gif`, dated 28/05/96), for the vertical timing (§16),
+  and Clock Signal's `Machines/Oric/Video.cpp` (Thomas Harte, MIT; master,
+  read on GitHub) for the same at 50 and 60 Hz. The vertical-sync
+  modification's own drawing was not found.
 - **Oric Advanced User Guide** (Leycester Whewell, 1983) and the **Oric
   Atmos manual**: memory map, attributes, sound commands, keyboard.
 - **A commented ROM disassembly** of BASIC 1.0 and 1.1 (*L'Oric à nu*, and

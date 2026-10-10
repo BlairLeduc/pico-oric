@@ -29,6 +29,7 @@ typedef struct {
     rom_id_t   rom;         /* ROM_BASIC10 or ROM_BASIC11 (§10.2)       */
     oric_ram_t ram;         /* 16K or 48K (§6.2)                        */
     bool       microdisc;   /* the Microdisc fitted (§10.5, M14)        */
+    bool       vsync_hack;  /* the vertical-sync modification (M16)     */
     unsigned   volume;      /* 0-8, as the menu shows it                */
     bool       perf;        /* the perf line above the guest (§7.5, §14) */
     bool       status;      /* the status line below it (§12)           */

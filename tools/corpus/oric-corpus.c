@@ -1,7 +1,7 @@
 /* oric-corpus.c — M12's corpus run: archive tapes loaded and run on the
  * host, one line each (design.md §15, M12; §5.1).
  *
- *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] TAPE...
+ *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-d DSK] TAPE...
  *
  * Each tape gets a machine of its own, copied from one booted to Ready.
  * A TAPE is a .tap, or a directory of a title's parts, whose deck starts
@@ -26,7 +26,11 @@
  * an instruction at a time, so every one is counted by opcode, with the
  * first PC each was seen at. The CB1 interrupt enabled while the PC is
  * outside the ROM is noted: the vertical-sync modification's titles, for
- * M16 (design.md §15).
+ * M16 (design.md §15). -v fits the modification (vsync.h); with it the
+ * tape is still the trap's, which does not read CB1. -d fits the
+ * Microdisc with DSK in drive A, a DOS, booted for 15 s and left by X
+ * (Sedoric's menu) before the tape, the disc served every field as
+ * discio serves the card's and written in memory only (M14).
  *
  * One line per tape on stdout, tab-separated:
  *   name  machine  outcome  files  bytes  undoc  opcodes  cb1  mode  note
@@ -44,6 +48,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include "disc_util.h"
 #include "guest.h"
 #include "m6502.h"
 #include "tap.h"
@@ -95,6 +100,8 @@ typedef struct {
 } run_log_t;
 
 static guest_t    s_booted;
+static host_disc_t s_disc;
+static host_disc_t *s_drives[ORIC_DISC_DRIVES];
 static guest_t    g;
 static oric_t     s_field_start, s_replay;
 static deck_t     s_deck;
@@ -322,6 +329,7 @@ static void field(void) {
         s_rl.cb1_pc = g.m.cpu.pc;
     }
     serve(&g.m);
+    if (s_drives[0]) host_disc_serve(&g.m, s_drives);
     s_field++;
 }
 
@@ -514,6 +522,8 @@ int main(int argc, char **argv) {
     oric_ram_t ram = ORIC_RAM_48K;
     long fields = 3000;
     const char *shots = NULL;
+    bool vsync_hack = false;
+    const char *dsk = NULL;
     int i = 1;
     for (; i < argc && argv[i][0] == '-'; i++) {
         if (!strcmp(argv[i], "-r") && i + 1 < argc)
@@ -526,17 +536,60 @@ int main(int argc, char **argv) {
             shots = argv[++i];
         else if (!strcmp(argv[i], "-t"))
             s_signal = true;
+        else if (!strcmp(argv[i], "-v"))
+            vsync_hack = true;
+        else if (!strcmp(argv[i], "-d") && i + 1 < argc)
+            dsk = argv[++i];
         else {
-            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...\n");
+            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-d DSK] TAPE...\n");
             return 2;
         }
+    }
+    if (dsk && ram == ORIC_RAM_16K) {   /* the overlay RAM is a 48K machine's (microdisc.h) */
+        fprintf(stderr, "oric-corpus: -d needs -m 48\n");
+        return 2;
     }
     const char *dir;
     if (!guest_find_roms(&dir)) {
         fprintf(stderr, "oric-corpus: no BASIC ROMs in %s\n", dir);
         return 77;
     }
-    if (!guest_boot(&s_booted, rom, ram)) {
+    oric_config_t cfg;
+    oric_config_default(&cfg);
+    cfg.rom = rom;
+    cfg.ram = ram;
+    cfg.vsync_hack = vsync_hack;
+    cfg.microdisc = dsk != NULL;
+    oric_init(&s_booted.m, &cfg);
+    oric_load_rom(&s_booted.m, guest_rom_image(rom), ORIC_ROM_SIZE);
+    if (dsk) {
+        const char *why = host_disc_load(&s_disc, dsk);
+        if (why || !guest_have_rom(ROM_MICRODISC)) {
+            fprintf(stderr, "oric-corpus: %s: %s\n", dsk, why ? why : "no microdis.rom");
+            return 2;
+        }
+        s_drives[0] = &s_disc;
+        oric_load_eprom(&s_booted.m, guest_rom_image(ROM_MICRODISC), ORIC_EPROM_SIZE);
+    }
+    oric_power_on(&s_booted.m);
+    if (dsk) {
+        host_disc_insert(&s_booted.m, 0, &s_disc);
+        s_booted.rom = rom;
+        keymatrix_init(&s_booted.k);
+        for (int f = 0; f < 750; f++) {
+            guest_fields(&s_booted, 1);
+            host_disc_serve(&s_booted.m, s_drives);
+        }
+        guest_type(&s_booted, "X");
+        for (int f = 0; f < 250 && !keymatrix_idle(&s_booted.k); f++) {
+            guest_fields(&s_booted, 1);
+            host_disc_serve(&s_booted.m, s_drives);
+        }
+        for (int f = 0; f < 100; f++) {
+            guest_fields(&s_booted, 1);
+            host_disc_serve(&s_booted.m, s_drives);
+        }
+    } else if (!guest_have_rom(rom) || !guest_boot_machine(&s_booted)) {
         fprintf(stderr, "oric-corpus: the machine did not reach Ready\n");
         return 1;
     }

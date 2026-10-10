@@ -127,12 +127,12 @@ int main(void) {
     const settings_t *st = &g_boot.settings;
     const char *err = settingsio_error();
     log_printf("  settings     : card %s, file %s%s%s, %lu us; rom %s, ram %s, microdisc %s, "
-               "volume %u, perf %s, status %s, backlight %u, layout %s, fast_tape %s, "
+               "vsync_hack %s, volume %u, perf %s, status %s, backlight %u, layout %s, fast_tape %s, "
                "boot_tape %s, boot_disc %s; booting the %s%s\n",
                card_state_str(g_boot.job.state), settingsio_state_str(settingsio_state()),
                err[0] ? ": " : "", err, (unsigned long)g_boot.job.settings_us,
                settings_rom_str(st->rom), settings_ram_str(st->ram), st->microdisc ? "on" : "off",
-               st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
+               st->vsync_hack ? "on" : "off", st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
                st->layout[0] ? st->layout : "standard", st->fast_tape ? "on" : "off",
                st->boot_tape[0] ? st->boot_tape : "none", st->boot_disc[0] ? st->boot_disc : "none",
                roms_machine_name(g_boot.want, g_boot.ram),
@@ -142,6 +142,7 @@ int main(void) {
     cfg.rom = g_boot.want;
     cfg.ram = g_boot.ram;
     cfg.microdisc = g_boot.microdisc;
+    cfg.vsync_hack = g_boot.vsync_hack;
 
     /* Returns at once when the ROM is already here. */
     bool page = g_boot.job.loaded != cfg.rom;
@@ -161,9 +162,10 @@ int main(void) {
     audio_init();
 #endif
     core0_power_on(&g_oric, &cfg, g_boot.image);
-    log_printf("  guest        : %s%s, ROM %s%s, %lu cycles a field at %lu Hz, "
+    log_printf("  guest        : %s%s%s, ROM %s%s, %lu cycles a field at %lu Hz, "
                "hot code in SRAM to tier %u (hot.h)\n",
                roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
+               cfg.vsync_hack ? " with the VSync hack" : "",
                romset_images[cfg.rom].file, g_boot.job.loaded_known ? "" : " (UNRECOGNISED)",
                (unsigned long)oric_field_cycles(&g_oric), (unsigned long)ORIC_CPU_HZ,
                (unsigned)PICO_ORIC_RAM_TIER);

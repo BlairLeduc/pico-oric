@@ -4,6 +4,107 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M16, the vertical-sync modification** (`src/core/vsync.*`; the run
+loop's slice and the bus's catch-up in `oric.c` and `bus.c`; the player
+off CB1 in `cassette.c`; `oric_config_t`'s `vsync_hack` and the pulse's
+four numbers; the hack and the pulse in `snapshot.c`; the `vsync_hack`
+setting; the Machine page's row, the Tapes page's note and the refusal
+by name in `menu.c`; `PICO_ORIC_BOOT_VSYNC`; the heartbeat's `vsync`
+line; `test_vsync`; `oric-trace -v`, `oricutron-trace -v` and `-V`, the
+key script's `poke`, `trace-diff.py run --vsync` and `--test`, `tape
+--vsync`, `oric-corpus -v`), built 2026-10-10 (Pico SDK 2.3.1,
+arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day, **done**: every done-when item is
+checked, the last by the owner, who played Oricium (Defence Force, 1.2),
+a game that wants the vsync cable, with the hack on a Pico 2 W the same
+day, and it works. **The first active line, settled** for 50 Hz from
+Brown's measured video timing (sheet 2 of his ULA guide): the picture is
+lines 0–223 of the counter and the sync 256–259, so the field's boundary
+is line 0 and the sync begins 256 lines after it; Clock Signal's
+`Video.cpp` agrees, and gives 234–237 of 264 at 60 Hz, taken until
+measured (design.md §16). The pulse on CB1 is Oricutron's, 12 µs after
+the sync begins, for 260 µs; the modification's own drawing was not
+found. The field and the ULA's count both start at the first
+instruction, after the reset's seven cycles; Oricutron's raster does
+too. **Found on the way, in the VIA**: a read in an instruction's last
+cycle caught the VIA up a tick past the instruction's end (M3's
+`io_at + 1`), and a write in its last cycle did the same, so a flag
+that tick set was taken by this instruction's IRQ poll. A loop polling
+T1's flag, and one writing T2's latch seven cycles a turn, each parted
+from Oricutron at their first interrupt on that tick; the boot and
+typing traces never showed it. A read now catches up to its cycle, a
+write a tick further, and the run loop holds back what a write's tick
+past the boundary set (`via_late`); both loops then agree with
+Oricutron to the end (968 interrupts in the write loop), and the four
+boot traces are unchanged (design.md §5.3, EL §4.3). **Checked on the
+host** (`test_vsync`, no ROM, so CI runs it): each edge's cycle found by
+a loop polling the CB1 flag entered at all nine phases of its nine-cycle
+loop, the brackets meeting in one cycle, for the fall and the rise in
+two fields at 50 Hz and at 60 (a 60 Hz attribute found by the mode
+scan); the controls, the fall a cycle late (delay 13) and the rise
+alone a cycle late (width 261), each move the found cycle by one; off,
+no pulse; on, a tape played by hand drives CB1 not at all, eight changes
+in four fields, where without the hack every edge is CB1's; an
+interrupt handler entered at the same instructions by oric_run_field's
+long slices and by single steps, both edges, 40 fields; a state saved
+with the hack resumes the same pulse and the same interrupts, is
+refused without the hack (named) and by another pulse, and one without
+it is refused with it. `test_bus`: T1's flag first seen by a polling
+read the latch + 2 after its write at all nine phases, and its
+interrupt across a VIA write taken at the first boundary at or after
+the flag at all seven phases. **Traced line for line against
+Oricutron** (its VSync hack on, `ORICUTRON_VSYNC_LINE` and
+`ORICUTRON_VSYNC_COARSE` corrected, design.md §13.4) on all four
+machines: a test program poked into RAM waits on CB1's fall ten times
+with interrupts masked, then installs a handler ahead of the ROM's and
+counts the rises, about 180 interrupts a run, 3.3–3.4 M instructions;
+the fall a cycle late, the rise kept, parts the traces on both ROMs,
+and so does the rise a cycle late. With the hack off the four boot
+traces and the goldens are unchanged. **Planted**, each failing a test
+and then removed (each file recompiled by deleting its object: an edit
+restored inside the same second as a build was left stale, which spoiled
+a first run): no slice end at the sync; no catch-up at a VIA read; reads
+a tick past the boundary again (`test_bus`); the tape still on CB1; no
+restart on load; no 60 Hz line at the boundary; the rise's field from the
+power-on length; the snapshot ignoring the hack; the late flag not held
+back (`test_bus`); the snapshot keeping no pulse shape. **The archive**
+(`out/m16/corpus`): the three titles M12 saw enabling CB1's interrupt
+outside the ROM, all on 1.0, are not the modification's: Star crashes
+into data with or without it, as do Arpy's MYM player and Zoom.cod, a
+part of Oric Demo 1. All 1,061 tapes run on both 48K machines with the
+hack and without, screens compared: on 1.1 one title needs it, Dbug's
+DOTSRECORD, "Proof Of Concept #1, Double buffered sinus Dots @50hz"
+(2006), which says "No input, Please connect Vsync" without it and
+"Working: 836 - 1172" with it; Oricutron, loading it by the signal and
+then turning its hack on, says "836 - 1171", with its own pulse position
+and with ours, so the figure does not tell the line. Three more, Dig Dog
+(Oric-1), Galaxy and SEAWOLF, have loaders of their own on CB1 and
+follow the sync instead of the tape, as on a modified machine; on 1.0
+two (JMOVIE2, Arpy) differ, both already running into data.
+**On the board** (`out/m16/board`): `PICO_ORIC_BOOT_VSYNC`, the Atmos 48K,
+one pulse a field in the heartbeat (11,045 in 11,045 fields), rt 1.000;
+the test program's install typed over the UART as BASIC (`vsync-irq.bas`)
+counts 47–51 CB1 interrupts a second at `Ready`, IER `#D0`. DOTSRECORD
+was not on the card then (`cannot open`), and was copied to it
+afterwards as `/oric/tapes/DOTSRECORD.tap`. **The owner's check**: Oricium
+1.2 (`Oricium12.tap`, SHA-1 `675c4669…`, not in TOSEC, which predates it)
+played with the hack on a Pico 2 W, the first run of this firmware on a
+second board. On the host (`out/m16/oricium`) the Atmos 48K without the
+hack stops at "PLUG VSYNC CABLE OR PRESS A KEY", and with it goes
+straight to its menu.
+**Measured**, one sitting, M12's workloads on the card's Oric-1 16K with
+the hack on (`build/m16-vsync`) against the same tree without it
+(`out/m16/perf`): idle 31.5% against 31.4%, compute 37.8% and 37.8%,
+sound 38.8% against 38.7%, scroll at 60 Hz 36.0% and 36.0%, rt 1.000
+and no underruns in all. Image 172,848 bytes text, bss 308,468.
+The owner set the hack on the Machine page, with the Microdisc off, and
+did not save the settings (the card's file has no `vsync_hack` line), so
+the row and *Apply and restart* are checked on the panel. **Not
+checked**: DOTSRECORD on the board; the Tapes page's note and the
+snapshot refusal on the panel; anything at 60 Hz against a measurement,
+or against Oricutron, whose trace never leaves 50 Hz; the release build
+on the board.
+
 **M14, the Microdisc** (`src/core/wd1793.*`, `microdisc.*`, `mfmdisk.*`;
 the latch's map in `oric.c` and the decode in `bus.c`; the run loop's
 slice cut moved from the cassette to the machine; the overlay RAM's

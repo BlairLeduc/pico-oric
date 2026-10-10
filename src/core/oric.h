@@ -10,7 +10,8 @@
  * field. M4 adds the ULA's mode and the frame handed to the presenter;
  * M8 the AY's sound, box-filtered into PCM a field at a time (§8); M10
  * the tape's traps (§10.3); M11 the restore after a snapshot (§10.6);
- * M13 the signal (§10.4); M14 the Microdisc (§10.5).
+ * M13 the signal (§10.4); M14 the Microdisc (§10.5); M16 the
+ * vertical-sync modification (vsync.h).
  */
 #ifndef PICO_ORIC_ORIC_H
 #define PICO_ORIC_ORIC_H
@@ -28,6 +29,7 @@
 #include "tape.h"
 #include "ula.h"
 #include "via6522.h"
+#include "vsync.h"
 #include "wd1793.h"
 
 /* Page descriptor flags (§6.1). */
@@ -67,6 +69,16 @@ typedef struct {
     /* The Microdisc on the expansion port (§10.5): a 48K machine only;
      * on a 16K one it is left out. */
     bool       microdisc;
+    /* The vertical-sync modification: CB1 is the ULA's sync, not the
+     * tape (vsync.h). Its pulse, from the first active line: the sync's
+     * line at each frequency, then Oricutron's delay and width, all
+     * cycles but the lines (§16: the 60 Hz line low, the pulse's shape
+     * Oricutron's). */
+    bool       vsync_hack;
+    uint16_t   vsync_line_50hz;   /* 256 */
+    uint16_t   vsync_line_60hz;   /* 234 */
+    uint16_t   vsync_delay;       /* 12  */
+    uint16_t   vsync_low;         /* 260 */
 } oric_config_t;
 
 typedef struct oric_s {
@@ -83,6 +95,10 @@ typedef struct oric_s {
      * PB6 (cassette.h). Not machine state: a snapshot leaves it, and a
      * load stops it. */
     cassette_t cas;
+
+    /* The ULA's sync on CB1, while the modification is fitted (vsync.h).
+     * Worked out from the field's start, not saved. */
+    vsync_t   vs;
 
     /* The Microdisc (§10.5, microdisc.h): its controller, the latch
      * last written to #0314, and its EPROM, which the port loads. */
@@ -123,6 +139,10 @@ typedef struct oric_s {
     /* Cycles of the current instruction the VIA has already been ticked
      * through, to reach an access part-way into it (§5.3). */
     uint32_t via_early;
+    /* The VIA's flags a write's extra tick set (oric_via_catch_up): when
+     * that tick is past the instruction's end, they are the next
+     * instruction's IRQ poll's, not this one's. */
+    uint8_t via_late;
 
     /* A device's next event moved earlier inside a run slice (the
      * relay closed, a disc command began): the slice ends after this
@@ -202,8 +222,9 @@ void oric_key_set(oric_t *m, int row, int col, bool down);
 void oric_io_changed(oric_t *m);
 
 /* Before an access to page #03 part-way into an instruction: tick the
- * VIA through the instruction's cycles before the access (§5.3). */
-void oric_via_catch_up(oric_t *m);
+ * VIA through the instruction's cycles before the access, and for a
+ * write one more (§5.3). */
+void oric_via_catch_up(oric_t *m, bool write);
 
 /* The port's sample rate, as the exact fraction rate_num / rate_den Hz
  * (§8.4). The samples not yet drained are kept. oric_init starts at the

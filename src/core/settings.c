@@ -14,6 +14,7 @@ void settings_default(settings_t *s) {
     s->rom       = cfg.rom;
     s->ram       = cfg.ram;
     s->microdisc = false;
+    s->vsync_hack = false;
     s->volume    = 8u;
     s->perf      = false;
     s->status    = true;
@@ -97,11 +98,11 @@ static settings_status_t layout(settings_t *s, const char *v) {
 
 /* Every setting the file may give, in §10.7's order. Only the boot tape
  * and disc may be left empty, meaning none. */
-enum { K_ROM, K_RAM, K_MICRODISC, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT,
+enum { K_ROM, K_RAM, K_MICRODISC, K_VSYNC_HACK, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT,
        K_FAST_TAPE, K_BOOT_TAPE, K_BOOT_DISC, K_COUNT };
 
 static const char *const k_names[K_COUNT] = {
-    "rom", "ram", "microdisc", "volume", "perf", "status", "backlight", "layout",
+    "rom", "ram", "microdisc", "vsync_hack", "volume", "perf", "status", "backlight", "layout",
     "fast_tape", "boot_tape", "boot_disc",
 };
 
@@ -111,6 +112,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_ROM:       return rom(s, v);
     case K_RAM:       return ram(s, v);
     case K_MICRODISC: return on_off(v, &s->microdisc);
+    case K_VSYNC_HACK: return on_off(v, &s->vsync_hack);
     case K_VOLUME:    return number(v, 0u, 8u, &s->volume);
     case K_PERF:      return on_off(v, &s->perf);
     case K_STATUS:    return on_off(v, &s->status);
@@ -237,6 +239,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_ROM:       return a->rom == b->rom;
     case K_RAM:       return a->ram == b->ram;
     case K_MICRODISC: return a->microdisc == b->microdisc;
+    case K_VSYNC_HACK: return a->vsync_hack == b->vsync_hack;
     case K_VOLUME:    return a->volume == b->volume;
     case K_PERF:      return a->perf == b->perf;
     case K_STATUS:    return a->status == b->status;
@@ -255,6 +258,7 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_ROM:       return settings_rom_str(s->rom);
     case K_RAM:       return settings_ram_str(s->ram);
     case K_MICRODISC: return s->microdisc ? "on" : "off";
+    case K_VSYNC_HACK: return s->vsync_hack ? "on" : "off";
     case K_VOLUME:
     case K_BACKLIGHT: {
         unsigned v = k == K_VOLUME ? s->volume : s->backlight;

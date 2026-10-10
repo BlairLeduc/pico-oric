@@ -129,6 +129,7 @@ static void boot_card(void) {
     g_boot.want = cfg.rom;
     g_boot.ram = cfg.ram;
     g_boot.microdisc = cfg.microdisc;
+    g_boot.vsync_hack = cfg.vsync_hack;
 
     const settings_t *st = &g_boot.settings;
     g_ui.volume = st->volume;

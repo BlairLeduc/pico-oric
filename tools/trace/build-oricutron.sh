@@ -71,6 +71,31 @@ if [ "${ORIC_TRACE_KEEP_ERRATA:-0}" != 1 ]; then
         s/^#define BPAGECHECK \( \(cpu->baddr&0xff00\) != \(cpu->calcpc&0xff00\) \)$/#define BPAGECHECK ( (cpu->baddr&0xff00) != ((cpu->calcpc+2)&0xff00) )  \/* ORICUTRON_BRANCH_PAGE *\//;
     ' "$build/6502.c"
     grep -q 'ORICUTRON_BRANCH_PAGE' "$build/6502.c" || { echo "the ORICUTRON_BRANCH_PAGE patch did not apply" >&2; exit 1; }
+
+    # ORICUTRON_VSYNC_LINE, corrected: the VSync hack's pulse starts at
+    # its raster's wrap, 44 lines before the picture it centres at 50 Hz
+    # and 20 at 60. The ULA's sync is lines 256-259 of a counter that is 0
+    # at the first active line (Brown's measurement; Clock Signal agrees),
+    # and 234-237 at 60 Hz (Clock Signal); Oricutron's raster counts from 0
+    # at the same cycle as this project's field. The pulse is put on the
+    # sync's line, counted from the line's own cycle, not from the end of
+    # the instruction that crossed it (design.md §15.2 M16).
+    perl -0pi -e '
+        s/\n    oric->vsync = 12 \+ 260;\n/\n    \/* ORICUTRON_VSYNC_LINE: the pulse starts on the sync line, above. *\/\n/;
+        s/^(  oric->vid_raster\+\+;)$/$1\n  if(oric->vid_raster == (oric->vid_maxrast == 312 ? 256 : 234))  \/* ORICUTRON_VSYNC_LINE *\/\n    oric->vsync = 12 + 260 + oric->cpu.rastercycles;/m;
+    ' "$build/ula.c"
+    [ "$(grep -c 'ORICUTRON_VSYNC_LINE' "$build/ula.c")" = 2 ] || { echo "the ORICUTRON_VSYNC_LINE patch did not apply" >&2; exit 1; }
+
+    # ORICUTRON_VSYNC_COARSE, corrected: the hack puts CB1 at the level
+    # its pulse has at the start of the instruction about to run, so an
+    # edge part-way into one is seen after the next; the VIA's timers,
+    # clocked by the same call, are an instruction ahead instead. CB1 is
+    # put at the level it has at the instruction's end, as a timer's
+    # flag is, and an edge is taken at the first boundary at or after it.
+    perl -pi -e '
+        s/^(    )unsigned char j = \(0 == oric->vsync \|\| 260 < oric->vsync\);$/$1int k = oric->vsync - cycles;  \/* ORICUTRON_VSYNC_COARSE *\/\n$1unsigned char j = (k <= 0 || 260 < k);/;
+    ' "$build/tape.c"
+    grep -q 'ORICUTRON_VSYNC_COARSE' "$build/tape.c" || { echo "the ORICUTRON_VSYNC_COARSE patch did not apply" >&2; exit 1; }
 fi
 
 # Its objects only: its own link fails without the hook's definition,

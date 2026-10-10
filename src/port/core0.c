@@ -549,6 +549,12 @@ void core0_run(oric_t *m, keymatrix_t *k) {
                        (unsigned long)turbo_fields, (unsigned long)cas->edges,
                        (unsigned long)cas->files, (unsigned long)cas->rec.files,
                        (unsigned long)cas->rec.errors);
+            /* The sync on CB1 (vsync.h, M16): two edges a field, and
+             * whether the guest has asked for its interrupt. */
+            if (m->cfg.vsync_hack)
+                log_printf("  vsync        : %lu pulses, CB1 %s, IER #%02X, PCR #%02X\n",
+                           (unsigned long)m->vs.pulses, m->via.cb1 ? "high" : "low",
+                           (unsigned)(m->via.ier | 0x80u), (unsigned)m->via.pcr);
             if (m->cfg.microdisc) {
                 const wd1793_t *f = &m->fdc;
                 log_printf("  disc         : %lu sectors read, %lu written, %lu tracks "

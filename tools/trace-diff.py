@@ -6,18 +6,25 @@ and under Oricutron (oricutron-trace), and compares the per-instruction
 PC/A/X/Y/S/P/cycles traces line by line:
 
     tools/trace-diff.py run [--rom 1.0|1.1] [--ram 16|48]
-                            [--keys 'PRINT 2+2\\n'] [--cycles N]
+                            [--keys 'PRINT 2+2\\n'] [--cycles N] [--vsync]
     tools/trace-diff.py diff OURS.trace REF.trace
     tools/trace-diff.py tape FILE.tap [--rom 1.0|1.1] [--ram 16|48]
                              [--keys 'CLOAD""\\n'] [--then 'RUN\\n'] [--wait S]
+                             [--vsync] [--after S]
 
 `tape` runs Oricutron alone with FILE.tap in its deck, played as a signal
 through the ROM's own routines (its tape traps off), types --keys, waits
 --wait seconds of guest time, types --then, and prints its screen: the
-check that a tape this project wrote loads elsewhere (§15.2 M10).
+check that a tape this project wrote loads elsewhere (§15.2 M10). --vsync turns
+Oricutron's VSync hack on once --then is typed, the tape having loaded
+by the signal the hack disconnects, and --after runs that much longer
+(M16).
 
 `run` finds the ROM in roms/ (or $PICO_ORIC_ROMS) by SHA-1, as the tests
-do, and writes out/trace/{ours,ref}.trace and keys.txt. Build the two
+do, and writes out/trace/{ours,ref}.trace and keys.txt. --vsync fits the
+vertical-sync modification to both (design.md §15.2 M16) and puts
+VSYNC_TEST in memory before the keys (--test puts it there alone), typing by default a call of its
+poll, a call of its install and a print of its count. Build the two
 tracers first:
 
     cmake --build build/host --target oric-trace
@@ -45,6 +52,15 @@ before believing either side of anything else:
                          page-crossing cycle against the opcode's address,
                          not the next instruction's (ROM 1.0, BNE at
                          #C5FF).
+  ORICUTRON_VSYNC_LINE   corrected. The VSync hack's pulse starts at
+                         Oricutron's raster wrap, 44 lines before its
+                         picture at 50 Hz; the ULA's sync is lines
+                         256-259 from the first active line (Brown), 234
+                         at 60 Hz (Clock Signal). Its pulse starts there.
+  ORICUTRON_VSYNC_COARSE corrected. The hack's CB1 takes the pulse's
+                         level at the start of the instruction about to
+                         run, so an edge inside one is seen after the
+                         next; it takes the level at the instruction's end.
   ORICUTRON_VIA_AHEAD    Oricutron clocks the VIA by an instruction's
                          cycles before running it, so a timer read
                          part-way into an instruction sees a later count.
@@ -77,6 +93,66 @@ GAP = 4 * FIELD
 LINE = 25 * FIELD       # after RETURN, for the ROM to act on it
 
 NAMES = ["PC", "A", "X", "Y", "S", "P", "cycles", "bytes"]
+
+# The CB1 test program for --vsync, at #0400 (M16). #0400 installs a
+# handler for the CB1 interrupt ahead of the ROM's, through the JMP the
+# IRQ vector points at in page 2 (IRQ_VECTOR), and enables it; the
+# handler counts CB1 interrupts at #0440 and returns, passing anything
+# else to the ROM. Both ROMs set CB1 to its rising edge at boot (PCR
+# #DD) and keep the bit through their AY writes, so that is the pulse's
+# end. #0450 takes its start: with interrupts masked, so that the flag is
+# the poll's alone, it sets CB1 to its falling edge and waits on it ten times,
+# well inside the 25 fields the keys leave a command (the ROM keeps one
+# key typed ahead). #0480 waits on T1's flag the same way, the ROM's
+# handler racing it. #04A0 writes T2's latch for ever, seven cycles a
+# turn, so that T1's interrupts fall on every cycle of the write.
+VSYNC_TEST = 0x0400
+IRQ_VECTOR = {"1.0": 0x0228, "1.1": 0x0244}
+VSYNC_KEYS = "CALL#450\nCALL#400\nPRINTPEEK(#440)\n"
+
+
+def vsync_test(version):
+    v1, v2 = IRQ_VECTOR[version] + 1, IRQ_VECTOR[version] + 2
+    lo = lambda a: a & 0xFF
+    hi = lambda a: a >> 8
+    code = [
+        0x78,                                  # #0400 SEI
+        0xAD, lo(v1), hi(v1), 0x8D, 0x32, 0x04,  # LDA V+1 : STA #0432
+        0xAD, lo(v2), hi(v2), 0x8D, 0x33, 0x04,  # LDA V+2 : STA #0433
+        0xA9, 0x20, 0x8D, lo(v1), hi(v1),        # LDA #20 : STA V+1
+        0xA9, 0x04, 0x8D, lo(v2), hi(v2),        # LDA #04 : STA V+2
+        0xA9, 0x90, 0x8D, 0x0E, 0x03,            # LDA #90 : STA IER, CB1 on
+        0x58, 0x60, 0x00, 0x00,                  # CLI : RTS
+        0x48,                                  # #0420 PHA
+        0xAD, 0x0D, 0x03, 0x29, 0x10,            # LDA IFR : AND #10
+        0xF0, 0x08,                              # BEQ #0430
+        0xAD, 0x00, 0x03,                        # LDA ORB, clearing the flag
+        0xEE, 0x40, 0x04, 0x68, 0x40,            # INC #0440 : PLA : RTI
+        0x68, 0x4C, 0x00, 0x00,                  # #0430 PLA : JMP the ROM's
+    ]
+    code += [0x00] * (0x50 - len(code))
+    code += [
+        0x78,                                    # #0450 SEI
+        0xAD, 0x0C, 0x03, 0x29, 0xEF,            # LDA PCR : AND #EF
+        0x8D, 0x0C, 0x03,                        # STA PCR, CB1 falling
+        0xAD, 0x00, 0x03, 0xA2, 0x0A,            # LDA ORB : LDX #10
+        0xAD, 0x0D, 0x03, 0x29, 0x10, 0xF0, 0xF9,  # #045E LDA IFR : AND #10 : BEQ
+        0xAD, 0x00, 0x03, 0xCA, 0xD0, 0xF3,      # LDA ORB : DEX : BNE
+        0xAD, 0x0C, 0x03, 0x09, 0x10,            # LDA PCR : ORA #10
+        0x8D, 0x0C, 0x03, 0x58, 0x60,            # STA PCR : CLI : RTS
+    ]
+    code += [0x00] * (0x80 - len(code))
+    code += [
+        0xA2, 0x0A,                              # #0480 LDX #10
+        0xAD, 0x0D, 0x03, 0x29, 0x40, 0xF0, 0xF9,  # LDA IFR : AND #40 : BEQ
+        0xCA, 0xD0, 0xF6,                        # DEX : BNE
+        0x60,                                    # RTS
+    ]
+    code += [0x00] * (0xA0 - len(code))
+    code += [
+        0x8D, 0x08, 0x03, 0x4C, 0xA0, 0x04,      # #04A0 STA T2C-L : JMP #04A0
+    ]
+    return code
 
 
 # The Microdisc's EPROM (design.md §10.2), for the disc subcommand.
@@ -136,18 +212,28 @@ def run(args):
     OUT.mkdir(parents=True, exist_ok=True)
     rom_path = OUT / (base + ".rom")
     rom_path.write_bytes(rom)
+    if args.vsync and args.keys is None:
+        args.keys = VSYNC_KEYS
     ks, end = keyscript(rom, table, args.keys or "")
+    if args.vsync or args.test:
+        poke = "%d poke %04X %s\n" % (BOOT - FIELD, VSYNC_TEST,
+                                       "".join("%02X" % b for b in vsync_test(args.rom)))
+        ks = poke + ks
     (OUT / "keys.txt").write_text(ks)
     cycles = args.cycles or end + 2 * FIELD
     mach = "o16k" if args.ram == 16 else ("oric1" if args.rom == "1.0" else "atmos")
     ours = [str(ROOT / "build" / "host" / "oric-trace"), str(rom_path), "-r", str(args.ram)]
     ref = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach]
+    if args.vsync:
+        ours.append("-v")
+        ref.append("-v")
     for cmd, name in ((ours, "ours"), (ref, "ref")):
         cmd += ["-c", str(cycles), "-k", str(OUT / "keys.txt"), "-s"]
         with open(OUT / (name + ".trace"), "w") as out, open(OUT / (name + ".screen"), "w") as err:
             if subprocess.call(cmd, stdout=out, stderr=err):
                 sys.exit("trace-diff: %s failed; see %s" % (cmd[0], OUT / (name + ".screen")))
-    print("ROM %s, %dK, %d cycles, keys %r" % (args.rom, args.ram, cycles, args.keys or ""))
+    print("ROM %s, %dK, %d cycles, keys %r%s" % (args.rom, args.ram, cycles, args.keys or "",
+                                               ", vsync hack" if args.vsync else ""))
     for name in ("ours", "ref"):
         print("--- %s screen" % name)
         print("\n".join(l for l in (OUT / (name + ".screen")).read_text().split("\n") if l.strip()))
@@ -279,8 +365,11 @@ def tape(args):
     (OUT / "tape-keys.txt").write_text(ks + "".join(then.splitlines(True)[1:]))
     mach = "o16k" if args.ram == 16 else ("oric1" if args.rom == "1.0" else "atmos")
     cmd = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach, "-q", "-s",
-           "-t", str(Path(args.tap).resolve()), "-c", str(end + 2 * FIELD),
+           "-t", str(Path(args.tap).resolve()), "-c", str(end + 2 * FIELD + int(args.after * 1000000)),
            "-k", str(OUT / "tape-keys.txt")]
+    if args.vsync:
+        # The hack on once the keys are typed, the tape loaded (M16).
+        cmd += ["-V", str(end)]
     print("ROM %s, %dK, %s: %r, %g s, %r" % (args.rom, args.ram, args.tap, args.keys,
                                              args.wait, args.then))
     return subprocess.call(cmd, stdout=subprocess.DEVNULL)
@@ -301,6 +390,9 @@ def disc(args):
     cmd = [str(OUT / "oricutron-trace"), str(OUT / base), "-m", mach, "-q", "-s",
            "-d", str(Path(args.dsk).resolve()), "-c", str(end + 2 * FIELD),
            "-k", str(OUT / "disc-keys.txt")]
+    if args.tap:
+        # A tape in the deck too, played by the signal (tape's).
+        cmd += ["-t", str(Path(args.tap).resolve())]
     print("ROM %s, 48K, %s: %g s, %r, %g s, %r" % (args.rom, args.dsk, args.boot, args.keys,
                                                    args.wait, args.then))
     return subprocess.call(cmd, stdout=subprocess.DEVNULL)
@@ -312,8 +404,10 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("--rom", choices=sorted(ROMS), default="1.1")
     r.add_argument("--ram", type=int, choices=(16, 48), default=48)
-    r.add_argument("--keys", default="")
+    r.add_argument("--keys")
     r.add_argument("--cycles", type=int)
+    r.add_argument("--vsync", action="store_true")
+    r.add_argument("--test", action="store_true")
     d = sub.add_parser("diff")
     d.add_argument("ours")
     d.add_argument("ref")
@@ -324,6 +418,8 @@ def main():
     t.add_argument("--keys", default='CLOAD""\\n')
     t.add_argument("--then", default="RUN\\n")
     t.add_argument("--wait", type=float, default=10.0)
+    t.add_argument("--vsync", action="store_true")
+    t.add_argument("--after", type=float, default=0.0)
     k = sub.add_parser("disc")
     k.add_argument("dsk")
     k.add_argument("--rom", choices=sorted(ROMS), default="1.1")
@@ -331,9 +427,11 @@ def main():
     k.add_argument("--keys", default="X")
     k.add_argument("--then", default="DIR\\n")
     k.add_argument("--wait", type=float, default=5.0)
+    k.add_argument("--tap")
     args = p.parse_args()
     if args.cmd == "run":
-        args.keys = args.keys.encode().decode("unicode_escape")
+        if args.keys is not None:
+            args.keys = args.keys.encode().decode("unicode_escape")
         sys.exit(run(args))
     if args.cmd in ("tape", "disc"):
         args.keys = args.keys.encode().decode("unicode_escape")

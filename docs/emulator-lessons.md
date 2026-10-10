@@ -508,6 +508,18 @@ keep the old I for that one poll. A timer ticked a cycle or two behind the
 CPU at instruction boundaries models the first rule for the price of
 nothing: the Oric's VIA runs two behind.
 
+**Never let a catch-up run past the instruction's end.** Where a write
+must land a tick after its access (a timer the write starts counts from
+the next cycle), a write in the last cycle ticks the chip one past the
+boundary, and the run loop takes it back. Whatever that tick set must not
+reach this instruction's IRQ poll: hold back the flags it raised until the
+next one. Reads need no extra tick at all. The Oric's VIA gave both the
+extra tick, and its boot and typing traces never showed it, because the
+ROM never polls a timer's flag in a tight loop. A test loop polling T1's
+flag, and one writing the VIA seven cycles a turn, each took an interrupt
+an instruction early against the reference, at the first that landed on
+the tick. Write such loops into the trace's test program early.
+
 **Make the cycle count the only clock.** Every device times itself in guest
 cycles, never in wall time. Then turbo is free (§9.3), pause is free, a
 snapshot captures time exactly, and a host-side stall (card I/O) is invisible.

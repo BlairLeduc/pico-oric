@@ -6,6 +6,9 @@
  *
  *   <cycle> down|up <row> <col>      a matrix cell: row PB0-PB2, column
  *                                    the bit of AY port A that enables it
+ *   <cycle> poke <addr> <hex>        bytes into memory from addr, both in
+ *                                    hex: a test program put in place
+ *                                    between two instructions (M16)
  *
  * '#' starts a comment. tools/trace-diff.py writes these from text.
  */
@@ -17,10 +20,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define KS_MAX_POKE 256
+
 typedef struct {
     unsigned long long cycle;
     bool     down;
     unsigned row, col;
+    /* A poke instead of a key when n is not zero. */
+    unsigned addr, n;
+    unsigned char bytes[KS_MAX_POKE];
 } ks_event_t;
 
 #define KS_MAX_EVENTS 4096
@@ -37,7 +45,7 @@ static inline bool ks_load(keyscript_t *ks, const char *path) {
     if (!path) return true;
     FILE *f = fopen(path, "r");
     if (!f) { fprintf(stderr, "%s: cannot open\n", path); return false; }
-    char line[256];
+    char line[2 * KS_MAX_POKE + 64];
     unsigned lineno = 0;
     while (fgets(line, sizeof line, f)) {
         lineno++;
@@ -48,6 +56,28 @@ static inline bool ks_load(keyscript_t *ks, const char *path) {
         unsigned row, col;
         int got = sscanf(line, "%llu %7s %u %u", &cycle, what, &row, &col);
         if (got <= 0) continue;
+        if (got >= 2 && !strcmp(what, "poke")) {
+            unsigned addr, n = 0;
+            char hex[2 * KS_MAX_POKE + 1];
+            bool ok = sscanf(line, "%*u %*s %x %512s", &addr, hex) == 2 && addr <= 0xFFFFu &&
+                      ks->n < KS_MAX_EVENTS && !(ks->n && cycle < ks->ev[ks->n - 1].cycle);
+            ks_event_t *e = &ks->ev[ks->n];
+            for (const char *h = hex; ok && h[0]; h += 2, n++) {
+                unsigned b = 0;
+                ok = h[1] && n < KS_MAX_POKE && sscanf(h, "%2x", &b) == 1;
+                e->bytes[n] = (unsigned char)b;
+            }
+            if (!ok || !n) {
+                fprintf(stderr, "%s:%u: bad poke line\n", path, lineno);
+                fclose(f);
+                return false;
+            }
+            e->cycle = cycle;
+            e->addr = addr;
+            e->n = n;
+            ks->n++;
+            continue;
+        }
         bool down = !strcmp(what, "down");
         if (got != 4 || (!down && strcmp(what, "up")) || row > 7 || col > 7 ||
             ks->n == KS_MAX_EVENTS || (ks->n && cycle < ks->ev[ks->n - 1].cycle)) {
@@ -55,7 +85,7 @@ static inline bool ks_load(keyscript_t *ks, const char *path) {
             fclose(f);
             return false;
         }
-        ks->ev[ks->n++] = (ks_event_t){ cycle, down, row, col };
+        ks->ev[ks->n++] = (ks_event_t){ .cycle = cycle, .down = down, .row = row, .col = col };
     }
     fclose(f);
     return true;
