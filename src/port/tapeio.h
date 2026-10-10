@@ -30,8 +30,16 @@
  * name, CSAVE"" is declined: the ROM writes to a recorder that is not
  * there.
  *
- * Fast tape off is M13's, the signal: until then the trap serves CLOAD
- * and CSAVE either way, and the Setup row is kept for it.
+ * Fast tape off is the signal (design.md §10.4; cassette.h): the trap is
+ * only the cue. A find chooses the tape as above, puts it in the
+ * cassette from the deck's place, whole or as a window of its whole
+ * files when it is longer than ORIC_TAPE_IMAGE_MAX, and is declined, so
+ * that the ROM reads the signal; the next window is put in when the
+ * ROM's next find finds the cassette at its end. A header write arms
+ * the recorder for the file CSAVE would append to, and is declined; the
+ * file recorded, whole, is appended at the next park, as a trapped save
+ * would be. A ROM left reading a tape that has ended is the end of the
+ * tape as above: rewound once, then the reset button.
  */
 #ifndef PICO_ORIC_TAPEIO_H
 #define PICO_ORIC_TAPEIO_H
@@ -44,9 +52,19 @@
 
 #define TAPEIO_DIR "/oric/tapes"
 
-/* Serve the request the CPU is stalled on, or decline it: mounts the
- * card, does the job and unmounts. The time taken is in *us. */
+/* The machine whose cassette holds the signal's image (park_init). */
+void tapeio_attach(oric_t *m);
+
+/* Serve the request the CPU is stalled on, or decline it, and write out
+ * a recording: mounts the card, does the job and unmounts. The time
+ * taken is in *us. */
 void tapeio_serve(oric_t *m, uint32_t *us);
+
+/* Whether core 0 should park for tapeio_serve with no request: a
+ * recording to write out, unless the card was missing for it and has
+ * not changed since; or the ROM reading a tape that has ended. */
+bool tapeio_wanted(const oric_t *m);
+void tapeio_card_changed(void);
 
 /* The deck, with the card mounted. Insert puts a tape in at its start;
  * NULL or "" empties the deck. NULL, or why not. */
@@ -58,6 +76,14 @@ const char *tapeio_new(void);
 bool        tapeio_chosen(void);       /* put in by the menu or boot_tape, not found by name */
 void        tapeio_rewind(void);
 uint32_t    tapeio_position(void);     /* files passed since the start */
+
+/* PLAY by hand with fast tape off, for a loader that never closes the
+ * relay, or STOP. NULL, or why not. The card must be mounted. */
+const char *tapeio_play(bool on);
+bool        tapeio_playing(void);
+
+/* Fast tape changed: on, the cassette's image goes. */
+void        tapeio_mode(void);
 
 /* The last thing a load or save did that the user should hear about,
  * for the menu's status row; "" for nothing. Cleared by reading. */
@@ -77,6 +103,7 @@ unsigned tapeio_list(tapeio_entry_t *out, unsigned max);
 /* Counters for the heartbeat. */
 typedef struct {
     uint32_t finds, loads, saves, declined, errors;
+    uint32_t played, recorded;  /* the signal's: tapes put in the cassette, files recorded */
     uint32_t last_us, max_us;
     uint32_t bytes;            /* the last load's or save's */
 } tapeio_stats_t;

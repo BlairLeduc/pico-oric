@@ -1,7 +1,7 @@
 /* oric-corpus.c — M12's corpus run: archive tapes loaded and run on the
  * host, one line each (design.md §15, M12; §5.1).
  *
- *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...
+ *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] TAPE...
  *
  * Each tape gets a machine of its own, copied from one booted to Ready.
  * A TAPE is a .tap, or a directory of a title's parts, whose deck starts
@@ -15,6 +15,12 @@
  * back to Ready. When the tape has gone quiet and the ROM is at Ready, a last file
  * without autorun is started, RUN for BASIC and CALL for code; half way
  * through, Space is pressed, for the titles that wait for a key.
+ *
+ * With -t, fast tape is off (M13, design.md §10.4): the find is served as
+ * tapeio's signal_find serves it, the tape put in the cassette whole and
+ * the find declined, so that the ROM, or a title's own loader, reads the
+ * signal; a ROM left reading an ended tape rewinds it once, then gives
+ * up. Files are the headers the cassette has played.
  *
  * A field that traps an undocumented opcode is run again from its start
  * an instruction at a time, so every one is counted by opcode, with the
@@ -161,7 +167,61 @@ static void give_up(oric_t *m, const char *why) {
     if (!s_tl.why[0]) snprintf(s_tl.why, sizeof s_tl.why, "%s", why);
 }
 
+/* ---- the signal, served as tapeio's signal_find serves it (-t) ------------ */
+
+static bool s_signal;
+static char s_cas_name[256];
+
+static void signal_end(oric_t *m) {
+    if (!s_deck.wrapped) {
+        s_deck.wrapped = true;
+        oric_cassette_rewind(m);
+        return;
+    }
+    give_up(m, "end of the tape, twice");
+}
+
+static void signal_serve(oric_t *m) {
+    const tape_t *t = oric_tape_pending(m);
+    if (t && t->op == TAPE_FIND) {
+        s_tl.last_field = s_field;
+        choose_tape(t);
+        if (!m->cas.loaded || strcmp(s_cas_name, s_deck.name) != 0) {
+            oric_cassette_insert(m, s_deck.buf, (uint32_t)s_deck.len);
+            snprintf(s_cas_name, sizeof s_cas_name, "%s", s_deck.name);
+        } else if (m->cas.ended) {
+            signal_end(m);
+            if (!oric_tape_pending(m)) return;   /* gave up */
+        } else {
+            s_deck.wrapped = false;
+        }
+        s_tl.finds++;
+        oric_tape_decline(m);
+    } else if (t) {
+        oric_tape_decline(m);
+    } else if (m->cas.ended && m->cas.motor && oric_tape_reading(m)) {
+        signal_end(m);
+    }
+    /* The files the cassette has begun, and the last one's header. */
+    if (m->cas.playing) s_tl.last_field = s_field;
+    if (m->cas.files != s_tl.files && m->cas.head_at < m->cas.len) {
+        tap_header_t h;
+        size_t skip;
+        if (tap_scan(m->cas.img + m->cas.head_at, m->cas.len - m->cas.head_at, true, &h,
+                     &skip) == TAP_FOUND) {
+            s_tl.last_code = (h.raw[TAP_H_TYPE] & 0x80u) != 0;
+            s_tl.last_autorun = h.raw[TAP_H_AUTORUN] != 0;
+            s_tl.last_start = tap_start(h.raw);
+        }
+        s_tl.files = m->cas.files;
+    }
+}
+
 static void serve(oric_t *m) {
+    if (s_signal) {
+        signal_serve(m);
+        return;
+    }
     const tape_t *t = oric_tape_pending(m);
     if (!t) return;
     s_tl.last_field = s_field;
@@ -396,6 +456,8 @@ static int run_one(const char *path, long fields, const char *shots) {
     oric_copy(&g.m, &s_booted.m);
     g.k = s_booted.k;
     g.rom = s_booted.rom;
+    g.m.cfg.tape_signal = s_signal;
+    s_cas_name[0] = 0;
 
     type("CLOAD\"\"");
     press(PICOCALC_KEY_ENTER);
@@ -462,6 +524,8 @@ int main(int argc, char **argv) {
             fields = atol(argv[++i]);
         else if (!strcmp(argv[i], "-s") && i + 1 < argc)
             shots = argv[++i];
+        else if (!strcmp(argv[i], "-t"))
+            s_signal = true;
         else {
             fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] TAPE...\n");
             return 2;

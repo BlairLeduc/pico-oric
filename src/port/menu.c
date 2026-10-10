@@ -183,7 +183,8 @@ static void draw_tapes(void) {
         if (i == T_EJECT) {
             snprintf(line, sizeof line, " (Eject)");
         } else if (i == T_PLAY) {
-            snprintf(line, sizeof line, " (Play: CLOAD plays the tape)");
+            snprintf(line, sizeof line, "%s", g_ui.fast_tape ? " (Play: CLOAD plays the tape)"
+                                              : tapeio_playing() ? " (Stop)" : " (Play)");
         } else if (i == T_REWIND) {
             snprintf(line, sizeof line, " (Rewind)");
         } else if (i == T_NEW) {
@@ -555,8 +556,14 @@ static void snap_load(void) {
  * checked on the card before anything is touched; core 0 does the
  * power-on with the image left in g_boot.image (handoff.h). */
 static void apply_machine(void) {
-    /* M13: refused while a recording is not on the card yet (EL §10).
-     * The trap writes each CSAVE before the guest runs on. */
+    /* Refused while a recording is not on the card yet (§12, EL §10):
+     * the power-on would drop it. The trap writes each CSAVE before the
+     * guest runs on; the recorder's waits only for a missing card. */
+    uint32_t from, to;
+    if (oric_cassette_unsaved(s.m, &from, &to)) {
+        say(" A recording is not saved: card", "");
+        return;
+    }
     oric_config_t cfg = s.m->cfg;
     cfg.rom = s.st_rom;
     cfg.ram = s.st_ram;
@@ -613,7 +620,13 @@ static void key_tapes(uint8_t c) {
             (void)tapeio_insert(NULL);
             say(" Tape ejected", "");
         } else if (s.tape_sel == T_PLAY) {
-            say(" CLOAD plays the tape", "");
+            /* With fast tape off, PLAY by hand, for a loader that never
+             * closes the relay (tapeio.h). */
+            if (g_ui.fast_tape) { say(" CLOAD plays the tape", ""); return; }
+            bool on = !tapeio_playing();
+            const char *err = tapeio_play(on);
+            if (err) { say(" Not played: %.20s", err); return; }
+            say(on ? " Playing" : " Stopped", "");
             return;
         } else if (s.tape_sel == T_REWIND) {
             if (!tapeio_inserted()[0]) { say(" The deck is empty", ""); return; }
@@ -731,9 +744,10 @@ static void key_setup(uint8_t c) {
         say(" No layouts in this firmware yet", "");
         break;
     case D_FAST:
-        /* M13: the deck takes it, off playing the signal. Until then
-         * the trap serves CLOAD and CSAVE either way (tapeio.h). */
+        /* Off, the deck plays the signal and the trap is its cue
+         * (tapeio.h); core 0 takes it when the menu closes. */
         g_ui.fast_tape = !g_ui.fast_tape;
+        tapeio_mode();
         log_core1("  menu         : fast tape %s\n", on_off(g_ui.fast_tape));
         break;
     }

@@ -52,7 +52,8 @@ void core1_note(const char *text) {
 }
 
 /* The status line at the foot (§12), while it is on: the running ROM's
- * problem, if it has one, or the tape in the deck (M14: the disc); or a
+ * problem, if it has one, or the tape in the deck and whether it plays
+ * or records (M14: the disc); or a
  * note, until it has been up for NOTE_US. Drawn only when it changes. */
 static void draw_status(void) {
     if (s_note[0]) {
@@ -64,9 +65,12 @@ static void draw_status(void) {
     if (g_ui.status) {
         const char *rom = menu_rom_problem();
         if (rom[0]) snprintf(text, sizeof text, "%s", rom);
-        else if (tape[0]) {
+        else if (g_c0.deck == DECK_RECORDING) {
+            snprintf(text, sizeof text, "Tape: recording");
+        } else if (tape[0]) {
             const char *b = strrchr(tape, '/');
-            snprintf(text, sizeof text, "Tape: %.33s", b ? b + 1 : tape);
+            snprintf(text, sizeof text, "Tape: %.33s%s", b ? b + 1 : tape,
+                     g_c0.deck == DECK_PLAYING ? ", playing" : "");
         }
     }
     display_status(text);
@@ -208,6 +212,7 @@ void core1_main(void) {
          * card work waits for a park (card.h). */
         if (!park_serve() && card_poll()) {
             log_core1("  card         : %s\n", card_present() ? "in" : "out");
+            tapeio_card_changed();
             if (!g_boot.claimed) boot_rom_again();
         }
         if (g_boot.claimed) draw_status();

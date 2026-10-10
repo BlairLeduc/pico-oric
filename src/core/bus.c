@@ -7,18 +7,33 @@
 
 #include "bus.h"
 
+#include "cassette.h"
 #include "hot.h"
 #include "via6522.h"
 
 #define VIA_REG(a)  ((uint8_t)((a) & 15u))
 
+/* PICO_ORIC_DECK=OFF: the control for the signal's cost (oric.c). */
+#ifndef PICO_ORIC_DECK
+#define PICO_ORIC_DECK 1
+#endif
+
 uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        /* CB1 as the tape has it at this cycle (cassette.h). */
+        if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
+            cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         /* Reading T1C-L or T2C-L clears a flag, and reading ORA or ORB
          * clears CA/CB flags, so the IRQ line can drop on a read (§6.4). */
-        uint8_t v = via6522_read(&m->via, VIA_REG(a));
-        oric_io_changed(m);   /* a read can move CA2/CB2 in handshake mode */
+        uint8_t reg = VIA_REG(a);
+        uint8_t v = via6522_read(&m->via, reg);
+        /* A read of ORA, ORB, T1C-L, T2C-L or SR clears a flag or moves
+         * CA2/CB2 in handshake mode; the rest change nothing, and a
+         * tape's reader is IFR reads end to end (§10.4). */
+        if ((1u << reg) & ((1u << VIA_ORB) | (1u << VIA_ORA) | (1u << VIA_T1CL) |
+                           (1u << VIA_T2CL) | (1u << VIA_SR)))
+            oric_io_changed(m);
         m->open_bus = v;
         return v;
     }
@@ -29,6 +44,9 @@ uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
 
 void ORIC_HOT1(bus_write_slow)(oric_t *m, uint16_t a, uint8_t v) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        /* CB1 as the tape has it at this cycle (cassette.h). */
+        if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
+            cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
         oric_via_catch_up(m);
         via6522_write(&m->via, VIA_REG(a), v);
         /* A write to ORA, ORB, the DDRs or the PCR is what the AY's bus

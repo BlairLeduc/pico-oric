@@ -123,6 +123,10 @@
  * off tape and 1.0 all of it. Anything longer is taken as no header. */
 #define ORIC_TAP_NAME_MAX       64u
 #define ORIC_TAPE_LIST_MAX      64u  /* .tap files the Tapes page lists     */
+/* The signal's image, and the recorder's: a tape, or a window of its
+ * whole files when it is longer. The archive's largest file is 49,152
+ * bytes, its largest tape 92,160 (design.md §3.3, M12's corpus). */
+#define ORIC_TAPE_IMAGE_MAX  65536u
 
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 

@@ -2,8 +2,9 @@
  *
  * pico-ace's, with the Oric's .tap (tap.h) and its requests (tape.h):
  * a request is a header to find, data to read or a file to write, not a
- * block, and a file on the card is only ever written whole. The signal
- * (pico-ace's cassette) is M13's.
+ * block, and a file on the card is only ever written whole. With fast
+ * tape off the trap is the signal's cue (pico-ace's), its image a window
+ * of the tape's whole files where pico-ace's was the tape.
  */
 
 #include "tapeio.h"
@@ -15,6 +16,8 @@
 #include "ff.h"
 #include "pico/stdlib.h"
 
+#include "cassette.h"
+#include "handoff.h"
 #include "log.h"
 #include "storage.h"
 #include "tap.h"
@@ -34,6 +37,20 @@ static char     s_said[40];
 static FIL      s_f, s_g;
 static uint8_t  s_buf[ORIC_CARD_CHUNK];
 
+/* The signal (design.md §10.4): the image the cassette plays, from
+ * s_img_at in s_img_path, to the file's end if s_img_whole; or the
+ * recorder's buffer, for s_rec_path, when s_img_path is "". */
+static oric_t  *s_m;
+static uint8_t  s_img[ORIC_TAPE_IMAGE_MAX];
+static char     s_img_path[ORIC_PATH_MAX];
+static uint32_t s_img_at, s_img_len;
+static bool     s_img_whole;
+static char     s_rec_path[ORIC_PATH_MAX];
+
+/* A recording is waiting for the card: core 0 stops asking for a park
+ * until the card changes (tapeio_card_changed). */
+static volatile bool s_flush_wait;
+
 static void say(const char *fmt, const char *arg) {
     snprintf(s_said, sizeof s_said, fmt, arg);
 }
@@ -50,9 +67,27 @@ static const char *base(const char *path) {
     return b ? b + 1 : path;
 }
 
+/* ---- the cassette's image ---------------------------------------------------- */
+
+void tapeio_attach(oric_t *m) {
+    s_m = m;
+}
+
+/* The cassette holds the deck's image. A machine powered on again has an
+ * empty cassette whatever was in it. */
+static bool img_in(void) {
+    return s_m && s_m->cas.loaded && s_m->cas.img == s_img && s_img_path[0];
+}
+
+static void cassette_out(void) {
+    if (img_in()) oric_cassette_insert(s_m, NULL, 0);
+    s_img_path[0] = 0;
+}
+
 /* ---- the deck ------------------------------------------------------------- */
 
 static void set_deck(const char *path, bool user) {
+    cassette_out();
     snprintf(s_path, sizeof s_path, "%s", path ? path : "");
     s_user = user && s_path[0];
     s_pos = s_skip = s_index = 0;
@@ -123,6 +158,9 @@ uint32_t tapeio_position(void) { return s_index; }
 void tapeio_rewind(void) {
     s_pos = s_skip = s_index = 0;
     s_wrapped = false;
+    /* The image from the start again, or the first window of it. */
+    if (img_in() && s_img_at == 0) oric_cassette_rewind(s_m);
+    else cassette_out();
 }
 
 /* A name as a file in TAPEIO_DIR, with `ext` after it: trailing spaces
@@ -433,18 +471,248 @@ static void serve_save(oric_t *m, const tape_t *t) {
     oric_tape_save_end(m);
 }
 
+/* ---- the signal (design.md §10.4) ------------------------------------------ *
+ * The trap still stalls the CPU at the find and the header write, and
+ * the port finds the tape as it does for the trap, but then declines:
+ * the ROM's routine runs, and reads or writes the signal (cassette.h). */
+
+/* The whole files at the front of n bytes of a tape: where the last one
+ * that fits ends. */
+static uint32_t whole_files(const uint8_t *p, uint32_t n) {
+    uint32_t pos = 0;
+    for (;;) {
+        tap_header_t h;
+        size_t skip;
+        if (tap_scan(p + pos, n - pos, false, &h, &skip) != TAP_FOUND) return pos;
+        uint32_t end = pos + h.data_at + tap_data_len(tap_start(h.raw), tap_end(h.raw));
+        if (end > n) return pos;
+        pos = end;
+    }
+}
+
+/* The tape at `path` from `at` into the cassette: to its end, or the
+ * whole files that fit. NULL, or why not. */
+static const char *image_load(const char *path, uint32_t at) {
+    uint32_t from, to;
+    if (!s_m) return "no machine";
+    if (oric_cassette_unsaved(s_m, &from, &to)) return "a recording is not saved";
+    cassette_out();
+    if (open_read(&s_f, path) != FR_OK) return "cannot open";
+    FSIZE_t size = f_size(&s_f);
+    UINT got = 0;
+    FRESULT fr = f_lseek(&s_f, at);
+    if (fr == FR_OK) fr = f_read(&s_f, s_img, sizeof s_img, &got);
+    f_close(&s_f);
+    if (fr != FR_OK) return "cannot read";
+    bool whole = (FSIZE_t)at + got >= size;
+    uint32_t len = whole ? got : whole_files(s_img, got);
+    if (!len && !whole) return "a file over 64K";
+    oric_cassette_insert(s_m, s_img, len);
+    snprintf(s_img_path, sizeof s_img_path, "%s", path);
+    s_img_at = at;
+    s_img_len = len;
+    s_img_whole = whole;
+    g_tape_stats.played++;
+    log_core1("  tape         : %s from byte %lu, %lu bytes%s, in the cassette\n", path,
+              (unsigned long)at, (unsigned long)len, whole ? "" : " of whole files");
+    return NULL;
+}
+
+/* The cassette at its end with the ROM still looking: the next window,
+ * or the start once, as the trap rewinds; false at the end a second
+ * time, when the caller gives up. */
+static bool play_on(void) {
+    if (!s_img_whole) {
+        const char *err = image_load(s_path, s_img_at + s_img_len);
+        return !err;
+    }
+    if (s_wrapped) return false;
+    s_wrapped = true;
+    log_core1("  tape         : end of %s; rewound\n", s_path);
+    if (s_img_at == 0) {
+        oric_cassette_rewind(s_m);
+        return true;
+    }
+    return !image_load(s_path, 0);
+}
+
+static void signal_find(oric_t *m, const tape_t *t) {
+    log_core1("  tape         : CLOAD \"%s\"%s, off the signal\n", (const char *)t->want,
+              t->slow ? ",S" : "");
+    choose_tape(t);
+    if (!s_path[0]) {
+        if (t->want[0]) say(" No tape has %.16s", (const char *)t->want);
+        else say(" No tape in the deck", "");
+        give_up(m, "no tape, and no file by that name");
+        return;
+    }
+    if (!img_in() || strcmp(s_img_path, s_path) != 0) {
+        const char *err = image_load(s_path, s_pos + s_skip);
+        if (err) {
+            g_tape_stats.errors++;
+            say(" Tape not played: %.18s", err);
+            give_up(m, err);
+            return;
+        }
+    } else if (m->cas.ended && !play_on()) {
+        say(" End of tape %.24s", base(s_path));
+        give_up(m, "end of the tape, twice");
+        return;
+    } else if (!m->cas.ended) {
+        s_wrapped = false;
+    }
+    g_tape_stats.finds++;
+    oric_tape_decline(m);
+}
+
+/* The ROM reads on past the cassette's end: as at a find. */
+static void signal_ran_out(oric_t *m) {
+    if (play_on()) return;
+    say(" End of tape %.24s", base(s_path));
+    give_up(m, "the tape ended under the ROM's reader");
+}
+
+static void signal_record(oric_t *m, const tape_t *t) {
+    char named[ORIC_PATH_MAX];
+    const char *path = s_user ? s_path : name_path(t->name, t->name_len, ".tap", named) ? named : "";
+    log_core1("  tape         : CSAVE \"%.*s\"%s, #%04X-#%04X, by the signal\n", (int)t->name_len,
+              (const char *)t->name, t->slow ? ",S" : "", t->start, t->end);
+    if (!path[0]) {
+        say(" CSAVE: no tape and no name", "");
+        decline(m, "nowhere to save");
+        return;
+    }
+    uint32_t from, to;
+    if (oric_cassette_unsaved(m, &from, &to)) {
+        say(" The last recording is not saved", "");
+        decline(m, "the last recording waits for the card");
+        return;
+    }
+    cassette_out();
+    snprintf(s_rec_path, sizeof s_rec_path, "%s", path);
+    oric_cassette_record(m, s_img, sizeof s_img);
+    log_core1("  tape         : recording for %s\n", path);
+    oric_tape_decline(m);
+}
+
+/* path's files, then n bytes from p, into path.new; then the rename. */
+static FRESULT append_bytes(const char *path, const uint8_t *p, uint32_t n) {
+    char tmp[ORIC_PATH_MAX + 4];
+    FRESULT fr = append_begin(path, tmp);
+    if (fr != FR_OK) return fr;
+    fr = write_all(&s_g, p, (UINT)n);
+    return append_end(path, tmp, fr);
+}
+
+/* What the recorder took, appended to its file. */
+static void signal_flush(oric_t *m) {
+    uint32_t from, to;
+    if (!oric_cassette_unsaved(m, &from, &to)) return;
+    FRESULT fr = append_bytes(s_rec_path, s_img + from, to - from);
+    if (fr == FR_OK) {
+        g_tape_stats.saves++;
+        g_tape_stats.recorded += m->cas.rec.files;
+        g_tape_stats.bytes = to - from;
+        say(" Saved to %.22s", base(s_rec_path));
+        log_core1("  tape         : %lu recorded bytes appended to %s\n",
+                  (unsigned long)(to - from), s_rec_path);
+        /* The recording's start in the log, so that a run over the UART
+         * can check it off the board (design.md §15.2 M13). */
+        for (uint32_t i = from; i < to && i - from < 256u; i += 32u) {
+            char hex[32 * 2 + 1];
+            uint32_t k = 0;
+            for (; k < 32u && i + k < to; k++) snprintf(hex + 2u * k, 3, "%02X", s_img[i + k]);
+            log_core1("  tape rec     : %s\n", hex);
+        }
+        oric_cassette_saved(m);
+    } else {
+        /* Kept, as for a missing card: this is the only copy. Tried
+         * again when the card changes or the tape is next served. */
+        g_tape_stats.errors++;
+        say(" Not saved: card %s", fr == FR_DENIED ? "full" : "error");
+        log_core1("  tape         : recording not saved to %s: FatFs %d; %lu bytes kept\n",
+                  s_rec_path, (int)fr, (unsigned long)(to - from));
+        s_flush_wait = true;
+    }
+    oric_cassette_record(m, NULL, 0);
+}
+
+const char *tapeio_play(bool on) {
+    if (!s_m) return "no machine";
+    if (!on) {
+        oric_cassette_play(s_m, false);
+        return NULL;
+    }
+    if (g_ui.fast_tape) return "fast tape is on";
+    if (!s_path[0]) return "the deck is empty";
+    if (!img_in() || strcmp(s_img_path, s_path) != 0) {
+        const char *err = image_load(s_path, s_pos + s_skip);
+        if (err) return err;
+    }
+    if (s_m->cas.ended) return "at the end: rewind";
+    oric_cassette_play(s_m, true);
+    log_core1("  tape         : %s playing by hand\n", s_path);
+    return NULL;
+}
+
+bool tapeio_playing(void) {
+    return s_m && s_m->cas.by_hand;
+}
+
+void tapeio_mode(void) {
+    if (g_ui.fast_tape) cassette_out();
+}
+
+void tapeio_card_changed(void) { s_flush_wait = false; }
+
+/* The ROM is reading a cassette that has ended (tape.h). */
+static bool ran_out(const oric_t *m) {
+    return m->cfg.tape_signal && img_in() && m->cas.ended && m->cas.motor &&
+           !m->cas.by_hand && oric_tape_reading(m);
+}
+
+bool tapeio_wanted(const oric_t *m) {
+    uint32_t from, to;
+    return (oric_cassette_unsaved(m, &from, &to) && !s_flush_wait) || ran_out(m);
+}
+
 void tapeio_serve(oric_t *m, uint32_t *us) {
     uint32_t t0 = time_us_32();
+    s_m = m;
     const tape_t *t = oric_tape_pending(m);
-    if (!t) { *us = 0; return; }
+    uint32_t from, to;
+    bool unsaved = oric_cassette_unsaved(m, &from, &to);
+    bool out = !t && ran_out(m);
+    if (!t && !unsaved && !out) { *us = 0; return; }
     if (storage_mount() != 0) {
         say(" No card: tape not served", "");
-        if (t->op == TAPE_SAVE) decline(m, "no card");
-        else give_up(m, "no card");
+        if (unsaved) {
+            /* Kept, not dropped: the guest's CSAVE is over, and this is
+             * the only copy. Written when the card is back. */
+            say(" Recording kept: put the card in", "");
+            log_core1("  tape         : no card; %lu recorded bytes kept for %s\n",
+                      (unsigned long)(to - from), s_rec_path);
+            s_flush_wait = true;
+            oric_cassette_record(m, NULL, 0);
+        }
+        if (t && t->op == TAPE_SAVE) decline(m, "no card");
+        else if (t && t->op == TAPE_RECORD) decline(m, "no card");
+        else if (t || out) give_up(m, "no card");
     } else {
-        if (t->op == TAPE_FIND) serve_find(m, t);
-        else if (t->op == TAPE_LOAD) serve_load(m, t);
-        else serve_save(m, t);
+        s_flush_wait = false;
+        if (unsaved) signal_flush(m);
+        if (!t) {
+            if (out) signal_ran_out(m);
+        } else if (t->op == TAPE_FIND) {
+            if (m->cfg.tape_signal) signal_find(m, t);
+            else serve_find(m, t);
+        } else if (t->op == TAPE_LOAD) {
+            serve_load(m, t);
+        } else if (t->op == TAPE_RECORD) {
+            signal_record(m, t);
+        } else {
+            serve_save(m, t);
+        }
         storage_unmount();
     }
     *us = time_us_32() - t0;

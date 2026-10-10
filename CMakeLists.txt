@@ -15,6 +15,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/ay8912.c
     src/core/pcm.c
     src/core/bus.c
+    src/core/cassette.c
     src/core/font.c
     src/core/font_fallback.c
     src/core/keymap_picocalc.c
@@ -150,6 +151,16 @@ else()
         target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_TAPE_TRAP=0)
     endif()
 
+    # The deck's checks in the run loop and on the VIA's path (design.md
+    # §10.4); OFF is the control M13 measures their cost against, and
+    # nothing plays or records.
+    option(PICO_ORIC_DECK "The signal's checks in the run loop" ON)
+    if (PICO_ORIC_DECK)
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_DECK=1)
+    else()
+        target_compile_definitions(pico_oric_core PRIVATE PICO_ORIC_DECK=0)
+    endif()
+
     get_filename_component(PICO_ORIC_TOOLCHAIN_BIN ${CMAKE_C_COMPILER} DIRECTORY)
     find_program(PICO_ORIC_SIZE arm-none-eabi-size HINTS ${PICO_ORIC_TOOLCHAIN_BIN} REQUIRED)
 
@@ -267,6 +278,14 @@ else()
     endif()
 
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})
+    # Turbo while the deck plays or records (design.md §11.2); OFF paces
+    # it, the control M13 measures the speed-up against.
+    option(PICO_ORIC_TURBO "Run unpaced while the tape plays or records" ON)
+    if (PICO_ORIC_TURBO)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_TURBO=1)
+    else()
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_TURBO=0)
+    endif()
     target_link_libraries(pico-oric
         pico_oric_fatfs
         hardware_dma

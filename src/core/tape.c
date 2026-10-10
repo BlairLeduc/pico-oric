@@ -40,6 +40,7 @@ static const tape_rom_t rom11 = {
     .header = 0x02B0u, .name = 0x0293u, .name_cap = 16u, .want = 0x027Fu,
     .start = 0x02A9u, .end = 0x02ABu, .errors = 0x02B1u,
     .verify = 0x025Bu, .verify_errors = 0x025Cu, .slow = 0x024Du,
+    .read_lo = 0xE6C9u, .read_hi = 0xE759u,
 };
 
 static const tape_rom_t rom10 = {
@@ -50,6 +51,7 @@ static const tape_rom_t rom10 = {
     .header = 0x0066u, .name = 0x0049u, .name_cap = 0xFFu, .want = 0x0035u,
     .start = 0x005Fu, .end = 0x0061u, .errors = 0,
     .verify = 0, .verify_errors = 0, .slow = 0x0067u,
+    .read_lo = 0xE630u, .read_hi = 0xE6B9u,
 };
 
 uint8_t tape_pc_lo[256] = {
@@ -100,13 +102,19 @@ static uint8_t name_at(const oric_t *m, uint16_t a, uint8_t *out) {
 
 /* ---- the trap ----------------------------------------------------------- */
 
-static void keep_header(oric_t *m) {
+/* The header and name CSAVE is about to write. */
+static void copy_header(oric_t *m) {
     tape_t *t = &m->tape;
     const tape_rom_t *r = t->rom;
     for (unsigned i = 0; i < TAP_HEADER_LEN; i++)
         t->raw[i] = oric_peek(m, (uint16_t)(r->header - i));
     t->name_len = name_at(m, r->want, t->name);
-    t->header_kept = true;
+}
+
+static void keep_header(oric_t *m) {
+    const tape_rom_t *r = m->tape.rom;
+    copy_header(m);
+    m->tape.header_kept = true;
 
     /* On from where the name's zero has gone out. The data write that
      * follows, the trap's or the ROM's, leaves #2F as the ROM would. */
@@ -138,6 +146,19 @@ bool tape_at(oric_t *m) {
     }
 
     t->slow = oric_peek(m, r->slow) != 0;
+    if (m->cfg.tape_signal) {
+        /* The port's cues only (tape.h): the data steps are the ROM's. */
+        if (pc == r->load_pc || pc == r->dsave_pc) return false;
+        if (pc == r->hsave_pc) {
+            copy_header(m);
+            t->pass_pc = pc;
+            t->start = peek16(m, r->start);
+            t->end = peek16(m, r->end);
+            t->len = tap_data_len(t->start, t->end);
+            t->op = TAPE_RECORD;
+            return true;
+        }
+    }
     if (pc == r->hsave_pc) {
         keep_header(m);
         return false;
@@ -162,6 +183,12 @@ bool tape_at(oric_t *m) {
     t->verify = pc == r->load_pc && r->verify && oric_peek(m, r->verify) != 0;
     t->op = pc == r->load_pc ? TAPE_LOAD : TAPE_SAVE;
     return true;
+}
+
+bool oric_tape_reading(const oric_t *m) {
+    const tape_rom_t *r = m->tape.rom;
+    uint16_t pc = m->cpu.pc;
+    return r && (m->page_flags[pc >> 8] & PAGE_ROM) && pc >= r->read_lo && pc <= r->read_hi;
 }
 
 const tape_t *oric_tape_pending(const oric_t *m) {

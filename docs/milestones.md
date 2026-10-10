@@ -4,6 +4,86 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M13, signal-level tape** (`src/core/cassette.*`; the trap's cues in
+`tape.c`, `oric_tape_reading`; the run slice's end in `oric.c` and the
+catch-up in `bus.c`; `tapeio.c` with fast tape off; turbo, the deck's log
+line and `g_c0.deck` in `core0.c`; the Tapes page's Play row;
+`test_cassette`; the corpus runner's `-t`), built 2026-10-09 (Pico SDK
+2.3.1, arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
+(RP2350B, chip rev 2) the same day, **built**: every done-when item is
+checked, on the host and on the board, and the owner's check is
+outstanding. **The writer, read off both ROMs and executed**: T1
+free-runs with its output on PB7, and each half-cycle is one T1 period,
+the latch + 2, in the order the writer sets it, 210 or 418 cycles; a byte
+is a period and thirteen bits; 259 `#16`s; between header and data six
+periods more than between bytes in 1.1, and in 1.0 three plus one for
+every eleven letters of the name past nine, its print being 564 cycles
+and 19 a letter (design.md §16). **Checked on the host**: each ROM's
+`CSAVE`, recorded off PB7 with every edge placed by T1's count, equals
+the player's walk of the trap's `.tap` of the same save, edge for edge,
+fast and slow, and in 1.0 for names of 0, 9, 10, 20 and 21 letters
+(8,345 to 47,460 halves a case); `CLOAD` with the trap off reads the
+signal on both 48K machines, fast and slow, at both polarities, a tape of
+two files by name and in order, the deck holding its place while the
+relay is open; the recorder's file is the trap's, byte for byte, at both
+speeds, and one cut off by RESET in its data is dropped and counted; with
+fast tape off the find and the header write are the only requests, and a
+port stand-in serves them; with the tape at its end a `CLOAD` leaves the
+ROM in its reader, which at Ready it is not. Without the ROMs, so that CI
+runs it, the CB1 flag is seen by the first IFR read at or after its edge.
+**Planted**, each failing `test_cassette` and then removed: 1.1's gap 5;
+1.0's slack 10; the player's parity, and the recorder's; the leader 258;
+no relay; no catch-up before a VIA access (this one the ROM's own load
+survives, and only the CB1 case catches); the reader's range cut short.
+Both recordings of each ROM, written by `test_cassette --write`, load and
+run in Oricutron (`tools/trace-diff.py tape`, its tape traps off, a fast
+`CLOAD`: Oricutron plays any `.tap` fast, so its `,S` cannot read one).
+The trace diff agrees to the end on all four machines after the change to
+`bus.c`'s reads. **The archive**: of the 57 tapes whose bytes hold a `JSR`
+to the ROMs' tape-reading routines or a read of the VIA's IFR, L'Immonde Dr Kokus (Jean Francois
+Fabre, 1986) loads only by the signal: by the trap its own loader, which
+calls 1.1's sync routine, stops at "Je cherche"; by the signal it loads
+and plays, its first room drawn (host, 20,000 fields, looked at). Not a
+faster format than the ROM's: a loader of its own. All 1,061 tapes run on
+the Atmos 48K by the signal for 20,000 fields (`out/m13/corpus-signal`):
+ten end still reading, against one by the trap at 3,000; four of them
+looked at finish given 60,000 fields, long tapes (Defense Force's is 59
+KB). **On the board**, the Oric-1 16K the card's settings chose, fast
+tape off from the menu over the UART: `CSAVE"M13SIG"` recorded 65 bytes,
+one whole file, appended to `/oric/tapes/M13SIG.tap`; `NEW`,
+`CLOAD"M13SIG"` off the signal, `RUN` printed SIGNAL OK; `CLOAD"M13SIG",S`
+the same; `CSAVE"BOARD"` recorded 73 bytes, rebuilt from the log and
+`CLOAD`ed in Oricutron, which ran it; both recordings on the card,
+read on the workstation, are the bytes the log showed. Then, the card
+holding the archive's tape as `KOKUS.tap` and the machine switched to the
+Atmos 48K from the Machine page (on the host the Oric-1 16K loads it as
+garbage): `CLOAD"KOKUS"` off the signal loaded its three files, the
+second and third fetched by its own `CLOAD""`, the last 174.0 M cycles in
+83.6 s (2.08×); the ROM then read on past the tape's end, which the port
+rewound once, as designed, and the relay opened. Its title page and
+instructions came up ("L'IMMONDE DR KOKUS", "BONNE CHANCE,JAMES"), and
+Space took it to hires, at rt 1.000 with no undocumented opcode
+(`out/m13/board/kokus.log`). **Measured**, one sitting each: a
+slow `CLOAD` of 14.0 M cycles ran at 2.03× real time with turbo, core 0
+98.6% busy; paced (`PICO_ORIC_TURBO=OFF`, the control) at 1.00× with core
+0 48.2% busy, which is turbo's ceiling. A recording ran at 1.29×. The
+first build reached 1.43×; two changes, each held by the tests and the
+trace diff, took a field of loading on the host from 79 to 60 µs: no
+re-wiring after a VIA read that changes nothing (IFR, the counters' high
+bytes, the latches), and the run slice ending at the deck's next edge
+instead of a call every instruction. Idle, the deck costs 0.6–0.8 points
+of core 0 against its control (`PICO_ORIC_DECK=OFF`, same sitting, M12's
+workloads: idle 30.2% against 29.6%, compute 36.3% against 35.6%, sound
+37.3% against 36.5%). Image 155 KB text, bss up 64 KiB for the signal's
+image (design.md §3.3). **Not checked**: the game played past its first
+room; the Atmos's own CSAVE by the signal on the board; PLAY by hand, the Tapes
+page's Play row and the status line's "playing" on the panel; a tape over
+64 KiB played a window at a time (no test, and none in the corpus run,
+which inserts the tape whole); a ROM left reading an ended tape on the
+board (the corpus runner models the port's rule); a recording kept for a
+missing card; the release build. A file one byte short does not load by
+the signal: the ROM waits for its last byte, as a real one does (§10.4).
+
 **M12, performance, corpus and soak** (`tools/fetch-corpus.sh`,
 `tools/corpus/oric-corpus.c`, `tools/corpus-run.sh`,
 `tools/corpus-summary.py`; `tools/soak.bas`, `tools/soak.sh`,

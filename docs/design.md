@@ -542,9 +542,13 @@ diff (§13.4), each fixing a divergence from Oricutron and the datasheets:
   cycle waits for the next instruction. CLI, SEI and PLP keep their old I
   for that one poll (§5.1).
 
-Nothing else is checked per instruction. The AY, the tape input
-and the disc controller are brought up to date when accessed and at the
-field boundary. Tape and disc traps use pico-ace's second run loop with a
+Nothing else is checked per instruction. The AY and the disc controller
+are brought up to date when accessed and at the field boundary. The tape
+(§10.4) is brought up to date when the VIA is accessed, and the run slice
+ends at its next edge, or after every instruction while it records: idle,
+the slice is the field, and the deck costs 0.6–0.8 points of core 0
+against its control (`PICO_ORIC_DECK=OFF`, M13), its relay test and the
+slice's end. A relay closing inside a slice cuts it. Tape and disc traps use pico-ace's second run loop with a
 256-entry table on the PC's low byte, live only while a trap is set (EL
 §3.2), with one table per ROM.
 
@@ -1041,22 +1045,53 @@ first bytes at the handler, and stands aside for any other ROM.
 
 ### 10.4 Tape, phase 2: the signal
 
-EL §8.3: decode the `.tap` into half-cycles in guest cycles, presented on
-CB1 and brought up to date when the VIA is read or its CB1 edge is due (the
-CB1 edge sets an interrupt flag, so the next edge is a VIA event that stops
-the run slice, §5.3). It works with any loader, protected or turbo.
+EL §8.3, built in M13 (`cassette.c`; `tapeio.c` with fast tape off). The
+player puts the `.tap` on CB1 as the ROM's own `CSAVE` writes it, clocked
+in guest cycles; the recorder reads PB7 back into a `.tap`. It works with
+any loader that reads the tape's bytes, the ROM's or a program's own.
 
 - **The writer times bits with VIA T1**, a hardware timer, not its own
-  loops. So the player's half-cycles are the T1 periods the ROM's save
-  routine programs, read off the routine and counted, and a test requires
-  the player's edges to equal a recording of the ROM's own `CSAVE` (from
-  PB7's T1 output), edge for edge, at both speeds (EL §8.3).
-- **The motor relay on PB6** is the deck's cue (EL §8.3): the ROM switches it
-  on to load or save and off after.
-- **Recording** decodes PB7 into bytes appended to the `.tap`, keeping only
-  whole files. A recording made on the device loads in the reference
-  emulator (§13.4).
-- **Turbo** while the tape plays (EL §9.3).
+  loops: T1 free-runs with its output on PB7, and each half-cycle is one
+  T1 period, the latch + 2, in the order the writer sets the latch: 210
+  cycles (`#D0`) or 418 (`#1A0`). A byte is one period, then thirteen bits
+  (a 0, eight data bits from bit 0, odd parity, three 1s): fast, a bit is
+  210 then 210 or 418; slow, sixteen 210s or eight 418s. A file is 259
+  `#16`s, `#24`, the header, the name and its zero, a gap while the ROM is
+  busy, and the data. The gap is 1.1's delay loop, always six periods
+  more than between two bytes; in 1.0 it is the print of "Saving" and
+  the name, 564 cycles and 19 a letter, so three periods more up to nine
+  letters and one more for every eleven after (§16). The player plays the
+  image's bytes as they are and adds only what a `.tap` leaves out, the
+  rest of the leader and the gap. `test_cassette` holds its edges to a
+  recording of each ROM's `CSAVE`, placed by T1's count to the cycle, edge
+  for edge, at both speeds and either side of each of 1.0's steps.
+- **The speed is the ROM's setting** when the relay closes (`#024D`,
+  `#67`), fast for any other ROM: a `.tap` does not record it.
+- **The motor relay on PB6** is the deck's cue (EL §8.3): the ROM closes
+  it to load or save and opens it after, and the deck holds its place
+  while it is open. PLAY on the Tapes page runs it regardless, for a
+  loader that never closes the relay.
+- **CB1 on the edge's cycle**: an access to the VIA brings the player to
+  the access's cycle first, so the flag a reader polls is set when the
+  edge is due (`test_cassette`, with its control). The run slice ends at
+  the deck's next edge, so that an interrupt-driven reader sees it too
+  (§5.3).
+- **Recording** decodes PB7, an instruction at a time, as the ROM's reader
+  would, keeping only whole files: one cut short by RESET is dropped and
+  counted. Its file is the trap's, byte for byte, at both speeds; one made
+  on the board loads and runs in Oricutron (§13.4, M13).
+- **One trap, two speeds** (EL §8.3): with fast tape off, the trap's find
+  is still a request, so that the port chooses the tape as in §10.3 and
+  puts it in the cassette before declining it; the header write arms the
+  recorder; the data steps are the ROM's. A tape over 64 KiB is played a
+  window of whole files at a time, the next put in at the ROM's next
+  find. A ROM left reading an ended tape is the end of the tape as in
+  §10.3: rewound once, then the reset button, but only while the PC is in
+  the ROM's own reader, so a program left running is never interrupted.
+- **Turbo** while the tape plays or records (§11.2).
+- **Not served by the signal**: the file one byte short that §10.3 loads
+  by keeping the byte in memory. A signal cannot finish it, and the ROM
+  waits, as a real one does; fast tape loads it.
 
 ### 10.5 Disc: the Microdisc (M14)
 
@@ -1151,9 +1186,17 @@ Until settled they are runtime configuration (EL §14.2), and the
 
 ### 11.2 Turbo
 
-While a tape plays at signal level (§10.4) or a disc track is in progress
-with fast disc off, run unpaced and top the audio queue up with silence (EL
-§9.3). No faster guest clock: no common modification to support (§17).
+While a tape plays or records at signal level (§10.4) or a disc track is in
+progress with fast disc off, run unpaced and top the audio queue up with
+silence (EL §9.3). No faster guest clock: no common modification to
+support (§17).
+
+Measured in M13 on the board, a slow `CLOAD` of 14.0 M cycles: 2.03× real
+time with turbo, where core 0 was 48.2% busy playing it paced (the
+control, `PICO_ORIC_TURBO=OFF`), so turbo is held by the guest's own cost:
+a ROM reading the tape polls the VIA every few cycles, each a slow-path
+access. A recording ran at 1.29×, the recorder looking at PB7 every
+instruction.
 
 ### 11.3 The host clock
 
@@ -1665,8 +1708,8 @@ date, in this table when it changes.
 | RND seed from zeroed RAM | | ROMs, executed | **settled** 2026-10-08: the seed is the ROM's, not RAM's. Both ROMs give `.270011996`, `.139756248`, `.690102028` for the first three `RND(1)` after every power-on, however long the machine idles first (`test_boot`). Zeroed RAM does not stick it, and nothing needs seeding |
 | Tape routines (each ROM) | | ROMs, read and executed | **settled** 2026-10-08 (M10, `test_tape`). Read: 1.1 / 1.0: half-cycle in (CB1 edge, timed on T2) `#E71C` / `#E67D`; bit in `#E6FC` / `#E65E`; byte in `#E6C9` / `#E630`; find sync (`#16`) `#E735` / `#E696`; write sync `#E75A` / `#E6BA`; byte out `#E65E` / `#E5C6`; half-cycle out on T1 `#E6BA` / `#E621`; tape VIA set-up `#E76A` / `#E6CA`, clean-up `#E93D` / `#E804`. The fast/slow flag is `#024D` in 1.1, `#67` in 1.0. The trap's four steps, from the routines that call these: find a header `#E4AC` / `#E4B2`, read the data `#E4E0` / `#E4EB`, write the header `#E607` / `#E57B`, write the data `#E62E` / `#E5A7` (tape.c has their variables). Executed on all four machines: the ROM's own save, the ROM with only these byte routines hooked, and the trap leave the same machine at the clean-up, fast and slow; a find wants a `#16` and three more, starting over on any other byte |
 | `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | **settled** 2026-10-08 by execution (M10): the header in tape order is two unused bytes, the type (`#00` BASIC, `#80` code, bit 6 an array, which 1.1's CLOAD passes over), autorun, end and start addresses high byte first, one unused byte; 1.1 stores it from `#02B0` down, 1.0 from `#66` down. The data runs from start to end inclusive, one byte if the end is below the start (both ROMs' loops). The trap's file equals, byte for byte, what the ROM's own byte routine writes after its leader (`test_tape`); the leader is four `#16`s, as Oricutron writes, which reads three or more. 83 of TOSEC's 1,061 tapes hold one byte fewer than the header says, start to end exclusive (M12; §10.3) |
-| Tape bit timings, fast and slow | | ROM's T1 writer, counted and executed | to find in M13 |
-| Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13 |
+| Tape bit timings, fast and slow | 210 or 418 cycles a half | ROM's T1 writer, counted and executed | **settled** 2026-10-09 (M13): each half-cycle is one T1 period, the latch + 2, in the order 1.1's `#E6BA` (1.0's `#E621`) sets the latch, `#D0` or `#1A0`, and PB7 changes at each; a byte is a period and thirteen bits, fast 210 + 210/418 a bit, slow sixteen 210s or eight 418s; 259 `#16`s; between the name's zero and the data, six periods more than between two bytes in 1.1 (`#E628`'s loop), and in 1.0 three, plus one for every eleven letters of the name past nine (its print, 564 cycles and 19 a letter, measured to 38 letters). Executed: `test_cassette` records each ROM's `CSAVE` off PB7 with every edge placed by T1's count, and the player's walk equals it edge for edge, both speeds, names of 0, 9, 10, 20 and 21 letters in 1.0 |
+| Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13. **Execution cannot tell it** (2026-10-09, M13): both ROMs time CB1 from rising edge to rising edge (PCR `#10`), and the two halves of each pair add to the same either way, so `test_cassette` loads at both polarities. The player idles high, CB1's pull-up, and follows PB7's sense. The relay counts as closed while PB6 is driven high as an output; a pin set as an input is taken as open, unmodelled |
 | Microdisc control/status bits | | Microdisc schematic; EPROM and Sedoric, read | low |
 | `MFM_DISK` layout | header, raw tracks of ~6,400 bytes | Oricutron's loader; archive images | medium |
 

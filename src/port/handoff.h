@@ -96,7 +96,14 @@ typedef struct {
     uint32_t underruns;      /* underrun samples since boot (§8.4)       */
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t hz;             /* the last field's rate, 50 or 60          */
+    /* The deck, every field (design.md §10.4): DECK_IDLE, DECK_PLAYING
+     * or DECK_RECORDING, for the status line. */
+    uint32_t deck;
 } core0_perf_t;
+
+#define DECK_IDLE      0u
+#define DECK_PLAYING   1u
+#define DECK_RECORDING 2u
 
 extern volatile core0_perf_t g_c0;
 
