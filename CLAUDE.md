@@ -49,13 +49,14 @@ both ROMs on the host, a saved file loads in Oricutron, and 193 of TOSEC's
 206 loadable images leave Oricutron's screen after 30 s (the other 13
 explained); on the board Sedoric boots off the card, saves and loads, and
 Oricutron reads the disc it wrote. The owner's check of the pages is
-outstanding. **M16 (the vertical-sync modification) is built**: the first
+outstanding. **M16 (the vertical-sync modification) is done**: the first
 active line settled from Brown's measured timing (sync on lines 256–259),
 the pulse on CB1 as two run-loop events a field, a Machine-page row, and
 a test program tracing line for line against Oricutron with its VSync
 hack on all four machines; on the way, a VIA read in an instruction's
 last cycle no longer sees the next instruction's first tick (`design.md`
-§5.3).
+§5.3); the owner played Oricium, which wants the vsync cable, with the
+hack on a Pico 2 W.
 The record of each milestone (what was verified, on
 which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.

@@ -14,9 +14,10 @@ line; `test_vsync`; `oric-trace -v`, `oricutron-trace -v` and `-V`, the
 key script's `poke`, `trace-diff.py run --vsync` and `--test`, `tape
 --vsync`, `oric-corpus -v`), built 2026-10-10 (Pico SDK 2.3.1,
 arm-none-eabi-gcc 15.2) and run on the Plus 2 W `7458DC82A89AAC12`
-(RP2350B, chip rev 2) the same day, **built**: every done-when item is
-checked but the board's title, which is not on the card, and the owner
-has not seen it. **The first active line, settled** for 50 Hz from
+(RP2350B, chip rev 2) the same day, **done**: every done-when item is
+checked, the last by the owner, who played Oricium (Defence Force, 1.2),
+a game that wants the vsync cable, with the hack on a Pico 2 W the same
+day, and it works. **The first active line, settled** for 50 Hz from
 Brown's measured video timing (sheet 2 of his ULA guide): the picture is
 lines 0–223 of the counter and the sync 256–259, so the field's boundary
 is line 0 and the sync begins 256 lines after it; Clock Signal's
@@ -84,17 +85,24 @@ two (JMOVIE2, Arpy) differ, both already running into data.
 one pulse a field in the heartbeat (11,045 in 11,045 fields), rt 1.000;
 the test program's install typed over the UART as BASIC (`vsync-irq.bas`)
 counts 47–51 CB1 interrupts a second at `Ready`, IER `#D0`. DOTSRECORD
-is not on the card (`/oric/tapes/ZZZ-UNK-DOTSRECORD.tap: cannot open`).
+was not on the card then (`cannot open`), and was copied to it
+afterwards as `/oric/tapes/DOTSRECORD.tap`. **The owner's check**: Oricium
+1.2 (`Oricium12.tap`, SHA-1 `675c4669…`, not in TOSEC, which predates it)
+played with the hack on a Pico 2 W, the first run of this firmware on a
+second board. On the host (`out/m16/oricium`) the Atmos 48K without the
+hack stops at "PLUG VSYNC CABLE OR PRESS A KEY", and with it goes
+straight to its menu.
 **Measured**, one sitting, M12's workloads on the card's Oric-1 16K with
 the hack on (`build/m16-vsync`) against the same tree without it
 (`out/m16/perf`): idle 31.5% against 31.4%, compute 37.8% and 37.8%,
 sound 38.8% against 38.7%, scroll at 60 Hz 36.0% and 36.0%, rt 1.000
 and no underruns in all. Image 172,848 bytes text, bss 308,468.
-**Not checked**: DOTSRECORD, or any title, on the board, and the owner
-has not seen one; the Machine page's row, the Tapes page's note and the
-refusal on the panel (the boots used the build's flag); anything at
-60 Hz against a measurement, or against Oricutron, whose trace never
-leaves 50 Hz; the release build on the board.
+**Not checked**: DOTSRECORD on the board; whether the owner's run set
+the hack from the Machine page (the card's file has no `vsync_hack`
+line, so it was not saved there); the Tapes page's note and the
+snapshot refusal on the panel; anything at 60 Hz against a measurement,
+or against Oricutron, whose trace never leaves 50 Hz; the release build
+on the board.
 
 **M14, the Microdisc** (`src/core/wd1793.*`, `microdisc.*`, `mfmdisk.*`;
 the latch's map in `oric.c` and the decode in `bus.c`; the run loop's
