@@ -142,10 +142,10 @@ int main(void) {
     oric_key_set(&h, 2, 5, true);
     oric_key_set(&h, 7, 4, true);
     CHECK(!snap_same(&ahead, &h, "control"), "control: a machine not restored must differ");
-    snap_info_t info = { ROM_BASIC10, ORIC_RAM_16K };
+    snap_info_t info = { ROM_BASIC10, ORIC_RAM_16K, true };
     CHECK(mem_check(&snap, &h, &info) == SNAP_OK, "check: %s",
           snapshot_status_str(mem_check(&snap, &h, NULL)));
-    CHECK(info.rom == ROM_UNKNOWN && info.ram == ORIC_RAM_48K, "info: rom %d ram %d",
+    CHECK(info.rom == ROM_UNKNOWN && info.ram == ORIC_RAM_48K && !info.microdisc, "info: rom %d ram %d",
           (int)info.rom, (int)info.ram);
     CHECK(mem_load(&snap, &h) == SNAP_OK, "load");
     CHECK(snap_same(&saved, &h, "loaded"), "the machine as loaded should be the one saved");

@@ -167,6 +167,24 @@ static inline bool snap_same(const oric_t *a, const oric_t *b, const char *what)
     SNAP_DIFF(s->header_kept && (memcmp(s->raw, t->raw, sizeof s->raw) != 0 ||
                                  s->name_len != t->name_len ||
                                  memcmp(s->name, t->name, s->name_len) != 0), "kept header");
+
+    /* The Microdisc (microdisc.h): the latch, the map it makes, and the
+     * controller between commands. */
+    const wd1793_t *f = &a->fdc, *g = &b->fdc;
+    SNAP_DIFF(a->md_latch != b->md_latch, "Microdisc latch %02X vs %02X", a->md_latch, b->md_latch);
+    for (unsigned pg = 0; pg < ORIC_PAGE_COUNT; pg++)
+        SNAP_DIFF(a->page_flags[pg] != b->page_flags[pg] ||
+                  (a->page[pg].read == NULL) != (b->page[pg].read == NULL), "page #%02X", pg);
+    SNAP_DIFF(f->status != g->status || f->track != g->track || f->sector != g->sector ||
+              f->data != g->data || f->cmd != g->cmd, "WD1793 registers");
+    SNAP_DIFF(f->intrq != g->intrq || f->drq != g->drq || f->type1 != g->type1 ||
+              f->hold_intrq != g->hold_intrq || f->index_intrq != g->index_intrq ||
+              f->step_in != g->step_in || f->drive != g->drive || f->side != g->side,
+              "WD1793 lines");
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+        SNAP_DIFF(f->drv[d].cyl != g->drv[d].cyl, "drive %u's head %u vs %u", d,
+                  f->drv[d].cyl, g->drv[d].cyl);
+    SNAP_DIFF(f->head_until != g->head_until || f->due != g->due, "WD1793 times");
     return true;
 }
 

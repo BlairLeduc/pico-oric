@@ -317,12 +317,12 @@ All estimates, against 520 KiB. Every fixed capacity lives in
 |---|---:|---|
 | Guest RAM, 64 KiB (48 K + 16 K overlay) | 64 K | statically sized for the largest machine |
 | ROM, the one in use | 16 K | loaded from the card at power-on (§10.2) |
-| Microdisc EPROM | 8 K | only from M14 |
+| Microdisc EPROM | 8 K | in `oric_t`, and again in the boot report for a power-on (M14) |
 | Tape image buffer | 64 K | the signal's `.tap` and the recorder's output, from M13, a file at a time: the archive's largest file is 49,152 bytes (M12's corpus), its largest tape 92,160. The trap (M10) holds none: it reads the card a sector at a time |
 | Frame snapshots, 3 × (`#9800–#BFFF` + status) | 31 K | §4.4 |
 | Presenter shadow: decoded cells, 224 × 40 × 2 B | 17.5 K | §7.3 |
 | Two RGB565 line buffers, 240 px | 1 K | |
-| Disc track buffer, one raw track | 6.5 K | §10.5, from M14 |
+| Disc track buffer, one raw track | 6.5 K | §10.5; with its sector index, 6.7 K (M14) |
 | Audio ring (aligned) + PCM queue | 6 K | HW §5.3, EL §6.2 |
 | Interpreter and hot paths in SRAM | 25–35 K | a measured tier (EL §3.4) |
 | FatFs, sector buffers, settings text | 8 K | |
@@ -587,7 +587,12 @@ configuration is applied only by a power-on (§12).
 
 ### 6.3 Power-on state
 
-**Zero-filled RAM** (EL §9.2), and every chip reset with the CPU (EL §3.2):
+**Zero-filled RAM** (EL §9.2), but for the overlay RAM, which powers on in
+Oricutron's pattern, 128 zeros and 128 `#FF`s a page: Sedoric's loader sums
+it to see whether the DOS is already resident, and zeros pass, so a cold
+boot loaded only four of its sectors and crashed (M14; Oricutron does the
+same with zeroed RAM). No BASIC ROM can read the overlay, so the traces and
+goldens are unchanged. Every chip is reset with the CPU (EL §3.2):
 the VIA and the AY are on the reset line on the real machine (to be read off
 the schematic, §16). Look for a random seed the ROM takes from RAM (EL
 §9.2): BASIC's `RND` keeps a seed, and whether zeroed RAM leaves it stuck is
@@ -1097,31 +1102,68 @@ any loader that reads the tape's bytes, the ROM's or a program's own.
 
 The Microdisc is the Oric's common disc interface and Sedoric its common
 DOS. It is the most complicated device in the plan, so it comes last,
-after the soak (§15), and only on a 48K machine.
+after the soak (§15), and only on a 48K machine: its DOS runs from the
+overlay RAM, the top 16 KiB of the 64.
+
+**The hardware, read off the EPROM and agreed by MAME's `microdisc.cpp` and
+Oricutron's `disk.c`** (`microdisc.h`, §16):
 
 | Part | Behaviour |
 |---|---|
-| WD1793 at `#0310–#0313` | command/status, track, sector, data. Type I–IV commands; INTRQ and DRQ |
-| Control `#0314` (write) | drive select, side, density, `/ROMDIS`, EPROM enable, INTRQ-to-IRQ enable (bit assignment §16) |
-| Status `#0314` / `#0318` (read) | INTRQ and DRQ, active low |
-| EPROM, 8 KiB at `#E000` | boots the DOS from disc; then Sedoric runs from **overlay RAM** with BASIC switched out |
-| `/I/O CONTROL` | the Microdisc's addresses are taken from the VIA's mirror |
+| WD1793 at `#0310–#0313` | command/status, track, sector, data (`wd1793.h`); clocked at 1 MHz (MAME: 8 MHz ÷ 8), so the datasheet's 2 MHz times double |
+| Latch `#0314` (write) | bit 0 INTRQ onto IRQ; bit 1 set keeps the BASIC ROM, clear is `/ROMDIS`; bit 2 always set by the EPROM, unused; bit 3 density; bit 4 side; bits 5–6 drive; bit 7 set turns the EPROM off |
+| `#0314`, `#0318` (read) | bit 7 clear while INTRQ, or DRQ, is; the rest set |
+| EPROM, 8 KiB at `#E000` | with bits 1 and 7 clear, over the overlay RAM; its writes are lost. RESET clears the latch, so the reset vector (`#EB7E`) is the EPROM's, which boots the DOS |
+| Everything else in page `#03` | the VIA's, `#0318`'s writes included (MAME) |
 
-The lessons from pico-atom's 8271 carry over (EL §8.4): **the model knows
-the geometry and asks the host only for bytes**, a track at a time with the
-guest parked, so the card's latency is invisible; a write collects the
-track and posts it; a read-only file is a write-protected disc; refuse a
-snapshot while a command runs. **Read the register use off the EPROM and
-Sedoric**, not from secondary documents.
+The EPROM drives the chip one way throughout: it turns the VIA's T1
+interrupt off (`#E3E3`), writes a command, sets the latch's bit 0, and moves
+a byte per DRQ by polling `#0318` (`#E2EF` reads, `#E309` writes, 20 to 21
+cycles a byte); INTRQ's IRQ ends each command, its handler (`#E3C0`) taking
+the interrupt's frame off the stack and returning from the routine. With
+T1 off the ROM's keyboard scan stops, so keys typed while the disc works are
+lost, on a real Oric as here.
 
-**Images: Oricutron's `MFM_DISK` format**, the archive's common one: a
-header (sides, tracks, geometry) then raw MFM tracks of about 6,400 bytes,
-which the WD1793 model walks for ID and data marks as the chip would. One
-track in SRAM at a time (6.5 KiB, §3.3). The older sector-only `ORICDISK`
-format is converted on a computer, not supported (§17).
+**The disc turns** (`wd1793.h`). A track is 6,400 bytes of `MFM_DISK`, a byte
+every 32 cycles, so a revolution is 204,800 cycles (293 rpm, against a
+drive's 300); byte 0 is the index hole. A search waits for its ID to come
+round, a transfer moves a byte every 32 cycles and loses one the CPU has not
+taken, and a sector that is not there is given up at the fifth index pulse.
+Each timed step (a step pulse, the 30 ms settle, each byte, INTRQ) is an
+event at an exact cycle, and the run loop ends its slice there as it does
+for the cassette's edges (§5.3). Nothing is sped up: rotation is why a real
+Microdisc is as slow as it is. Sedoric 3 reaches its menu 4.4 s after
+power-on on the host, and formats a 42-track double-sided disc in 35 s.
+
+**The model knows the geometry and asks the host only for bytes** (EL §8.4),
+a track at a time: a command that needs a track the chip does not hold posts
+a request and waits, busy, as a drive does while its head settles; core 0
+parks at the next field boundary and core 1 serves it from the card
+(`discio.c`), so the card's latency is invisible to the guest. A track the
+chip has written is posted back when the command ends, and before any other
+is read into its place. Tracks beyond an image's geometry are unformatted.
+
+**What the chip does not model.** CRC errors: 24 of TOSEC's 221 images carry
+CRCs their tools never computed, and Oricutron, which never checks, loads
+them. Density: every image is MFM. READY, which the Microdisc ties active
+(MAME's `force_ready`): a drive with no disc has no index pulses, and a
+command on it runs until a Force Interrupt, as a real one does. The EPROM
+then shows "insert system disc" and waits; a disc put in is found.
+
+**Images: Oricutron's `MFM_DISK` format** (`mfmdisk.h`), the archive's: a
+256-byte header (sides, tracks, geometry 1) then every track of side 0, then
+of side 1. One track in SRAM at a time (§3.3). The older sector-only
+`ORICDISK` format is refused by name, to be converted on a computer (§17); so
+is an image shorter than its header says. A file with the read-only
+attribute is a write-protected disc. The drives are the port's, not the
+machine's: a power-on, the Machine page's restart and a snapshot's load
+keep the discs in them.
 
 **The Discs page** (`F2`) lists `/oric/discs/` with the drive each image is
-in and a `P` for write-protected, as pico-atom's does.
+in and a `P` for write-protected, as pico-atom's does, with `< >` choosing
+among the four drives. **Formatting is supported**: Sedoric's `INIT` formats
+a blank image (a header and unformatted tracks) through the chip's Write
+Track, so a new disc is a file made on a computer and formatted by the DOS.
 
 ### 10.6 Snapshots
 
@@ -1132,7 +1174,12 @@ mode and the field's length recorded, two-pass load, every key released and
 audio restarted after. The fields: the 6502, the VIA (pico-atom's snapshot
 fields), the AY's registers and every internal counter, the ULA's mode and
 blink counter, all 64 KiB of RAM, and from M14 the WD1793 and Microdisc
-latches with the drive's head position.
+latches with the drive's head position. As built in M14, in the state
+section's reserved bytes, zero without a Microdisc: the latch, the WD1793's
+registers and lines, each drive's head and the chip's next event; a
+state records whether the Microdisc is fitted and is refused by the other
+fit, named, and is refused while a command runs or a track waits for the
+card. The discs are not in a state.
 
 As built in M11 (`snapshot.h`): "PORCSNAP", version 1, a 320-byte state
 section and then `oric_t.ram` whole, the overlay included, so a file is
@@ -1228,7 +1275,8 @@ between the three emulators finds everything where it was.
   is. Power-on is *Apply and restart* on the Machine page.
 - **The Machine page refuses** a ROM whose file is missing or unrecognised,
   naming it, before touching the machine; refuses a 16K machine with the
-  Microdisc on; refuses while a recording is unsaved (EL §10).
+  Microdisc on, and the Microdisc without `microdis.rom` by its SHA-1;
+  refuses while a recording is unsaved (EL §10).
 - **The menu is a 40×28 text page** in the Oric's own font (§7.6), through
   the ordinary renderer, with the status and key rows last. Closing it
   invalidates the shadow, and the next snapshot is presented whole.
@@ -1263,7 +1311,7 @@ milestone plants bugs to prove its tests bite (EL §11.1).
 | Bus | page table, mirrors, I/O decode by mask, `/ROMDIS`, each register's side effect and no other (EL §4.1–4.2) |
 | Field | lengths at 50 and 60 Hz; the switch between them; the snapshot point |
 | Keyboard | the sweep, every table entry through both ROMs, hold and gap with a too-fast control |
-| Media | tape trap and signal in both ROMs; recorder; snapshot round trip; Microdisc against an in-memory disc |
+| Media | tape trap and signal in both ROMs; recorder; snapshot round trip; the WD1793's every command against an in-memory disc, timed to the cycle by rotation, each with a control; the latch's map; Sedoric booted, used and formatting in both ROMs (`test_disc`) |
 | Port logic in the core | snapshot pool, status text, settings rewriter, keymap parser, BMP encoder |
 
 ### 13.3 The real ROMs, and our own
@@ -1320,6 +1368,10 @@ trace.
 - **Video**: Oricutron's rendering of the same RAM is the independent check
   of the goldens (§7.7): `oricutron-render`, built by the same script, and
   `tools/render-diff.sh`.
+- **Discs**: Oricutron's disc is instant where ours turns (§10.5), so a disc
+  boot cannot be traced line for line. Instead `trace-diff.py disc` boots
+  an image we wrote in Oricutron and types at it, and `tools/disc-corpus.sh`
+  holds every archive image's screen after 30 s to Oricutron's (M14).
 
 ### 13.5 Soak
 
@@ -1675,7 +1727,7 @@ date, in this table when it changes.
 | CPU clock | 1 MHz (12 MHz ÷ 12) | schematic; ULA documentation | high. BN0130: 12 MHz crystal XT1 into the ULA's CLK (pin 7); the 6502's Φ0 from the ULA's ΦOUT (pin 14). Brown: ÷2 for a 6 MHz dot clock, ÷6 for 1 MHz |
 | ROM hashes | §10.2 | MAME's `ROM_LOAD` | **settled** 2026-10-07: the owner's `basic10.rom`, `basic11b.rom` and `microdis.rom` match MAME's CRC32 and SHA-1. Reset vectors `#F42D` (1.0) and `#F88F` (1.1) |
 | 16K RAM mirroring | `#0000–#3FFF` repeats to `#BFFF` | schematic; the ROM booting in 16K | **settled** 2026-10-08 by execution (`test_boot`): with the mirror both ROMs boot (1.0: 15,102 bytes free; 1.1: 4,863); with nothing above `#3FFF` both stop in their RAM test (`#C5F8`, `#C5EB`). Oricutron mirrors the same way (`addr & 0x3FFF`). BN0130 is the 48K board, but the service manual (§3) says it outright: the 16K machine ignores A14 and A15. Settled |
-| Overlay RAM under the ROM, `/ROMDIS` | 48K machines only | schematic; Microdisc schematic | medium. BN0130: `ROMDIS` (PL2 2) disables the ROM's chip select (IC9, a 23128, or two 2764s through IC11) against a pull-up; `MAP` (PL2 1) goes to the ULA (pin 26). Brown: with `MAP` low the ULA maps RAM at `#C000–#FFFF` (and, he says, no RAM below it). The service manual (§3) settles the main board's side: `MAP` with `#C000–#FFFF` addressed inhibits the ROM and enables the whole 64 KiB of RAM, so the overlay RAM appears (the Microdisc's DOS lives there); `MAP` with `#0000–#BFFF` addressed inhibits all RAM for an expansion's memory. `MAP` is a 250 ns low pulse leading Φ2 by 80–100 ns. The Microdisc's side (BN0136) is M14's to read |
+| Overlay RAM under the ROM, `/ROMDIS` | 48K machines only | schematic; Microdisc schematic | medium. BN0130: `ROMDIS` (PL2 2) disables the ROM's chip select (IC9, a 23128, or two 2764s through IC11) against a pull-up; `MAP` (PL2 1) goes to the ULA (pin 26). Brown: with `MAP` low the ULA maps RAM at `#C000–#FFFF` (and, he says, no RAM below it). The service manual (§3) settles the main board's side: `MAP` with `#C000–#FFFF` addressed inhibits the ROM and enables the whole 64 KiB of RAM, so the overlay RAM appears (the Microdisc's DOS lives there); `MAP` with `#0000–#BFFF` addressed inhibits all RAM for an expansion's memory. `MAP` is a 250 ns low pulse leading Φ2 by 80–100 ns. **Executed** 2026-10-10 (M14): with the latch's bit 1 clear the overlay RAM at `#C000–#FFFF`, under the EPROM at `#E000` while bit 7 is clear, and writes to the ROM's or the EPROM's addresses lost, as MAME's views and Oricutron's handlers both have it; Sedoric boots, runs from the overlay and calls the BASIC ROM by setting bit 1, in both ROMs (`test_disc`). The Microdisc's schematic (BN0136) has not been read: medium-high |
 | VIA decode | `#0300–#030F`, mirrored through `#03FF` unless `/I/O CONTROL` | schematic | **settled** 2026-10-08 from the service manual (§3, "I/O and Expansion"): the ULA asserts `I/O` for every address `#0300–#03FF`, which enables the VIA (IC6) and goes to PL2; an expansion answering in the page must assert `I/O CONTROL` to inhibit the VIA. So the VIA answers throughout the page, registers on A0–A3 (its RS0–RS3). Brown and BN0130 agree; Oricutron decodes the same way |
 | AY wiring | BC2 high; BC1, BDIR from the VIA; data on PA | schematic | **settled** 2026-10-08 from BN0130 (sheet 1): AY pin 20 (BC1) to VIA pin 39 (CA2), pin 18 (BDIR) to VIA pin 19 (CB2), BC2 (pin 19) to +5 V, DA0–DA7 (28–21) to PA0–PA7 (VIA 2–9), IOA0–IOA7 (14–7) to the keyboard connector as COL 0–7, CLOCK (15) from the 6502's Φ1, so 1 MHz. Agrees with both ROMs, read and executed |
 | VIA access timing and the IRQ poll | | datasheets; trace vs Oricutron | **settled** 2026-10-08 by trace (§5.3, §13.4): the VIA is brought to the cycle of an access part-way into an instruction, and runs two cycles behind the CPU at boundaries. With both, boot and typing agree with Oricutron (its two errata corrected) on all four machines |
@@ -1710,8 +1762,10 @@ date, in this table when it changes.
 | `.tap` layout | `#16`… `#24`, 9-byte header, name, `#00`, data | archive files; ROM's writer | **settled** 2026-10-08 by execution (M10): the header in tape order is two unused bytes, the type (`#00` BASIC, `#80` code, bit 6 an array, which 1.1's CLOAD passes over), autorun, end and start addresses high byte first, one unused byte; 1.1 stores it from `#02B0` down, 1.0 from `#66` down. The data runs from start to end inclusive, one byte if the end is below the start (both ROMs' loops). The trap's file equals, byte for byte, what the ROM's own byte routine writes after its leader (`test_tape`); the leader is four `#16`s, as Oricutron writes, which reads three or more. 83 of TOSEC's 1,061 tapes hold one byte fewer than the header says, start to end exclusive (M12; §10.3) |
 | Tape bit timings, fast and slow | 210 or 418 cycles a half | ROM's T1 writer, counted and executed | **settled** 2026-10-09 (M13): each half-cycle is one T1 period, the latch + 2, in the order 1.1's `#E6BA` (1.0's `#E621`) sets the latch, `#D0` or `#1A0`, and PB7 changes at each; a byte is a period and thirteen bits, fast 210 + 210/418 a bit, slow sixteen 210s or eight 418s; 259 `#16`s; between the name's zero and the data, six periods more than between two bytes in 1.1 (`#E628`'s loop), and in 1.0 three, plus one for every eleven letters of the name past nine (its print, 564 cycles and 19 a letter, measured to 38 letters). Executed: `test_cassette` records each ROM's `CSAVE` off PB7 with every edge placed by T1's count, and the player's walk equals it edge for edge, both speeds, names of 0, 9, 10, 20 and 21 letters in 1.0 |
 | Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13. **Execution cannot tell it** (2026-10-09, M13): both ROMs time CB1 from rising edge to rising edge (PCR `#10`), and the two halves of each pair add to the same either way, so `test_cassette` loads at both polarities. The player idles high, CB1's pull-up, and follows PB7's sense. The relay counts as closed while PB6 is driven high as an output; a pin set as an input is taken as open, unmodelled |
-| Microdisc control/status bits | | Microdisc schematic; EPROM and Sedoric, read | low |
-| `MFM_DISK` layout | header, raw tracks of ~6,400 bytes | Oricutron's loader; archive images | medium |
+| Microdisc control/status bits | §10.5 | Microdisc schematic; EPROM and Sedoric, read | medium-high, 2026-10-10 (M14). Read off the EPROM (`#E337` builds the latch: drive bits 5–6 from a table of `#04 #24 #44 #64`, side bit 4; `#E393` sets bit 0 for a command; `#E3C0` takes INTRQ from `#0314` bit 7; `#E2EF` DRQ from `#0318` bit 7) and agreed by MAME's `microdisc.cpp` and Oricutron's `disk.c` bit for bit. One disagreement: MAME reads `#0314`'s bit 7 as INTRQ and bit 0, Oricutron as INTRQ alone; the EPROM sets bit 0 before every command, and Sedoric boots, saves, loads and formats either way, so execution cannot tell. Oricutron's is built. Not read off the schematic |
+| `MFM_DISK` layout | §10.5 | Oricutron's loader; archive images | **settled** 2026-10-10 (M14) from Oricutron's `diskimage_load` and TOSEC's 221 images: a 256-byte header, `MFM_DISK`, sides, tracks and geometry as little-endian words, then side 0's tracks and side 1's, 6,400 bytes each; 206 images are exactly that long, 10 are cut short, and 5 are not `MFM_DISK` (one `ORICDISK`); the 15 are refused by name. Every data mark is 34 bytes after its ID's CRC; Sedoric's tracks hold 17 sectors of 256 bytes 358 bytes apart, the first ID's sync at byte 108 |
+| WD1793 clock and timing | 1 MHz: steps 6/12/20/30 ms, settle 30 ms, a byte 32 µs | MAME (`FD1793(config, fdc, 8_MHz_XTAL / 8)`); the datasheet | medium, 2026-10-10 (M14). The datasheet's 2 MHz times doubled. The track's 6,400 bytes at 32 µs make a revolution 204.8 ms, 2.4 % slower than a 300 rpm drive; no program has been seen to tell |
+| Overlay RAM at power-on | Oricutron's pattern | the DRAM; Oricutron | low, 2026-10-10 (M14). Real DRAM powers on in no fixed pattern; Sedoric's loader treats a zero sum over `#C980–#FFFF` as the DOS resident, which zero-filled RAM passes and real RAM almost never does (§6.3). Oricutron's default pattern is used |
 
 ---
 
@@ -1735,6 +1789,7 @@ Each entry says why, so nobody re-plans it without new evidence (EL §14.5).
 | Hardware vertical scroll | dropped | scrolling is memory moves the cell diff catches (EL §5.4) |
 | `.wav` and `.tzx` tapes | dropped | the archive is `.tap`; convert on a computer |
 | `ORICDISK` sector images | dropped | convert to `MFM_DISK` on a computer |
+| WD1793 CRC errors | not modelled | 24 of TOSEC's 221 images carry CRCs their tools never computed, and Oricutron loads them (M14). A title that checks for a bad CRC on purpose reopens it |
 | Community snapshot import | dropped | the archive is tapes and discs |
 | Faster guest clock | dropped | no common modification |
 
@@ -1758,6 +1813,13 @@ The owner's decisions, each with its date.
    copy.
 5. **One design document**, `docs/design.md`, with the milestones in §15
    and the record in `docs/milestones.md` from M0. *Decided 2026-10-07.*
+6. **The overlay RAM powers on in Oricutron's pattern**, 128 zeros and 128
+   `#FF`s a page, and the rest of RAM zero-filled. *Decided 2026-10-10.*
+   Sedoric's loader takes a zero sum over the overlay as the DOS resident,
+   so zeroed RAM crashed a cold boot (§6.3, M14).
+7. **The WD1793 reports no CRC errors.** *Decided 2026-10-10.* 24 of
+   TOSEC's 221 Microdisc images carry CRCs their tools never computed, and
+   Oricutron loads them (§10.5, §17).
 
 **Proposed, following the siblings; the owner to confirm:**
 

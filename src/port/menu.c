@@ -5,10 +5,9 @@
  * same order, the same function keys, the same rows on each page, and
  * Esc going back a page, or to the guest from the main page or a page a
  * key opened. The Oric has every page the Atom has, so the Discs page is
- * back, on F2. The Discs page says it is not in this firmware yet until
- * M14 fills it. The Machine page
- * stages the ROM and the RAM (§12), and the text is in the Oric's own
- * character set, which has lower case.
+ * back, on F2, with the Microdisc's four drives (M14). The Machine page
+ * stages the ROM, the RAM and the Microdisc (§12), and the text is in the
+ * Oric's own character set, which has lower case.
  */
 
 #include "menu.h"
@@ -20,6 +19,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "discio.h"
 #include "display.h"
 #include "handoff.h"
 #include "kbd.h"
@@ -91,6 +91,12 @@ static unsigned      s_slot;      /* the Snapshots page's, kept between openings
 static card_job_t s_job;
 
 static tapeio_entry_t s_list[ORIC_TAPE_LIST_MAX];
+static discio_entry_t s_discs[ORIC_DISC_LIST_MAX];
+
+/* The Discs page, as pico-atom's: row 0 empties the drive, the card's
+ * images follow; < > choose the drive on any row. */
+#define DISC_ROWS TAPE_ROWS
+static unsigned s_drive;    /* kept between openings, as the slot is */
 
 static struct {
     oric_t  *m;
@@ -111,9 +117,13 @@ static struct {
     int      snap_sel;
     bool     used[SNAPIO_SLOTS];
 
+    unsigned n_discs;
+    int      disc_sel, disc_top;
+
     int        machine_sel;
     rom_id_t   st_rom;        /* staged: applied only by a power-on */
     oric_ram_t st_ram;
+    bool       st_md;
 
     int      sb_ver;          /* the About page's, read as it opens */
     int      temp_c;
@@ -166,10 +176,16 @@ static void draw_main(void) {
     const char *in = tapeio_inserted();
     snprintf(line, sizeof line, " Tape in: %.29s", in[0] ? base(in) : "none");
     textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
-    snprintf(line, sizeof line, " Machine: %s, ROM %s",
-             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), settings_rom_str(s.m->cfg.rom));
+    snprintf(line, sizeof line, " Machine: %s, ROM %s%s",
+             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), settings_rom_str(s.m->cfg.rom),
+             s.m->cfg.microdisc ? ", Microdisc" : "");
     textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
     textpage_line(s_scr, ROW_TOP + I_COUNT + 3, " Keys: standard", false);
+    if (s.m->cfg.microdisc) {
+        const char *d = discio_inserted(0);
+        snprintf(line, sizeof line, " Disc A: %.30s", d[0] ? base(d) : "none");
+        textpage_line(s_scr, ROW_TOP + I_COUNT + 4, line, false);
+    }
 }
 
 static void draw_tapes(void) {
@@ -219,12 +235,35 @@ static void draw_snaps(void) {
                   " into the machine it was saved on.", false);
 }
 
-/* A page whose contents a later milestone brings (§15.2 M9). */
-static void draw_later(const char *what, const char *dir) {
+/* Which drive an image is in: A to D, or a space. */
+static char drive_of(const char *path) {
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+        if (strcmp(path, discio_inserted(d)) == 0) return (char)('A' + d);
+    return ' ';
+}
+
+static void draw_discs(void) {
     char line[TEXT_COLS + 1];
-    textpage_line(s_scr, ROW_TOP, " Not in this firmware yet.", false);
-    snprintf(line, sizeof line, " %s will be in %s.", what, dir);
-    textpage_line(s_scr, ROW_TOP + 2, line, false);
+    snprintf(line, sizeof line, " Drive < %c >  %s", 'A' + s_drive,
+             !s.card ? "No card" : s.n_discs ? "Image        In  R/O"
+                                              : "No discs in /oric/discs/");
+    textpage_line(s_scr, ROW_TOP, line, false);
+    for (int r = 0; r < DISC_ROWS; r++) {
+        int i = s.disc_top + r;
+        line[0] = 0;
+        if (i == 0) {
+            const char *in = discio_inserted(s_drive);
+            snprintf(line, sizeof line, " (Empty drive %c: %.18s)", 'A' + s_drive,
+                     in[0] ? base(in) : "empty now");
+        } else if (i <= (int)s.n_discs) {
+            const discio_entry_t *e = &s_discs[i - 1];
+            snprintf(line, sizeof line, " %-26.26s %c  %c", base(e->path), drive_of(e->path),
+                     e->protect ? 'P' : ' ');
+        }
+        textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.disc_sel);
+    }
+    if (!s.m->cfg.microdisc)
+        textpage_line(s_scr, ROW_STATUS - 1, " The Microdisc is off: Machine page.", false);
 }
 
 static void draw_setup(void) {
@@ -260,6 +299,7 @@ static bool machine_changed(int r) {
     switch (r) {
     case M_ROM: return s.st_rom != s.m->cfg.rom;
     case M_RAM: return s.st_ram != s.m->cfg.ram;
+    case M_DISC: return s.st_md != s.m->cfg.microdisc;
     }
     return false;
 }
@@ -282,8 +322,7 @@ static void draw_machine(void) {
             snprintf(line, sizeof line, "%cRAM             < %s >", mark, ram_name(s.st_ram));
             break;
         case M_DISC:
-            /* M14: staged like the others, and refused on a 16K (§12). */
-            snprintf(line, sizeof line, " Microdisc       < off >");
+            snprintf(line, sizeof line, "%cMicrodisc       < %s >", mark, on_off(s.st_md));
             break;
         case M_APPLY:
             snprintf(line, sizeof line, " (Apply and restart)");
@@ -291,14 +330,16 @@ static void draw_machine(void) {
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.machine_sel);
     }
-    snprintf(line, sizeof line, " = the %s", roms_machine_name(s.st_rom, s.st_ram));
+    snprintf(line, sizeof line, " = the %s%s", roms_machine_name(s.st_rom, s.st_ram),
+             s.st_md ? " and Microdisc" : "");
     textpage_line(s_scr, ROW_TOP + M_COUNT + 1, line, false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 3, " - Program in memory is lost on", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 4, "   restart.", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 5, " - 1.0 is the Oric-1's BASIC, 1.1", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 6, "   the Atmos's, each from the card.", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - The Microdisc is not in this", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   firmware yet.", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - The Microdisc needs 48K and", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   microdis.rom; it boots the disc", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 9, "   in drive A (F2).", false);
 }
 
 /* One image's row on About (§12): its file, OK for the image's SHA-1,
@@ -341,8 +382,8 @@ static void draw_about(void) {
     snprintf(line, sizeof line, " %s rev %X %u MHz SB %s %dC", b->chip ? b->chip : "?",
              b->chip_version & 0xFu, (unsigned)((b->clk_sys_hz / 1000000u) % 1000u), sb, t);
     textpage_line(s_scr, 4, line, false);
-    snprintf(line, sizeof line, " Machine %s, Microdisc off",
-             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram));
+    snprintf(line, sizeof line, " Machine %s, Microdisc %s",
+             roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), on_off(s.m->cfg.microdisc));
     textpage_line(s_scr, 5, line, false);
 
     /* The ROMs as the card has them now (§10.2). */
@@ -412,7 +453,7 @@ static void draw(void) {
     };
     static const char *const keys[] = {
         [P_MAIN] = "  Arrows  Enter  Esc resumes", [P_TAPES] = "  Enter inserts  Esc back",
-        [P_DISCS] = "  Esc back",                  [P_SNAPS] = "  < > slot  Enter  Esc back",
+        [P_DISCS] = "  < > drive  Enter inserts  Esc", [P_SNAPS] = "  < > slot  Enter  Esc back",
         [P_SETUP] = "  < > changes  Esc back",     [P_MACHINE] = "  < > stages  Enter  Esc back",
         [P_ABOUT] = "  Esc back",                  [P_HELP] = "  Esc resumes",
     };
@@ -422,7 +463,7 @@ static void draw(void) {
     draw_battery();
     switch (s.page) {
     case P_TAPES:   draw_tapes(); break;
-    case P_DISCS:   draw_later("Discs", "/oric/discs/"); break;
+    case P_DISCS:   draw_discs(); break;
     case P_SNAPS:   draw_snaps(); break;
     case P_SETUP:   draw_setup(); break;
     case P_MACHINE: draw_machine(); break;
@@ -450,6 +491,22 @@ static void open_tapes(void) {
                   (unsigned long)s_list[i].size, s_list[i].name, s_list[i].code ? ", code" : "");
 }
 
+static void open_discs(void) {
+    s.n_discs = s.card ? discio_list(s_discs, ORIC_DISC_LIST_MAX) : 0;
+    s.page = P_DISCS;
+    s.disc_sel = 0;
+    for (unsigned i = 0; i < s.n_discs; i++)
+        if (strcmp(s_discs[i].path, discio_inserted(s_drive)) == 0) s.disc_sel = (int)i + 1;
+    s.disc_top = s.disc_sel >= DISC_ROWS ? s.disc_sel - DISC_ROWS + 1 : 0;
+    log_core1("  discs        : page open, drive %c, %u images in " DISCIO_DIR "%s\n",
+              'A' + s_drive, s.n_discs, s.card ? "" : " (no card)");
+    for (unsigned i = 0; i < s.n_discs; i++)
+        log_core1("  discs        : %2u %s, %lu bytes%s%s%c\n", i + 1u, s_discs[i].path,
+                  (unsigned long)s_discs[i].size, s_discs[i].protect ? ", read-only" : "",
+                  drive_of(s_discs[i].path) != ' ' ? ", in drive " : "",
+                  drive_of(s_discs[i].path) != ' ' ? drive_of(s_discs[i].path) : ' ');
+}
+
 static void refresh_slots(void) {
     for (unsigned i = 0; i < SNAPIO_SLOTS; i++) s.used[i] = s.card && snapio_exists(i);
 }
@@ -469,6 +526,7 @@ static void open_machine(void) {
     s.machine_sel = M_ROM;
     s.st_rom = s.m->cfg.rom;
     s.st_ram = s.m->cfg.ram;
+    s.st_md = s.m->cfg.microdisc;
 }
 
 static void open_about(void) {
@@ -502,15 +560,17 @@ static void save_settings(void) {
     out.perf = g_ui.perf_line;
     out.status = g_ui.status;
     out.fast_tape = g_ui.fast_tape;
+    out.microdisc = s.m->cfg.microdisc;
     /* The panel's level is the MCU's too, set by its own chords: the file
      * keeps what it has unless the Setup page set one, and 0 keeps the
      * file's (settings.h; EL §8.7). */
     if (s_bkl_set) out.backlight = g_ui.backlight;
-    /* The deck's tape, if the menu or boot_tape put it there. M14, M15:
-     * the drive's disc and the layout as they are; until then, as the
-     * file has them. */
+    /* The deck's tape, if the menu or boot_tape put it there, and drive
+     * A's disc. M15: the layout as it is; until then, as the file has
+     * it. */
     settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "",
                        out.boot_tape);
+    settings_card_name(SETTINGS_DISC_DIR, discio_inserted(0), out.boot_disc);
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
     say(err ? " Not saved: %.20s" : " Settings saved", err);
@@ -521,7 +581,7 @@ static void save_settings(void) {
  * part old and part new: it is not resumed, but powered on again as it
  * is configured, with its own ROM (snapio.h). */
 static void snap_load(void) {
-    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K };
+    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K, false };
     bool recovered, changed;
     uint32_t us;
     snap_status_t st = snapio_load(s.m, s_slot, &in, &recovered, &changed, &us);
@@ -541,6 +601,10 @@ static void snap_load(void) {
     }
     if (st == SNAP_IO && !s.used[s_slot]) {
         snprintf(s.status, sizeof s.status, " Slot %u is empty", s_slot + 1u);
+    } else if (st == SNAP_OTHER_MACHINE) {
+        say(" Not loaded: needs the Microdisc %s", on_off(in.microdisc));
+        log_core1("  snapshot     : slot %u needs the Microdisc %s\n", s_slot + 1u,
+                  on_off(in.microdisc));
     } else if ((st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM) && in.rom != ROM_UNKNOWN) {
         /* Refused by name (§15.2 M11): the machine it needs. */
         say(" Not loaded: needs the %.14s", roms_machine_name(in.rom, in.ram));
@@ -567,6 +631,14 @@ static void apply_machine(void) {
     oric_config_t cfg = s.m->cfg;
     cfg.rom = s.st_rom;
     cfg.ram = s.st_ram;
+    cfg.microdisc = s.st_md;
+    /* The Microdisc's overlay RAM is a 48K machine's (§12). */
+    if (cfg.microdisc && cfg.ram != ORIC_RAM_48K) { say(" The Microdisc needs 48K", ""); return; }
+    if (cfg.microdisc) {
+        if (!s.card) { say(" No card: no microdis.rom", ""); return; }
+        card_roms_mounted(&s_job, cfg.rom, NULL);
+        if (!card_eprom(&s_job, g_boot.eprom)) { say(" No microdis.rom on the card", ""); return; }
+    }
     const char *file = romset_images[cfg.rom].file;
     if (cfg.rom != s.m->cfg.rom) {
         if (!s.card) { say(" No card: no %.20s", file); return; }
@@ -586,8 +658,10 @@ static void apply_machine(void) {
          * back in. */
         memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
     }
-    log_core1("  machine      : the %s, staged; restarting as the %s\n",
-              roms_machine_name(s.m->cfg.rom, s.m->cfg.ram), roms_machine_name(cfg.rom, cfg.ram));
+    log_core1("  machine      : the %s%s, staged; restarting as the %s%s\n",
+              roms_machine_name(s.m->cfg.rom, s.m->cfg.ram),
+              s.m->cfg.microdisc ? " with the Microdisc" : "",
+              roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "");
     s_rom = cfg.rom;
     g_ui.restart_cfg = cfg;
     g_ui.restart = true;
@@ -598,7 +672,7 @@ static void open_item(void) {
     s.status[0] = 0;
     switch (s.item) {
     case I_TAPES:   open_tapes(); break;
-    case I_DISCS:   s.page = P_DISCS; break;
+    case I_DISCS:   open_discs(); break;
     case I_SNAPS:   open_snaps(); break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
@@ -655,6 +729,42 @@ static void key_tapes(uint8_t c) {
     }
     if (s.tape_sel < s.tape_top) s.tape_top = s.tape_sel;
     if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+}
+
+static void key_discs(uint8_t c) {
+    switch (c) {
+    case PICOCALC_KEY_UP:   if (s.disc_sel > 0) s.disc_sel--; break;
+    case PICOCALC_KEY_DOWN: if (s.disc_sel < (int)s.n_discs) s.disc_sel++; break;
+    case PICOCALC_KEY_LEFT:
+    case PICOCALC_KEY_RIGHT:
+        s_drive = (s_drive + (c == PICOCALC_KEY_RIGHT ? 1u : ORIC_DISC_DRIVES - 1u)) %
+                  ORIC_DISC_DRIVES;
+        s.status[0] = 0;
+        break;
+    case PICOCALC_KEY_ENTER:
+        if (!s.card) { say(" No card", ""); return; }
+        if (s.disc_sel == 0) {
+            (void)discio_insert(s.m, s_drive, NULL);
+            snprintf(s.status, sizeof s.status, " Drive %c empty", 'A' + s_drive);
+        } else {
+            const discio_entry_t *e = &s_discs[s.disc_sel - 1];
+            /* An image is in one drive at a time, as pico-atom's is. */
+            char was = drive_of(e->path);
+            if (was != ' ' && was != (char)('A' + s_drive))
+                (void)discio_insert(s.m, (unsigned)(was - 'A'), NULL);
+            const char *err = discio_insert(s.m, s_drive, e->path);
+            if (err) { say(" Not inserted: %.24s", err); return; }
+            snprintf(s.status, sizeof s.status, " In drive %c: %.24s", 'A' + s_drive,
+                     base(e->path));
+        }
+        s.page = P_MAIN;
+        return;
+    case PICOCALC_KEY_ESC:
+        s.page = P_MAIN;
+        return;
+    }
+    if (s.disc_sel < s.disc_top) s.disc_top = s.disc_sel;
+    if (s.disc_sel >= s.disc_top + DISC_ROWS) s.disc_top = s.disc_sel - DISC_ROWS + 1;
 }
 
 static void key_snaps(uint8_t c) {
@@ -762,7 +872,7 @@ static void key_machine(uint8_t c) {
         switch (s.machine_sel) {
         case M_ROM: s.st_rom = s.st_rom == ROM_BASIC10 ? ROM_BASIC11 : ROM_BASIC10; break;
         case M_RAM: s.st_ram = s.st_ram == ORIC_RAM_16K ? ORIC_RAM_48K : ORIC_RAM_16K; break;
-        case M_DISC: say(" The Microdisc is not here yet", ""); return;
+        case M_DISC: s.st_md = !s.st_md; break;
         default: return;
         }
         say(machine_staged() ? " Apply restarts: program lost" : "", "");
@@ -818,7 +928,7 @@ static void keys(void) {
         case P_MACHINE: key_machine(c); break;
         case P_TAPES:   key_tapes(c); break;
         case P_SNAPS:   key_snaps(c); break;
-        case P_DISCS:
+        case P_DISCS:   key_discs(c); break;
         case P_ABOUT:
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;

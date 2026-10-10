@@ -8,8 +8,9 @@
  * drains, so audio neither underruns nor loses its pacing, and guest
  * time does not pass.
  *
- * Five reasons: the UART's hold, which runs the card job; a tape request
- * (tapeio.h); the menu; pause (menu.h); and a screenshot (shotio.h). The menu and pause own the
+ * Six reasons: the UART's hold, which runs the card job; a tape request
+ * (tapeio.h); a disc's track (discio.h); the menu; pause (menu.h); and a
+ * screenshot (shotio.h). The menu and pause own the
  * keyboard while they last, so core 0 leaves the key ring to core 1 for
  * them; a hold's keys are not the guest's either, and core 0 drops them;
  * a screenshot's wait for the guest.
@@ -30,6 +31,7 @@
 #define PARK_MENU  3u  /* Alt+M, Alt+H or a function key (§12)          */
 #define PARK_PAUSE 4u  /* Alt+P                                           */
 #define PARK_SHOT  5u  /* F6: the panel to the card, then straight back   */
+#define PARK_DISC  6u  /* a track for the WD1793, or one to put back (discio.h) */
 
 /* GS, which no key sends: park the guest, check the card, and stay
  * parked until the next GS. */

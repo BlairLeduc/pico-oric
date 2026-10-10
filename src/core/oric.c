@@ -6,6 +6,7 @@
 
 #include "bus.h"
 #include "hot.h"
+#include "microdisc.h"
 
 /* The firmware's PICO_ORIC_TAPE=OFF compiles the trap's check out, the
  * control for its cost (§15.2 M10). */
@@ -55,7 +56,10 @@ static void map_rw(oric_t *m, unsigned first_page, unsigned last_page, uint32_t 
 void oric_init(oric_t *m, const oric_config_t *cfg) {
     memset(m, 0, sizeof(*m));
     m->cfg = *cfg;
+    /* The overlay RAM is a 48K machine's (microdisc.h). */
+    if (m->cfg.ram != ORIC_RAM_48K) m->cfg.microdisc = false;
     m->cas.due = UINT64_MAX;   /* the deck idle (cassette.h) */
+    wd_init(&m->fdc);
     pcm_init(&m->pcm, 0, AY_LEVEL_MAX, 0, 0, 0);
     ay8912_set_average(&m->ay, m->pcm.num, m->pcm.den);
 
@@ -78,14 +82,19 @@ void oric_init(oric_t *m, const oric_config_t *cfg) {
     m->page_flags[ORIC_IO_PAGE] = PAGE_IO;
 
     /* #C000-#FFFF stays open until oric_load_rom fills the socket: the
-     * repository ships no ROM (§10.2). */
+     * repository ships no ROM (§10.2). The reset maps it (microdisc.h). */
 
     oric_power_on(m);
 }
 
 void oric_power_on(oric_t *m) {
-    /* Zero-filled RAM (§6.3, EL §9.2). */
+    /* Zero-filled RAM (§6.3, EL §9.2), but for the overlay RAM, which
+     * only the Microdisc can reach: Oricutron's power-on pattern there,
+     * 128 zeros and 128 #FFs a page. Sedoric's loader sums the overlay
+     * to see whether it is already resident, and zeros pass (§6.3, M14). */
     memset(m->ram, 0, sizeof(m->ram));
+    for (uint32_t a = ORIC_ROM_BASE; a < ORIC_ADDR_SPACE; a += ORIC_PAGE_SIZE)
+        memset(&m->ram[a + ORIC_PAGE_SIZE / 2u], 0xFF, ORIC_PAGE_SIZE / 2u);
     m->open_bus = 0xFFu;
     m->ula_mode = ULA_MODE_POWER_ON;
     m->frame_mode = ULA_MODE_POWER_ON;
@@ -159,6 +168,9 @@ void oric_reset(oric_t *m) {
     via6522_reset(&m->via);
     ay8912_reset(&m->ay, m->cpu.cycles, &m->pcm);
     tape_reset(m);
+    /* The Microdisc's latch clears, so the vector below is the EPROM's
+     * (microdisc.h). */
+    microdisc_reset(m);
     wire(m);
     m6502_set_nmi(&m->cpu, false);
     m6502_reset(&m->cpu, m);
@@ -173,6 +185,11 @@ void oric_restored(oric_t *m) {
      * registers and the port's rate, so it is worked out, not loaded. */
     ay8912_set_average(&m->ay, m->pcm.num, m->pcm.den);
     pcm_set_level(&m->pcm, (uint32_t)m->cpu.cycles, ay8912_level(&m->ay));
+    /* The memory map and the drive from the Microdisc's latch. */
+    wd_select(&m->fdc, (m->md_latch & MD_DRIVE) >> 5, (m->md_latch & MD_SIDE) ? 1u : 0u,
+              m->cpu.cycles);
+    microdisc_map(m);
+    microdisc_irq(m);
     wire(m);
 }
 
@@ -195,12 +212,14 @@ uint8_t oric_peek(const oric_t *m, uint16_t addr) {
     return p ? p[addr & 0xFFu] : m->open_bus;
 }
 
-/* Move one page pointer from src's struct to dst's. Only oric_load_rom
- * points a page into rom[], and it flags the page PAGE_ROM, so the flag
- * says which array without comparing pointers into different arrays. */
+/* Move one page pointer from src's struct to dst's. Only a page flagged
+ * PAGE_ROM points into rom[], and only one flagged PAGE_EPROM into
+ * eprom[] (microdisc_map), so the flag says which array without
+ * comparing pointers into different arrays. */
 static uint8_t *rebase(oric_t *dst, const oric_t *src, unsigned page, const uint8_t *p) {
     if (!p) return NULL;
     if (src->page_flags[page] & PAGE_ROM) return dst->rom + (p - src->rom);
+    if (src->page_flags[page] & PAGE_EPROM) return dst->eprom + (p - src->eprom);
     return dst->ram + (p - src->ram);
 }
 
@@ -216,14 +235,19 @@ void oric_copy(oric_t *dst, const oric_t *src) {
 bool oric_load_rom(oric_t *m, const uint8_t *data, size_t len) {
     if (len != ORIC_ROM_SIZE) return false;
     memcpy(m->rom, data, len);
-    /* Writes to the ROM's pages are ignored while it is enabled; whether
-     * they reach the overlay RAM beneath is M14's to settle (§16). */
-    for (unsigned p = ORIC_ROM_BASE / ORIC_PAGE_SIZE; p < ORIC_PAGE_COUNT; p++) {
-        m->page[p].read  = &m->rom[(p - ORIC_ROM_BASE / ORIC_PAGE_SIZE) * ORIC_PAGE_SIZE];
-        m->page[p].write = NULL;
-        m->page_flags[p] = PAGE_ROM;
-    }
+    m->rom_in = true;
+    /* Writes to the ROM's pages are lost while it is in, and do not reach
+     * the overlay RAM beneath (§16: MAME and Oricutron agree). */
+    microdisc_map(m);
     tape_rom_loaded(m, data, len);
+    return true;
+}
+
+bool oric_load_eprom(oric_t *m, const uint8_t *data, size_t len) {
+    if (len != ORIC_EPROM_SIZE) return false;
+    memcpy(m->eprom, data, len);
+    m->eprom_in = true;
+    microdisc_map(m);
     return true;
 }
 
@@ -252,8 +276,10 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
          * instruction while it records; idle, it is the whole run, so
          * the deck costs nothing then (cassette.h). */
         uint32_t stop = cycles;
-        uint64_t due = m->cas.due;
-        if (PICO_ORIC_DECK && __builtin_expect(due != UINT64_MAX, 0)) {
+        uint64_t due = PICO_ORIC_DECK ? m->cas.due : UINT64_MAX;
+        /* The disc's next event too (wd1793.h). */
+        if (m->fdc.due < due) due = m->fdc.due;
+        if (__builtin_expect(due != UINT64_MAX, 0)) {
             uint64_t now = m->cpu.cycles;
             uint64_t left = due > now ? due - now : 0;
             if (left < cycles - done) stop = done + (uint32_t)left;
@@ -277,11 +303,15 @@ uint32_t ORIC_HOT2(oric_run)(oric_t *m, uint32_t cycles) {
             via6522_tick(&m->via, c - m->via_early);
             m->via_early = 0;
             m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
-        } while (done < stop && !(PICO_ORIC_DECK && m->cas.cut));
-        m->cas.cut = false;
+        } while (done < stop && !m->cut);
+        m->cut = false;
         if (PICO_ORIC_DECK && __builtin_expect(m->cpu.cycles >= m->cas.due, 0)) {
             cassette_run(m, m->cpu.cycles);
             m6502_set_irq(&m->cpu, M6502_IRQ_VIA, via6522_irq(&m->via));
+        }
+        if (__builtin_expect(m->cpu.cycles >= m->fdc.due, 0)) {
+            wd_run(&m->fdc, m->cpu.cycles);
+            microdisc_irq(m);
         }
     }
     m->instructions += n;

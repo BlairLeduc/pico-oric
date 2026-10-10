@@ -198,11 +198,12 @@ bool cassette_walk(oric_t *m, bool from_start, bool slow, uint32_t *t) {
 
 /* ---- the player ------------------------------------------------------------ */
 
-static void set_live(cassette_t *c) {
+static void set_live(oric_t *m) {
+    cassette_t *c = &m->cas;
     uint64_t was = c->due;
     c->live = c->playing || c->rec.on;
     c->due = c->rec.on ? 0 : c->playing ? c->next : UINT64_MAX;
-    if (c->due < was) c->cut = true;
+    if (c->due < was) m->cut = true;
 }
 
 /* The next change into next, or the end of the tape. */
@@ -213,7 +214,7 @@ static void schedule(oric_t *m) {
         c->playing = false;
         c->ended = true;
         c->left = 0;
-        set_live(c);
+        set_live(m);
         return;
     }
     c->next += t;
@@ -227,7 +228,7 @@ static void play_to(oric_t *m, uint64_t now) {
         via6522_set_cb1(&m->via, c->level);
         schedule(m);
     }
-    set_live(c);
+    set_live(m);
 }
 
 /* The ROM's speed setting, which CLOAD and CSAVE set before the relay. */
@@ -249,7 +250,7 @@ static void stop_player(oric_t *m) {
     if (!c->playing) return;               /* it ended just now */
     c->left = (uint32_t)(c->next - now);
     c->playing = false;
-    set_live(c);
+    set_live(m);
 }
 
 /* Run or hold, from the relay, the PLAY key and the recorder. */
@@ -260,12 +261,12 @@ static void update(oric_t *m) {
         c->slow = rom_slow(m);
         c->next = now_of(m) + c->left;
         c->playing = true;
-        set_live(c);
+        set_live(m);
         via6522_set_cb1(&m->via, c->level);
     } else if (!run) {
         stop_player(m);
     }
-    set_live(c);
+    set_live(m);
 }
 
 static void rewind_deck(oric_t *m) {
@@ -281,7 +282,7 @@ static void rewind_deck(oric_t *m) {
         c->left = 0;
         c->ended = true;
     }
-    set_live(c);
+    set_live(m);
 }
 
 void oric_cassette_insert(oric_t *m, const uint8_t *img, uint32_t len) {

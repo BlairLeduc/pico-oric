@@ -21,6 +21,8 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/keymap_picocalc.c
     src/core/keymatrix.c
     src/core/m6502.c
+    src/core/mfmdisk.c
+    src/core/microdisc.c
     src/core/oric.c
     src/core/romset.c
     src/core/settings.c
@@ -33,6 +35,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/tape.c
     src/core/ula.c
     src/core/via6522.c
+    src/core/wd1793.c
 )
 
 set(PICO_ORIC_WARNINGS -Wall -Wextra -Werror)
@@ -82,6 +85,10 @@ if (PICO_ORIC_HOST)
     add_executable(oric-corpus tools/corpus/oric-corpus.c)
     target_link_libraries(oric-corpus PRIVATE pico_oric_guest)
     target_compile_options(oric-corpus PRIVATE ${PICO_ORIC_WARNINGS})
+    # M14's: archive discs booted with the Microdisc (tools/disc-corpus.sh).
+    add_executable(oric-discs tools/corpus/oric-discs.c)
+    target_link_libraries(oric-discs PRIVATE pico_oric_guest)
+    target_compile_options(oric-discs PRIVATE ${PICO_ORIC_WARNINGS})
 else()
     # One pico2 image for every RP2350 board (design.md §3.1).
     if (NOT DEFINED PICO_BOARD)
@@ -231,6 +238,7 @@ else()
         src/port/card.c
         src/port/core0.c
         src/port/core1.c
+        src/port/discio.c
         src/port/diskio.c
         src/port/display.c
         src/port/handoff.c
@@ -275,6 +283,18 @@ else()
     set(PICO_ORIC_BOOT_TAPE "" CACHE STRING "tape in the deck at boot, empty for the file's")
     if (PICO_ORIC_BOOT_TAPE)
         target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_TAPE="${PICO_ORIC_BOOT_TAPE}")
+    endif()
+
+    # The Microdisc at boot, over the file's microdisc (design.md §10.5),
+    # and a disc in drive A over its boot_disc: a name in /oric/discs/ or
+    # a path.
+    option(PICO_ORIC_BOOT_MICRODISC "Boot with the Microdisc on, over the file" OFF)
+    if (PICO_ORIC_BOOT_MICRODISC)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_MICRODISC=1)
+    endif()
+    set(PICO_ORIC_BOOT_DISC "" CACHE STRING "disc in drive A at boot, empty for the file's")
+    if (PICO_ORIC_BOOT_DISC)
+        target_compile_definitions(pico-oric PRIVATE PICO_ORIC_BOOT_DISC="${PICO_ORIC_BOOT_DISC}")
     endif()
 
     target_compile_definitions(pico-oric PRIVATE PICO_ORIC_AUDIO=${PICO_ORIC_AUDIO_ON})

@@ -2,13 +2,15 @@
  *
  * Page #03 is I/O. The VIA answers throughout the page, its registers
  * on A3-A0, unless an expansion claims an address with /I/O CONTROL
- * (§6.4, §16). So it is decoded by mask, not equality. M14: the Microdisc takes #0310-#031F.
+ * (§6.4, §16). So it is decoded by mask, not equality. The Microdisc
+ * takes #0310-#0314 and #0318's reads (microdisc.h).
  */
 
 #include "bus.h"
 
 #include "cassette.h"
 #include "hot.h"
+#include "microdisc.h"
 #include "via6522.h"
 
 #define VIA_REG(a)  ((uint8_t)((a) & 15u))
@@ -20,6 +22,11 @@
 
 uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        if (microdisc_decodes(m, a, false)) {
+            uint8_t v = microdisc_read(m, a);
+            m->open_bus = v;
+            return v;
+        }
         /* CB1 as the tape has it at this cycle (cassette.h). */
         if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);
@@ -44,6 +51,10 @@ uint8_t ORIC_HOT1(bus_read_slow)(oric_t *m, uint16_t a) {
 
 void ORIC_HOT1(bus_write_slow)(oric_t *m, uint16_t a, uint8_t v) {
     if (m->page_flags[a >> 8] & PAGE_IO) {
+        if (microdisc_decodes(m, a, true)) {
+            microdisc_write(m, a, v);
+            return;
+        }
         /* CB1 as the tape has it at this cycle (cassette.h). */
         if (PICO_ORIC_DECK && m->cpu.cycles + m->cpu.io_at >= m->cas.due)
             cassette_catch_up(m, m->cpu.cycles + m->cpu.io_at);

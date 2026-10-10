@@ -23,13 +23,17 @@
 #include "oric.h"
 #include "romset.h"
 
-typedef struct {
+typedef struct guest_s {
     oric_t      m;
     keymatrix_t k;
     rom_id_t    rom;
     /* Guest cycles from power-on until "Ready" first showed on the
      * screen, to within GUEST_READY_STEP; 0 if it never did (§15.2 M3). */
     uint64_t ready_cycles;
+    /* Run after every field guest_fields runs, as the port serves the
+     * guest at each boundary: test_disc's disc server. NULL for none. */
+    void (*after_field)(struct guest_s *g);
+    void *ctx;
 } guest_t;
 
 /* Scan for images. True if both BASIC ROMs were found; *dir is where it

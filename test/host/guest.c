@@ -53,6 +53,7 @@ void guest_fields(guest_t *g, int n) {
     for (int i = 0; i < n; i++) {
         keymatrix_field(&g->k, &g->m);
         oric_run_field(&g->m);
+        if (g->after_field) g->after_field(g);
     }
 }
 

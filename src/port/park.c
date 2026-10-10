@@ -17,6 +17,7 @@
 #include "keymatrix.h"
 #include "log.h"
 #include "core1.h"
+#include "discio.h"
 #include "menu.h"
 #include "shotio.h"
 #include "tapeio.h"
@@ -146,6 +147,11 @@ bool park_serve(void) {
         tapeio_serve(s_m, &us);
         const char *said = tapeio_said();
         if (said[0]) core1_note(said + 1);
+        break;
+    }
+    case PARK_DISC: {
+        uint32_t us;
+        if (!discio_serve(s_m, &us)) core1_note("Disc: the card failed");
         break;
     }
     case PARK_MENU:
