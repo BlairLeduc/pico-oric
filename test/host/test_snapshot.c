@@ -323,6 +323,81 @@ int main(void) {
         CHECK(mem_load(&snap, &other) == SNAP_OTHER_FIELD, "load refuses another field");
     }
 
+    /* ---- the media: the port's drives and deck, from version 2 -------- */
+    {
+        static mem_t ms;
+        static snap_media_t md, back;
+        memset(&md, 0, sizeof md);
+        strcpy(md.disc[0], "/oric/discs/SEDORIC3.dsk");
+        strcpy(md.disc[3], "/oric/discs/GAMES.dsk");
+        strcpy(md.tape, "/oric/tapes/GAME.tap");
+        md.tape_pos = 0x12345u;
+        md.tape_skip = 517u;
+        md.tape_index = 3u;
+        md.tape_wrapped = true;
+        md.tape_user = true;
+        ms.len = 0;
+        CHECK(snapshot_save(&g, &md, mem_write, &ms) == SNAP_OK && ms.len == SNAP_FILE_LEN,
+              "save with media: %zu bytes", ms.len);
+        memset(&back, 0xA5, sizeof back);
+        ms.pos = 0;
+        CHECK(snapshot_check(&h, mem_read, &ms, NULL, &back) == SNAP_OK, "check with media");
+        md.present = true;
+        CHECK(back.present && !strcmp(back.disc[0], md.disc[0]) && !back.disc[1][0] &&
+                  !back.disc[2][0] && !strcmp(back.disc[3], md.disc[3]) &&
+                  !strcmp(back.tape, md.tape) && back.tape_pos == md.tape_pos &&
+                  back.tape_skip == md.tape_skip && back.tape_index == md.tape_index &&
+                  back.tape_wrapped && back.tape_user,
+              "the media read back as saved");
+        CHECK(mem_load(&ms, &h) == SNAP_OK && snap_same(&g, &h, "with media"),
+              "a state with media loads the same machine");
+
+        /* The CRC covers them, and a path must end inside its field. */
+        size_t at = SNAP_HEADER_LEN + SNAP_PAYLOAD_V1;
+        ms.buf[at + 5] ^= 0x01u;
+        CHECK(mem_check(&ms, &h, NULL) == SNAP_CORRUPT, "a flipped media bit");
+        ms.buf[at + 5] ^= 0x01u;
+        uint8_t keep[ORIC_PATH_MAX];
+        memcpy(keep, ms.buf + at, sizeof keep);
+        memset(ms.buf + at, 'A', ORIC_PATH_MAX);
+        mem_recrc(&ms);
+        CHECK(mem_check(&ms, &h, NULL) == SNAP_NOT_SNAPSHOT, "a path with no end");
+        memcpy(ms.buf + at, keep, sizeof keep);
+        ms.buf[at + SNAP_MEDIA_LEN - 4u] |= 0x80u;
+        mem_recrc(&ms);
+        CHECK(mem_check(&ms, &h, NULL) == SNAP_NOT_SNAPSHOT, "an unknown deck flag");
+        ms.buf[at + SNAP_MEDIA_LEN - 4u] &= 0x7Fu;
+        mem_recrc(&ms);
+        CHECK(mem_check(&ms, &h, NULL) == SNAP_OK, "made good again");
+
+        /* No media given: empty drives and deck, present. */
+        ms.len = 0;
+        CHECK(snapshot_save(&g, NULL, mem_write, &ms) == SNAP_OK, "save without media");
+        ms.pos = 0;
+        CHECK(snapshot_check(&h, mem_read, &ms, NULL, &back) == SNAP_OK && back.present &&
+                  !back.disc[0][0] && !back.tape[0] && !back.tape_pos && !back.tape_user,
+              "no media: present and empty");
+
+        /* Version 1, as M11 to M16 wrote it: the state and the RAM, which
+         * load as before, with no media for the port to put back. */
+        ms.buf[8] = 1;
+        ms.buf[9] = 0;
+        for (unsigned i = 0; i < 4; i++) ms.buf[12 + i] = (uint8_t)(SNAP_PAYLOAD_V1 >> (8 * i));
+        ms.len = SNAP_HEADER_LEN + SNAP_PAYLOAD_V1;
+        mem_recrc(&ms);
+        memset(&back, 0xA5, sizeof back);
+        ms.pos = 0;
+        CHECK(snapshot_check(&h, mem_read, &ms, NULL, &back) == SNAP_OK && !back.present,
+              "a version 1 state checks, with no media");
+        CHECK(mem_load(&ms, &h) == SNAP_OK && snap_same(&g, &h, "version 1"),
+              "a version 1 state loads the same machine");
+        ms.len += SNAP_MEDIA_LEN;
+        for (unsigned i = 0; i < 4; i++) ms.buf[12 + i] = (uint8_t)(SNAP_PAYLOAD_LEN >> (8 * i));
+        mem_recrc(&ms);
+        CHECK(mem_check(&ms, &h, NULL) == SNAP_NOT_SNAPSHOT,
+              "version 1 claiming version 2's length");
+    }
+
     /* A write that fails part-way reports it. */
     snap.fail_at = 5000;
     CHECK(mem_save(&snap, &g) == SNAP_IO, "a failed write is reported");

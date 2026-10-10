@@ -4,6 +4,86 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**M15, finish**, built on branch `m15-finish` on 2026-10-10
+(Pico SDK 2.3.1, arm-none-eabi-gcc 15.2), on the Plus 2 W
+`7458DC82A89AAC12` (RP2350B, chip rev 2), **done** the same day: every
+done-when item is checked, the last by the owner. **Built:** game
+layouts (`src/core/keylayout.c`, the overlay in `keymatrix.c`, the
+built-ins and the `.map` names in `keymap_picocalc.c`;
+`src/port/keymapio.*`; the Setup page's Keys row, the main and Help
+pages, Save settings, and a tape or disc choosing the layout its file
+names); the SWD counters (`g_swd` in `handoff.*`, `swd_update` in
+`core0.c`, `tools/swd-counters.py`); `test_soak --write`, which saves
+`soak.bas` as `SOAK.tap` with `CSAVE"SOAK",AUTO` for the release build's
+soak; `README.md` with the ROM names, hashes and sources. **The
+built-ins, chosen by survey** (`tools/layout-survey.sh`, `oric-corpus -k`;
+design.md §9.4): of TOSEC's 973 tapes that load on the Atmos 48K, 47
+test particular keys from their own code; ZX (Z X ' /) is Centipede's,
+with Zebbie, Probe 3, Grendel and Chuckford on Z and X, AZ (A Z , .) Mr
+Wimpy's, and QAOP a few BASIC games'; QAOP was the design's guess, and
+no machine-code title in the set reads it. **Checked:** `test_keymap`
+holds the overlay and the parser (a planted bug, the layout's lookup
+skipped, fails seven checks); `test_keyboard` types each built-in's
+arrows through both ROMs, the standard map the control; the README's
+settings example parses to the defaults; `SOAK.tap` loads and runs by
+itself in `oric-corpus`; on the board, `swd-counters.py read --screen`
+reads the block and the text screen of the release build at Ready, every
+failure counter 0; CI green on both jobs for the branch (run 38073809982). **Found:** the AY's write count includes port A, which
+the keyboard's scan writes at every column, so it grows with the guest
+idle. M12's soak record cites the AY written in every heartbeat; that
+held with or without the program, and the program's running was shown by
+its count rising in the screen dumps. The SWD soak and `test_soak` now
+tell the program by its envelope starts, one a pass, against a control
+stopped at an error (6 starts there, the ROM's key clicks and error; 18
+in the program's run). **The power source** is no longer a condition of
+a soak (the owner, 2026-10-10): `soak-check.py` reports the gauge and no
+longer fails a run that shows charging. **Measured**, in one sitting at
+the card's machine, an Oric-1 16K at Ready (`out/m15/perf/`): core 0
+30.9–31.1 % busy on the release build and 30.9–31.0 % on the
+development build, six SWD reads 5 s apart each, rt 0.9998, no
+underruns; the release image 177,672 bytes text and 309,532 bss, a
+348,160-byte `.uf2`, against 180,700, 311,608 and 353,792 with the UART.
+**States carry their media** (version 2, design.md §10.6), at the owner's
+request: each drive's file and the deck's, with its place, put back
+after a load. `test_snapshot` holds the section to the CRC, its paths to
+their fields, and version 1 states loading as before. On the board, the
+Atmos 48K with the Microdisc (`out/m15/media/`): Sedoric booted off the
+card, saved to slot 4, drive A emptied, slot 4 loaded (160 ms), drive A
+back and `DIR` listing its 52 files; with a tape in the deck too, both
+came back from the state, the tape at its place. **Found on the way:** a
+load refused as busy (a disc command waiting on an empty drive) was taken
+by the port for one that had changed the machine, which it then powered
+on again; `snapio_load` now refuses a busy machine before the card is
+touched, and on the board the same load was refused with nothing
+changed. A disc missing from the card was not tried on the board. The
+owner decided against a checksum of each disc in a state (2026-10-10).
+**The release soak**, run by the owner on the Plus 2 W the same day
+(`out/m15/soak/swd-20261010-170642.log`), the build at `49ff740`,
+`SOAK.tap` loaded from the card: 181 samples over 30.0 minutes, one
+boot, rt 1.000 at its lowest, every failure counter 0, the card's
+changes and the parks unchanged from the program's start, the envelope
+started in every window (13 to 546), the count rising from 5 to 534
+over 166 of 180 screen dumps, core 0 38.8–39.6 % busy, the audio
+consumed at 36,618–36,624 Hz, the gauge at 93 % and never charging, the
+die at 20 °C. H and J were not pressed in it, so it failed that rule
+alone. The owner then sampled the same boot again for a minute, holding
+both (`swd-20261010-174204.log`, which passes `check --minutes 0`): the
+block's updates and the board's clock run on from the first log's last
+sample (317 updates in 322 s), the count from 534 to 632 and on to 647,
+the screen dumps show 1 H and 5 J, and 33 key events came from the
+PicoCalc. The two logs checked as one (`swd-20261010-combined.log`) fail
+only for the 5.4 minutes between them that nobody sampled, over which
+the counters, cumulative from boot, stayed 0 and rt held. Taken as the
+release soak passed. **The owner checked the menus on a Pico 2 W** the
+same day, and they are right: the build runs on the second board.
+**The owner's check** on the Pico 2 W, the same day: the menus' pages,
+a game layout chosen on the Setup page and working, and the settings
+saved, the PicoCalc power-cycled and the settings read back at boot.
+**Not measured:** the release build's core 0 share under §14's
+workloads, since `perf-run.sh` types them over the UART the release
+build does not have; at idle Ready it matches the development build's
+(above), and the soak's program ran at 36.8–39.6 %.
+
 **M16, the vertical-sync modification** (`src/core/vsync.*`; the run
 loop's slice and the bus's catch-up in `oric.c` and `bus.c`; the player
 off CB1 in `cassette.c`; `oric_config_t`'s `vsync_hack` and the pulse's

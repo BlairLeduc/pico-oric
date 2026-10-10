@@ -640,6 +640,28 @@ static int type_ahead(void) {
     return 0;
 }
 
+/* The built-in layouts through the ROM (§9.4): the arrows, Left Right
+ * Up Down, type each layout's four keys at the prompt. Under the
+ * standard map they move the cursor and type nothing, the control. */
+static int layouts(void) {
+    static const char *const want[] = { "ZX'/", ",.AZ", "OPQA" };
+    static const uint8_t arrows[] = { PICOCALC_KEY_LEFT, PICOCALC_KEY_RIGHT, PICOCALC_KEY_UP,
+                                      PICOCALC_KEY_DOWN };
+    CHECK(keylayout_builtin_len == sizeof want / sizeof want[0], "a layout without its check");
+    for (size_t li = 0; li <= keylayout_builtin_len; li++) {
+        const keylayout_t *l = li < keylayout_builtin_len ? &keylayout_builtin[li] : NULL;
+        fresh();
+        keymatrix_set_layout(&g.k, l);
+        if (!l) guest_type(&g, "Q");   /* somewhere for the cursor to go */
+        for (unsigned i = 0; i < 4; i++) guest_press(&g, arrows[i], false);
+        guest_fields(&g, 10);
+        const char *got = row_text(input_row);
+        CHECK(strcmp(got, l ? want[li] : "Q") == 0, "the arrows under %s typed \"%s\", want \"%s\"",
+              l ? l->name : "the standard map", got, l ? want[li] : "Q");
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *dir;
     if (!guest_find_roms(&dir)) {
@@ -661,7 +683,7 @@ int main(int argc, char **argv) {
         }
         if (run_sweep(false) || column_4() || every_entry() || editing_keys() ||
             hold_and_gap(&hold[i], &gap[i]) || program_at_speed() || program_margin() ||
-            type_ahead())
+            type_ahead() || layouts())
             return 1;
     }
     if (print) return 0;

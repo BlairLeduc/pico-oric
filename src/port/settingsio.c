@@ -56,8 +56,8 @@ static void diagnose(const char *text, size_t len, settings_t *out) {
         snprintf(at, sizeof at, "line %u", line);
         settingsio_fail(at, settings_status_str(st));
     }
-    /* M15: layouts. The Microdisc and boot_disc are card_boot's to refuse. */
-    if (out->layout[0]) settingsio_fail("layout", "not in this firmware yet");
+    /* A layout the card does not have, the Microdisc and boot_disc are
+     * card_boot's to refuse. */
 }
 
 void settingsio_load(settings_t *out) {

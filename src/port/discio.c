@@ -10,6 +10,7 @@
 
 #include "ff.h"
 
+#include "keymapio.h"
 #include "log.h"
 #include "mfmdisk.h"
 #include "microdisc.h"
@@ -62,14 +63,8 @@ static void settle_drive(oric_t *m, unsigned drive) {
     }
 }
 
-const char *discio_insert(oric_t *m, unsigned drive, const char *path) {
-    if (drive >= ORIC_DISC_DRIVES) return "NO SUCH DRIVE";
-    settle_drive(m, drive);
-    s_drive[drive].path[0] = 0;
-    if (m) oric_disc_eject(m, drive);
-    if (!path || !path[0]) return NULL;
-    if (strlen(path) >= sizeof s_drive[drive].path) return "NAME TOO LONG";
-
+const char *discio_probe(const char *path, mfm_geom_t *g, bool *protect) {
+    if (strlen(path) >= sizeof s_drive[0].path) return "NAME TOO LONG";
     static FILINFO fi;
     if (f_stat(path, &fi) != FR_OK) return "CANNOT OPEN";
     uint8_t hdr[ORIC_DISC_HEADER_LEN];
@@ -78,17 +73,34 @@ const char *discio_insert(oric_t *m, unsigned drive, const char *path) {
     FRESULT fr = f_read(&s_file, hdr, sizeof hdr, &got);
     f_close(&s_file);
     if (fr != FR_OK) return "CANNOT READ";
+    mfm_geom_t geom;
+    const char *why = mfm_parse(hdr, got, (uint32_t)fi.fsize, &geom);
+    if (why) return why;
+    if (g) *g = geom;
+    if (protect) *protect = (fi.fattrib & AM_RDO) != 0;
+    return NULL;
+}
+
+const char *discio_insert(oric_t *m, unsigned drive, const char *path) {
+    if (drive >= ORIC_DISC_DRIVES) return "NO SUCH DRIVE";
+    settle_drive(m, drive);
+    s_drive[drive].path[0] = 0;
+    if (m) oric_disc_eject(m, drive);
+    if (!path || !path[0]) return NULL;
+
     mfm_geom_t g;
-    const char *why = mfm_parse(hdr, got, (uint32_t)fi.fsize, &g);
+    bool protect;
+    const char *why = discio_probe(path, &g, &protect);
     if (why) return why;
 
     strcpy(s_drive[drive].path, path);
     s_drive[drive].geom = g;
-    s_drive[drive].protect = (fi.fattrib & AM_RDO) != 0;
+    s_drive[drive].protect = protect;
     if (m) oric_disc_insert(m, drive, g, s_drive[drive].protect);
     log_core1("  disc         : drive %c: %s, %u side%s of %u tracks%s\n", 'A' + drive, path,
               g.sides, g.sides > 1 ? "s" : "", g.tracks,
               s_drive[drive].protect ? ", write-protected" : "");
+    keymapio_file_loaded(path);   /* a layout may name it (design.md §9.4) */
     return NULL;
 }
 

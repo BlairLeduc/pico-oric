@@ -18,6 +18,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/cassette.c
     src/core/font.c
     src/core/font_fallback.c
+    src/core/keylayout.c
     src/core/keymap_picocalc.c
     src/core/keymatrix.c
     src/core/m6502.c
@@ -244,6 +245,7 @@ else()
         src/port/display.c
         src/port/handoff.c
         src/port/kbd.c
+        src/port/keymapio.c
         src/port/lcd.c
         src/port/log.c
         src/port/main.c

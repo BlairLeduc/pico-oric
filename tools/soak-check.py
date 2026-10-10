@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """soak-check.py — hold a soak log to design.md §13.5.
 
-    tools/soak-check.py [--minutes 30] [--usb] out/soak/soak-YYYYMMDD-HHMMSS.log
+    tools/soak-check.py [--minutes 30] out/soak/soak-YYYYMMDD-HHMMSS.log
 
 Passes when the log shows one boot, heartbeats covering the whole run with
 no gap, and, on every heartbeat:
@@ -37,12 +37,9 @@ Oric's heartbeat and program.
 Keys pressed on the PicoCalc during the run are reported, not required.
 The consumed rate, the control quantity, is reported.
 
-Power: each heartbeat carries the southbridge's gauge, and "charging"
-there means USB power. A run that shows charging fails, unless --usb says
-it was meant to be on USB. The converse does not hold: the bit is the
-charger's, and clears once a full battery on USB has finished charging
-(hardware-notes.md §6), so a run that never shows it still needs the
-operator's word.
+Power: each heartbeat carries the southbridge's gauge, and the run's
+charge and charging bit are reported. The power source is not a
+condition (design.md §13.5): battery and USB power are not told apart.
 """
 
 import argparse
@@ -79,8 +76,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("log")
     ap.add_argument("--minutes", type=float, default=30)
-    ap.add_argument("--usb", action="store_true",
-                    help="the run was meant to be on USB power, not battery")
     a = ap.parse_args()
 
     text = open(a.log, errors="replace").read()
@@ -192,12 +187,9 @@ def main():
     charging = sum(1 for b in hbs if b[16])
     levels = [int(b[15]) for b in hbs if b[15]]
     if charging:
-        power = "USB: charging on %d of %d heartbeats" % (charging, len(hbs))
-        if not a.usb:
-            fails.append("the battery was charging, so this was not on battery (--usb if meant)")
+        power = "charging on %d of %d heartbeats" % (charging, len(hbs))
     elif levels:
-        power = ("never charging, %d%% to %d%%: battery, or USB with the charge done"
-                 % (levels[0], levels[-1]))
+        power = "never charging, %d%% to %d%%" % (levels[0], levels[-1])
     else:
         power = "unknown: the gauge was never read"
 
@@ -246,7 +238,7 @@ def main():
         for f in fails:
             print("  " + f)
         return 1
-    print("PASS" if charging else "PASS (record whether it was on battery)")
+    print("PASS")
     return 0
 
 

@@ -18,6 +18,7 @@
 
 #include "cassette.h"
 #include "handoff.h"
+#include "keymapio.h"
 #include "log.h"
 #include "storage.h"
 #include "tap.h"
@@ -92,6 +93,8 @@ static void set_deck(const char *path, bool user) {
     s_user = user && s_path[0];
     s_pos = s_skip = s_index = 0;
     s_wrapped = false;
+    /* A tape a layout's tapes line names chooses it (design.md §9.4). */
+    if (s_path[0]) keymapio_file_loaded(s_path);
 }
 
 /* The file, or the .new a save left without its rename. */
@@ -149,6 +152,40 @@ const char *tapeio_new(void) {
         return tapeio_insert(path);
     }
     return "TAPE99 is the last";
+}
+
+void tapeio_media(snap_media_t *md) {
+    snprintf(md->tape, sizeof md->tape, "%s", s_path);
+    md->tape_pos = s_pos;
+    md->tape_skip = s_skip;
+    md->tape_index = s_index;
+    md->tape_wrapped = s_wrapped;
+    md->tape_user = s_user;
+}
+
+const char *tapeio_restore(const snap_media_t *md) {
+    if (!md->tape[0]) {
+        set_deck(NULL, false);
+        return NULL;
+    }
+    if (open_read(&s_f, md->tape) != FR_OK) {
+        set_deck(NULL, false);
+        return "cannot open";
+    }
+    uint32_t size = (uint32_t)f_size(&s_f);
+    f_close(&s_f);
+    set_deck(md->tape, md->tape_user);
+    /* A file changed since the state: a place past its end is not one,
+     * and the tape goes back to its start. */
+    if (md->tape_pos <= size && md->tape_skip <= size - md->tape_pos) {
+        s_pos = md->tape_pos;
+        s_skip = md->tape_skip;
+        s_index = md->tape_index;
+        s_wrapped = md->tape_wrapped;
+    }
+    log_core1("  tape         : %s in the deck from a state, at %lu (file %lu)\n", s_path,
+              (unsigned long)s_pos, (unsigned long)s_index);
+    return NULL;
 }
 
 const char *tapeio_inserted(void) { return s_path; }

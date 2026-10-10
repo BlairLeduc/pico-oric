@@ -42,12 +42,12 @@ static inline bool mem_read(void *ctx, uint8_t *dst, size_t n) {
 
 static inline snap_status_t mem_save(mem_t *s, const oric_t *m) {
     s->len = 0;
-    return snapshot_save(m, mem_write, s);
+    return snapshot_save(m, NULL, mem_write, s);
 }
 
 static inline snap_status_t mem_check(mem_t *s, const oric_t *m, snap_info_t *info) {
     s->pos = 0;
-    return snapshot_check(m, mem_read, s, info);
+    return snapshot_check(m, mem_read, s, info, NULL);
 }
 
 static inline snap_status_t mem_load(mem_t *s, oric_t *m) {

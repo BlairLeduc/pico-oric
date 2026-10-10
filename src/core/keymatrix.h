@@ -7,9 +7,8 @@
  * never from a character stream.
  *
  * Adapted from pico-ace's keymatrix (§4.6): the held set, canonical
- * codes, the binding fixed at press, paced replay and the Alt layer are
- * its. Game layouts, its overlays and their .map files, arrive with M15
- * (§9.4).
+ * codes, the binding fixed at press, paced replay, the Alt layer, and
+ * game layouts with their .map files (§9.4) are its.
  *
  * Runs on core 0, which owns oric_t. Events reach it through the port's
  * queue from core 1, which owns the I2C bus (§4.3).
@@ -70,6 +69,56 @@ extern const size_t   keymap_picocalc_len;
  * release 'a' and press '!' into release '1' (hardware-notes.md §6.2);
  * held-state identity is this, not the code. */
 uint8_t keymap_picocalc_canonical(uint8_t code);
+
+/* ---- game layouts: overlays on the standard map (§9.4) --------------- */
+
+/* A binding's code is canonical (keymap_picocalc_canonical), so it holds
+ * whichever way the MCU translated the key; its target is one Oric key,
+ * flags 0, the SHIFTs, CTRL and FUNCT included as the cells they are. */
+typedef struct {
+    char     name[ORIC_KEYMAP_NAME_LEN + 1];
+    uint8_t  n;
+    keymap_t bind[ORIC_KEYMAP_BINDINGS];
+    /* Files whose loading selects this layout: a .tap put in the deck or
+     * a .dsk in a drive, named without the extension (§9.4). */
+    uint8_t  n_files;
+    char     files[ORIC_KEYMAP_FILES][ORIC_KEYMAP_FILE_LEN + 1];
+} keylayout_t;
+
+extern const keylayout_t keylayout_builtin[];
+extern const size_t      keylayout_builtin_len;
+
+typedef enum {
+    KL_OK = 0,
+    KL_SYNTAX,          /* not "word = value", or an empty value       */
+    KL_BAD_KEY,         /* no PicoCalc key by that name                */
+    KL_BAD_TARGET,      /* no Oric key by that name                    */
+    KL_DUPLICATE,       /* a key bound twice                           */
+    KL_TOO_MANY,        /* more bindings or files than config.h allows */
+    KL_TOO_LONG,        /* a name longer than the menu shows           */
+} keylayout_status_t;
+
+/* A .map file's text (§9.4): "name = ...", "tapes = ..." and "discs =
+ * ...", and one "<PicoCalc key> = <Oric key>" per line; '#' starts a
+ * comment line. `name` is used when the file gives none. On failure
+ * *line is the 1-based line at fault, and `out` must not be used. */
+keylayout_status_t keylayout_parse(keylayout_t *out, const char *name,
+                                   const char *text, size_t len, unsigned *line);
+const char *keylayout_status_str(keylayout_status_t st);
+
+/* Does loading this file select the layout? The path's last part, less
+ * its extension, against the tapes and discs lines, ignoring case: the
+ * file is typed by hand. */
+bool keylayout_for_file(const keylayout_t *l, const char *path);
+
+/* The names the parser takes, which are the keymap's to know. Both
+ * compare without regard to case. */
+bool keymap_picocalc_key_named(const char *name, uint8_t *code);
+bool keymap_oric_target_named(const char *name, keymap_t *out);
+
+/* A binding as a .map line has it, "left=Z", for the menu: the names
+ * above, so that the text parses back to the binding. */
+void keymap_binding_str(const keymap_t *e, char *out, size_t n);
 
 /* Modifier codes and event states (hardware-notes.md §6.2). */
 #define PICOCALC_KEY_ALT      0xA1u
@@ -162,6 +211,9 @@ typedef struct {
      * key an Insert is (keymatrix_event). */
     bool ev_alt;
 
+    /* The game layout over the standard map, or NULL (§9.4). */
+    const keylayout_t *layout;
+
     /* Set on a press, cleared by whoever acts on it. */
     bool menu_request;
     uint8_t menu_page;    /* with menu_request: the entry's row */
@@ -170,8 +222,12 @@ typedef struct {
     bool reset_request;   /* the port presses the reset button (§9.2) */
 } keymatrix_t;
 
-/* Empty. */
+/* Empty, with no layout. */
 void keymatrix_init(keymatrix_t *k);
+
+/* Takes effect from the next press; a key already down keeps the binding
+ * it went down with. NULL is the standard map. */
+void keymatrix_set_layout(keymatrix_t *k, const keylayout_t *l);
 
 /* One [state, code] event off the southbridge FIFO. Queued, not applied:
  * see keymatrix_field. A press that finds no room for itself and for

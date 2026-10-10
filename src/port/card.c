@@ -12,6 +12,7 @@
 #include "discio.h"
 #include "ff.h"
 #include "handoff.h"
+#include "keymapio.h"
 #include "log.h"
 #include "sd.h"
 #include "settingsio.h"
@@ -256,6 +257,17 @@ static void boot_disc(const settings_t *s) {
               err ? err : "");
 }
 
+/* The card's layouts, and the one the file names (design.md §9.4); a
+ * boot_tape or boot_disc that a layout names may choose another after
+ * it. */
+static void boot_layout(const settings_t *s) {
+    keymapio_scan();
+    if (!s->layout[0]) return;
+    int i = keymapio_find(s->layout);
+    if (i >= 0) keymapio_choose(keymapio_get((unsigned)i));
+    else settingsio_fail("layout", "no such layout");
+}
+
 void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
                uint8_t image[ORIC_ROM_SIZE], uint8_t eprom[ORIC_EPROM_SIZE]) {
     if (!begin(j)) {
@@ -269,6 +281,7 @@ void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
     settingsio_load(s);
     j->settings_us = time_us_32() - t0;
     boot_machine(s, cfg);
+    boot_layout(s);
     boot_tape(s);
     card_roms_mounted(j, cfg->rom, image);
     if (cfg->microdisc && !card_eprom(j, eprom)) {
