@@ -64,13 +64,18 @@ changes and the parks unchanged from the program's start, the envelope
 started in every window (13 to 546), the count rising from 5 to 534
 over 166 of 180 screen dumps, core 0 38.8–39.6 % busy, the audio
 consumed at 36,618–36,624 Hz, the gauge at 93 % and never charging, the
-die at 20 °C. It fails one rule only: H and J were not pressed, so the
-screen dumps show no key read; the keyboard reached the guest before
-the run, which is how `CLOAD"SOAK"` was typed (35 key events), but not
-during it. **The owner checked the menus on a Pico 2 W** the same day,
-and they are right: the build runs on the second board.
-**Outstanding:** the release soak's keys, H and J held during a run;
-whether the owner's check of the menus covers every key and setting, as
+die at 20 °C. H and J were not pressed in it, so it failed that rule
+alone. The owner then sampled the same boot again for a minute, holding
+both (`swd-20261010-174204.log`, which passes `check --minutes 0`): the
+block's updates and the board's clock run on from the first log's last
+sample (317 updates in 322 s), the count from 534 to 632 and on to 647,
+the screen dumps show 1 H and 5 J, and 33 key events came from the
+PicoCalc. The two logs checked as one (`swd-20261010-combined.log`) fail
+only for the 5.4 minutes between them that nobody sampled, over which
+the counters, cumulative from boot, stayed 0 and rt held. Taken as the
+release soak passed. **The owner checked the menus on a Pico 2 W** the
+same day, and they are right: the build runs on the second board.
+**Outstanding:** whether the owner's check of the menus covers every key and setting, as
 M15's done-when has it; the release build's core 0 share under §14's
 workloads,
 which `perf-run.sh` types over the UART the release build does not have.
