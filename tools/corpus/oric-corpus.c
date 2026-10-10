@@ -1,7 +1,7 @@
 /* oric-corpus.c — M12's corpus run: archive tapes loaded and run on the
  * host, one line each (design.md §15, M12; §5.1).
  *
- *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-d DSK] TAPE...
+ *   oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-k] [-d DSK] TAPE...
  *
  * Each tape gets a machine of its own, copied from one booted to Ready.
  * A TAPE is a .tap, or a directory of a title's parts, whose deck starts
@@ -32,9 +32,20 @@
  * (Sedoric's menu) before the tape, the disc served every field as
  * discio serves the card's and written in memory only (M14).
  *
+ * With -k, every field is run again an instruction at a time, and each
+ * read of ORB made from RAM notes the key it tests: the row on PB0-PB2
+ * and the columns AY port A enables (design.md §2.3). A read with one
+ * column enabled tests one key; with more, any of them. These are the
+ * keys a title reads itself, past the ROM's scan, for M15's game
+ * layouts (design.md §9.4). A title that reads its keys through the ROM
+ * notes none. To get past a title's menu, 1 is pressed a third of the
+ * way through, Space half way (as without -k) and RETURN at two thirds.
+ *
  * One line per tape on stdout, tab-separated:
  *   name  machine  outcome  files  bytes  undoc  opcodes  cb1  mode  note
- *   by-name  one-byte
+ *   by-name  one-byte  [keys]
+ * keys, with -k: the keys tested alone, then "any:" and the rows read
+ * with several columns enabled, as row/columns in hex; "-" for none.
  * With -s, the last frame as DIR/<name>.ppm and the text screen as
  * DIR/<name>.txt.
  */
@@ -97,6 +108,8 @@ typedef struct {
     long     first_field;     /* the field of the first, -1 for none */
     step_t   lead_in[LEAD_IN];
     unsigned lead_len;
+    /* -k: by row, the columns read alone and those read together. */
+    uint8_t  key_one[8], key_any[8];
 } run_log_t;
 
 static guest_t    s_booted;
@@ -108,6 +121,7 @@ static deck_t     s_deck;
 static tape_log_t s_tl;
 static run_log_t  s_rl;
 static long       s_field;
+static bool       s_keys;
 
 /* ---- the deck, served as src/port/tapeio.c serves the card's ------------ */
 
@@ -317,13 +331,64 @@ static void count_undoc(void) {
     }
 }
 
+/* The address the instruction at PC reads, if it is one of the reads
+ * that can reach page #03: absolute, indexed, and the indirect modes.
+ * Read-modify-write instructions and the zero page cannot be a matrix
+ * read worth noting. */
+static bool reads_at(const oric_t *m, uint16_t *ea) {
+    const m6502_t *c = &m->cpu;
+    uint8_t op = oric_peek(m, c->pc);
+    uint8_t lo = oric_peek(m, (uint16_t)(c->pc + 1u));
+    uint16_t abs = (uint16_t)(lo | oric_peek(m, (uint16_t)(c->pc + 2u)) << 8);
+    switch (op) {
+    case 0x0D: case 0x2D: case 0x4D: case 0x6D: case 0xAD: case 0xCD: case 0xED:
+    case 0xAE: case 0xAC: case 0x2C: case 0xEC: case 0xCC:
+        *ea = abs;
+        return true;
+    case 0x1D: case 0x3D: case 0x5D: case 0x7D: case 0xBD: case 0xDD: case 0xFD:
+    case 0xBC:
+        *ea = (uint16_t)(abs + c->x);
+        return true;
+    case 0x19: case 0x39: case 0x59: case 0x79: case 0xB9: case 0xD9: case 0xF9:
+    case 0xBE:
+        *ea = (uint16_t)(abs + c->y);
+        return true;
+    case 0x01: case 0x21: case 0x41: case 0x61: case 0xA1: case 0xC1: case 0xE1: {
+        uint8_t z = (uint8_t)(lo + c->x);
+        *ea = (uint16_t)(oric_peek(m, z) | oric_peek(m, (uint8_t)(z + 1u)) << 8);
+        return true;
+    }
+    case 0x11: case 0x31: case 0x51: case 0x71: case 0xB1: case 0xD1: case 0xF1:
+        *ea = (uint16_t)((oric_peek(m, lo) | oric_peek(m, (uint8_t)(lo + 1u)) << 8) + c->y);
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void note_keys(void) {
+    oric_copy(&s_replay, &s_field_start);
+    uint64_t end = g.m.cpu.cycles;
+    while (s_replay.cpu.cycles < end) {
+        uint16_t ea;
+        if (s_replay.cpu.pc < 0xC000u && reads_at(&s_replay, &ea) && (ea & 0xFF0Fu) == 0x0300u) {
+            uint8_t row = (uint8_t)(via6522_pb_out(&s_replay.via) & 7u);
+            uint8_t cols = (uint8_t)~ay8912_port_a(&s_replay.ay);
+            if (cols && !(cols & (cols - 1u))) s_rl.key_one[row] |= cols;
+            else s_rl.key_any[row] |= cols;
+        }
+        oric_run(&s_replay, 1);
+    }
+}
+
 static void field(void) {
-    oric_copy(&s_field_start, &g.m);
     keymatrix_field(&g.k, &g.m);
+    oric_copy(&s_field_start, &g.m);
     oric_run_field(&g.m);
     static int16_t pcm[ORIC_AUDIO_BUF_LEN];
     (void)oric_audio_drain(&g.m, pcm, ORIC_AUDIO_BUF_LEN);
     if (g.m.cpu.undoc_count != s_field_start.cpu.undoc_count) count_undoc();
+    if (s_keys) note_keys();
     if (!s_rl.cb1 && (g.m.via.ier & VIA_INT_CB1) && g.m.cpu.pc < 0xC000u) {
         s_rl.cb1 = true;
         s_rl.cb1_pc = g.m.cpu.pc;
@@ -363,6 +428,37 @@ static bool at_ready(void) {
 }
 
 /* ---- the report --------------------------------------------------------- */
+
+/* The matrix by row and column (keymap_picocalc.c), "" for no key. */
+static const char *const s_key_names[8][8] = {
+    { "7", "N", "5", "V", "", "1", "X", "3" },
+    { "J", "T", "R", "F", "", "ESC", "Q", "D" },
+    { "M", "6", "B", "4", "CTRL", "Z", "2", "C" },
+    { "K", "9", ";", "-", "", "", "\\", "'" },
+    { "SPACE", "COMMA", ".", "UP", "LSHIFT", "LEFT", "DOWN", "RIGHT" },
+    { "U", "I", "O", "P", "FUNCT", "DEL", "]", "[" },
+    { "Y", "H", "G", "E", "", "A", "S", "W" },
+    { "8", "L", "0", "/", "RSHIFT", "RETURN", "", "=" },
+};
+
+static void keys_str(char *out, size_t cap) {
+    size_t o = 0;
+    out[0] = 0;
+    for (unsigned r = 0; r < 8; r++)
+        for (unsigned c = 0; c < 8; c++) {
+            if (!(s_rl.key_one[r] >> c & 1u) || o >= cap) continue;
+            const char *n = s_key_names[r][c];
+            o += (size_t)snprintf(out + o, cap - o, "%s%s", o ? "," : "", n[0] ? n : "?");
+        }
+    bool any = false;
+    for (unsigned r = 0; r < 8 && o < cap; r++) {
+        if (!s_rl.key_any[r]) continue;
+        o += (size_t)snprintf(out + o, cap - o, "%s%u/%02X", any ? "," : (o ? " any:" : "any:"), r,
+                              s_rl.key_any[r]);
+        any = true;
+    }
+    if (!out[0]) snprintf(out, cap, "-");
+}
 
 static uint8_t s_ppm[ORIC_PIXEL_W * ORIC_PIXEL_H * 3u];
 static oric_frame_t s_frame;
@@ -470,7 +566,7 @@ static int run_one(const char *path, long fields, const char *shots) {
     type("CLOAD\"\"");
     press(PICOCALC_KEY_ENTER);
 
-    bool started = false, spaced = false;
+    bool started = false, spaced = false, oned = false, returned = false;
     while (s_field < fields) {
         field();
         /* Quiet for two seconds after the last file, at Ready: start the
@@ -489,6 +585,14 @@ static int run_one(const char *path, long fields, const char *shots) {
             spaced = true;
             press(' ');
         }
+        if (s_keys && !oned && s_field >= fields / 3) {
+            oned = true;
+            press('1');
+        }
+        if (s_keys && !returned && s_field >= fields * 2 / 3) {
+            returned = true;
+            press(PICOCALC_KEY_ENTER);
+        }
     }
 
     const char *name = base_name(path);
@@ -506,12 +610,17 @@ static int run_one(const char *path, long fields, const char *shots) {
     }
     char cb1[16] = "-";
     if (s_rl.cb1) snprintf(cb1, sizeof cb1, "#%04X", s_rl.cb1_pc);
-    printf("%s\t%s %s\t%s\t%u\t%u\t%u\t%s\t%s\t%s\t%s\t%u\t%u\n", name,
+    char keys[512] = "";
+    if (s_keys) {
+        keys[0] = '\t';
+        keys_str(keys + 1, sizeof keys - 1);
+    }
+    printf("%s\t%s %s\t%s\t%u\t%u\t%u\t%s\t%s\t%s\t%s\t%u\t%u%s\n", name,
            g.rom == ROM_BASIC10 ? "1.0" : "1.1",
            g.m.cfg.ram == ORIC_RAM_16K ? "16K" : "48K", outcome, s_tl.files,
            (unsigned)s_tl.bytes, (unsigned)s_rl.total, o ? ops : "-", cb1,
            (g.m.ula_mode & ULA_MODE_HIRES) ? "hires" : "text", s_tl.why[0] ? s_tl.why : "-",
-           s_tl.by_name, s_tl.one_byte);
+           s_tl.by_name, s_tl.one_byte, keys);
     fflush(stdout);
     if (shots) shot(shots, name);
     return 0;
@@ -538,10 +647,12 @@ int main(int argc, char **argv) {
             s_signal = true;
         else if (!strcmp(argv[i], "-v"))
             vsync_hack = true;
+        else if (!strcmp(argv[i], "-k"))
+            s_keys = true;
         else if (!strcmp(argv[i], "-d") && i + 1 < argc)
             dsk = argv[++i];
         else {
-            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-d DSK] TAPE...\n");
+            fprintf(stderr, "usage: oric-corpus [-r 10|11] [-m 16|48] [-f FIELDS] [-s DIR] [-t] [-v] [-k] [-d DSK] TAPE...\n");
             return 2;
         }
     }
