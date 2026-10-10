@@ -5,7 +5,7 @@
  * core keeps for the other's heartbeat and perf line. Each counter is a
  * 32-bit word with one writer, so a torn read is not possible.
  *
- * Copied from pico-ace and renamed. The SWD block is left for M15.
+ * Copied from pico-ace and renamed, with the Oric's SWD block (M15).
  */
 #ifndef PICO_ORIC_HANDOFF_H
 #define PICO_ORIC_HANDOFF_H
@@ -118,6 +118,39 @@ typedef struct {
 #define DISC_OFF       0xFEu
 
 extern volatile core0_perf_t g_c0;
+
+/* The counters a build without the UART can give (design.md §13.5,
+ * §15.2 M15): core 0 copies them here once a second, and
+ * tools/swd-counters.py reads the block over SWD with both cores
+ * running, since halting core 0 would starve the audio it measures.
+ * They are the heartbeat's that soak-check.py holds the UART's soak to.
+ * Every word is cumulative from boot, with one writer. The layout is
+ * the script's too: change both, and SWD_LAYOUT with them. */
+#define SWD_MAGIC  0x4F524331u   /* "ORC1" as a word */
+#define SWD_LAYOUT 1u
+typedef struct {
+    uint32_t magic, layout;
+    uint32_t updates;        /* one a second; the block is current      */
+    uint32_t uptime_ms;      /* the board's clock at the update         */
+    uint32_t fields;         /* guest fields run                        */
+    uint32_t cycles;         /* guest cycles, low word: rt is these over time */
+    uint32_t late, slips;    /* the timer's pacing; 0 on audio          */
+    uint32_t presents, snapshots_dropped;
+    uint32_t key_events, keys_lost, polls, i2c_errors;
+    uint32_t undoc, log_dropped;
+    uint32_t underrun_samples, late_refills, consumed, pcm_overflow;
+    /* Every change to an AY register, the keyboard's scan of port A
+     * included; and writes to the envelope's shape, which only a sound
+     * makes (ay8912.h). */
+    uint32_t ay_writes, env_starts;
+    uint32_t card_changes, parks;
+    uint32_t busy1000;       /* core 0 outside the pacing wait, last second */
+    int32_t  battery;        /* SB_REG_BAT's byte, -1 until read        */
+    int32_t  temp_c;         /* the die, INT32_MIN until read           */
+    uint32_t screen;         /* the guest's text screen, #BB80, an address */
+} swd_counters_t;
+
+extern volatile swd_counters_t g_swd;
 
 /* What the menu changes (design.md §12), written by core 1 while the
  * guest is parked and applied by core 0 when it has the machine back

@@ -219,6 +219,44 @@ static const char *card_text(void) {
     return text;
 }
 
+/* The counters, where a debugger can read them (handoff.h). The
+ * updates count is written last, so a reader that sees it move knows
+ * the words before it are from this second or the next. */
+static void swd_update(const oric_t *m, const keymatrix_t *k, uint32_t late, uint32_t slips) {
+    volatile swd_counters_t *c = &g_swd;
+    c->uptime_ms = to_ms_since_boot(get_absolute_time());
+    c->fields = m->fields;
+    c->cycles = (uint32_t)m->cpu.cycles;
+    c->late = late;
+    c->slips = slips;
+    c->presents = g_c1.presents;
+    c->snapshots_dropped = g_pool.dropped;
+    c->key_events = g_c1.key_events;
+    c->keys_lost = kbd_overflows() + k->dropped;
+    c->polls = g_c1.polls;
+    c->i2c_errors = sb_error_count();
+    c->undoc = m->cpu.undoc_count;
+    c->log_dropped = log_dropped();
+#if PICO_ORIC_AUDIO
+    audio_stats_t au;
+    audio_stats(&au, false);
+    c->underrun_samples = au.underrun_samples;
+    c->late_refills = au.late_refills;
+    c->consumed = au.consumed;
+#endif
+    c->pcm_overflow = m->pcm.overflow;
+    c->ay_writes = m->ay.writes;
+    c->env_starts = m->ay.env_starts;
+    c->card_changes = card_changes();
+    c->parks = g_park_stats.parks;
+    c->busy1000 = g_c0.busy1000;
+    c->battery = g_c1.battery;
+    c->temp_c = g_c1.temp_c;
+    c->screen = (uint32_t)(uintptr_t)(m->page[ORIC_TEXT_BASE >> 8].read + (ORIC_TEXT_BASE & 0xFFu));
+    __dmb();
+    c->updates++;
+}
+
 /* v in hundredths or thousandths, as "12.3" with one decimal. */
 static void tenths(char *out, size_t n, uint32_t v10) {
     snprintf(out, n, "%lu.%lu", (unsigned long)(v10 / 10u), (unsigned long)(v10 % 10u));
@@ -489,6 +527,7 @@ void core0_run(oric_t *m, keymatrix_t *k) {
 #endif
             __dmb();
             g_c0.seconds++;
+            swd_update(m, k, late, slips);
             window_start(&sec, m, late);
         }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# soak.sh — design.md §13.5's soak: 30 minutes on battery with a BASIC
+# soak.sh — design.md §13.5's soak: 30 minutes with a BASIC
 # program that draws text with serial attributes and hires, plays the
 # AY's three channels with noise and an envelope, and reads the keyboard
 # through the ROM's matrix scan, while keys are typed over the UART;
@@ -10,11 +10,8 @@
 #   tools/soak.sh build/pico/pico-oric.elf 45 out/m12/soak
 #
 # Before running: the Debug Probe's SWD and UART connected, the Mac's
-# display kept awake (caffeinate -d, hardware-notes.md §2.7), the USB-C
-# power lead out so the PicoCalc runs on its batteries, and the power
-# switch on. soak-check.py fails a run whose gauge shows charging, which
-# is USB power; one that never shows it may still be USB with the charge
-# finished, so say which when recording it.
+# display kept awake (caffeinate -d, hardware-notes.md §2.7), and the
+# power switch on. The power source is not a condition (§13.5).
 #
 # The program is tools/soak.bas, run first on the host by test_soak. It
 # prints "C <count> K <key>" twice a pass, the key the last KEY$ read
