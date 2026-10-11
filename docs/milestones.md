@@ -30,7 +30,12 @@ refused mid-command and taken after a power-on; the message is shorter
 and the status row's width wider. **Planted bugs**, each caught and
 removed: `snapshot_machine` not copying the pulse's delay fails
 `test_vsync`'s load; not copying the RAM fails `test_snapshot` and
-`test_snapshot_rom`. Both firmware builds pass, with and without the
+`test_snapshot_rom`; dropping the Microdisc fails `test_disc`. After
+review, a second pass's refusal before anything changes no longer
+powers the machine on again: only `SNAP_TORN`, a failed read of the
+RAM, does (`test_snapshot`; reporting it as `SNAP_IO` fails); and a
+power-on puts back the EPROM in the socket rather than reading the card
+for it. Both firmware builds pass, with and without the
 UART. **On the board**, by the owner on a Pico 2 W, 2026-10-10: states
 saved before the change load as expected, from a machine with the
 Microdisc fitted and drive A empty; and a state loads from a machine

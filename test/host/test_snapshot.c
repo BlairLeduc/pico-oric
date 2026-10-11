@@ -214,6 +214,14 @@ int main(void) {
     snap.len = SNAP_HEADER_LEN + 10;
     CHECK(mem_load(&snap, &h) == SNAP_IO, "torn in the state: %s",
           snapshot_status_str(mem_load(&snap, &h)));
+    CHECK(snap_same(&before, &h, "torn in the state"), "which changes nothing");
+    /* Torn in the RAM, which a card's read may have begun to fill (this
+     * stream's does not): only this one says the machine must be
+     * powered on again (snapio.h). */
+    snap.len = SNAP_HEADER_LEN + SNAP_STATE_LEN + 0x1000;
+    CHECK(mem_load(&snap, &h) == SNAP_TORN, "torn in the RAM: %s",
+          snapshot_status_str(mem_load(&snap, &h)));
+    oric_copy(&h, &before);
     snap.len = full;
 
     snap.buf[0] = 'X';

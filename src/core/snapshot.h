@@ -73,6 +73,8 @@ typedef enum {
     SNAP_OTHER_FIELD,     /* another line length or field                */
     SNAP_BUSY,            /* a tape request, or a disc command, waiting  */
     SNAP_NO_DISC,         /* the port's: a disc it names is not on the card */
+    SNAP_TORN,            /* snapshot_load's read failed once m had begun
+                             to change: it must be powered on again      */
 } snap_status_t;
 
 /* The port's media at the save (snapshot.h's header). Paths are as the
@@ -114,6 +116,9 @@ snap_status_t snapshot_save(const oric_t *m, const snap_media_t *media, snap_wri
 snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap_info_t *info,
                              snap_media_t *media);
 
+/* Every refusal leaves m as it was, but SNAP_TORN: the stream failing
+ * in its RAM, after snapshot_check had read it whole, which is the card
+ * going or the file changing between the passes. */
 snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx);
 
 /* The machine a state needs, onto cfg: its ROM, RAM and Microdisc, and

@@ -43,11 +43,11 @@ snap_status_t snapio_save(const oric_t *m, unsigned slot, uint32_t *us);
 snap_status_t snapio_check(const oric_t *m, unsigned slot, snap_info_t *info, bool *recovered);
 
 /* The second pass, over the file the last snapio_check passed, and the
- * media put back. *changed is set when it failed after all, the card
- * going or the file changing between the passes: the machine is then
- * part old, part new, and must be powered on again rather than resumed.
- * Into a machine other than the one it needs, it is refused as the check
- * was, and nothing changes. */
+ * media put back. *changed is set when it failed after the machine had
+ * begun to change (SNAP_TORN), the card going or the file changing
+ * between the passes: the machine is then part old, part new, and must
+ * be powered on again rather than resumed. Any other refusal, as into a
+ * machine other than the one it needs, leaves it as it was. */
 snap_status_t snapio_load(oric_t *m, bool *changed);
 bool          snapio_exists(unsigned slot);
 

@@ -631,7 +631,11 @@ static bool stage_roms(const oric_config_t *cfg) {
     }
     /* The Microdisc's overlay RAM is a 48K machine's (§12). */
     if (cfg->microdisc && cfg->ram != ORIC_RAM_48K) { say(" The Microdisc needs 48K", ""); return false; }
-    if (cfg->microdisc) {
+    if (cfg->microdisc && s.m->eprom_in) {
+        /* The power-on empties the socket; the EPROM in it goes back,
+         * as the same ROM does below. */
+        memcpy(g_boot.eprom, s.m->eprom, ORIC_EPROM_SIZE);
+    } else if (cfg->microdisc) {
         if (!s.card) { say(" No card: no microdis.rom", ""); return false; }
         card_roms_mounted(&s_job, cfg->rom, NULL);
         if (!card_eprom(&s_job, g_boot.eprom)) { say(" No microdis.rom on the card", ""); return false; }

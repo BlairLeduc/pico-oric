@@ -505,7 +505,7 @@ snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx) {
     /* From here the machine changes. snapshot_check has read these same
      * bytes and found them whole; a read failing now is the card going
      * away between the passes, and leaves a machine that needs a power-on. */
-    if (!read(ctx, m->ram, sizeof m->ram)) return SNAP_IO;
+    if (!read(ctx, m->ram, sizeof m->ram)) return SNAP_TORN;
 
     m6502_t *c = &m->cpu;
     c->pc = get16(st + S_PC);
@@ -592,6 +592,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_OTHER_FIELD:   return "another field timing";
     case SNAP_BUSY:          return "the tape or disc is busy";
     case SNAP_NO_DISC:       return "a disc it needs is missing";
+    case SNAP_TORN:          return "cut short while loading";
     }
     return "?";
 }

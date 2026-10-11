@@ -170,8 +170,8 @@ snap_status_t snapio_load(oric_t *m, bool *changed) {
     snap_status_t st = snapshot_load(m, fread_cb, &s_file);
     f_close(&s_file);
     s_from[0] = 0;
-    /* Another machine is refused before anything changes. */
-    *changed = st != SNAP_OK && !other_machine(st);
+    /* Every other refusal comes before anything changes (snapshot.h). */
+    *changed = st == SNAP_TORN;
     if (st == SNAP_OK) restore_media(m);
     return st;
 }
