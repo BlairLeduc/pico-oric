@@ -550,11 +550,26 @@ static int test_machine(void) {
     CHECK(mem_load(&snap, &s_m2) == SNAP_OK, "load");
     CHECK(snap_same(&s_m, &s_m2, "Microdisc state"), "round trip");
     machine(&s_m2, false);
-    snap_info_t info = { ROM_UNKNOWN, ORIC_RAM_48K, false, false };
+    snap_info_t info = { ROM_UNKNOWN, ORIC_RAM_48K, false, false, 0, 0, 0, 0 };
     CHECK(mem_check(&snap, &s_m2, &info) == SNAP_OTHER_MACHINE && info.microdisc,
           "refused without the Microdisc");
+    /* Powered on as the state says (snapshot_machine), it loads. */
+    oric_config_t as = s_m2.cfg;
+    snapshot_machine(&info, &as);
+    machine(&s_m2, as.microdisc);
+    CHECK(mem_load(&snap, &s_m2) == SNAP_OK && snap_same(&s_m, &s_m2, "switched"),
+          "loads with the Microdisc fitted as the state says");
+    static mem_t keep;
+    CHECK(mem_save(&keep, &s_m) == SNAP_OK, "save to load mid-command");
     bus_write(&s_m, 0x0310, 0x80);   /* a read, drive 1 empty: busy */
     CHECK(mem_save(&snap, &s_m) == SNAP_BUSY, "refused mid-command");
+    /* A load too, which the menu meets with the Microdisc's boot waiting
+     * on an empty drive for ever: it powers on first (menu.c), and the
+     * load is taken. */
+    CHECK(mem_load(&keep, &s_m) == SNAP_BUSY, "a load refused mid-command");
+    machine(&s_m, true);
+    CHECK(mem_load(&keep, &s_m) == SNAP_OK && snap_same(&s_m, &s_m2, "after a power-on"),
+          "taken once powered on again");
     return 0;
 }
 

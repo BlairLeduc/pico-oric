@@ -19,8 +19,11 @@
  * none, and leaves the port's media as they are.
  *
  * The ROM is not in a state: what is, is its SHA-1, and a state loads
- * only into a machine whose ROM hashes the same and whose RAM and field
- * are the same, since every count in it is in that machine's cycles.
+ * only into a machine whose ROM hashes the same and whose RAM, Microdisc,
+ * vertical-sync modification and field are the same, since every count
+ * in it is in that machine's cycles. The field is the build's; the rest
+ * the user can change, and snapshot_machine says what a state needs, so
+ * that the port can power on as that machine and load it (snapio.h).
  * Unused state bytes are written zero and read as reserved, so a later
  * version can add fields whose zero is their reset value: from M14, the
  * Microdisc's; from M16, the vertical-sync modification's.
@@ -65,8 +68,9 @@ typedef enum {
     SNAP_CORRUPT,         /* the CRC does not match                      */
     SNAP_OTHER_RAM,       /* the other RAM fit                           */
     SNAP_OTHER_ROM,       /* the ROM is not the one it ran on            */
-    SNAP_OTHER_MACHINE,   /* the Microdisc or the vsync hack, or not     */
-    SNAP_OTHER_FIELD,     /* another line length, field or sync shape    */
+    SNAP_OTHER_MACHINE,   /* the Microdisc or the vsync hack, or not, or
+                             another pulse                               */
+    SNAP_OTHER_FIELD,     /* another line length or field                */
     SNAP_BUSY,            /* a tape request, or a disc command, waiting  */
     SNAP_NO_DISC,         /* the port's: a disc it names is not on the card */
 } snap_status_t;
@@ -84,12 +88,15 @@ typedef struct {
     bool     tape_user;           /* put in the deck by the user         */
 } snap_media_t;
 
-/* The machine a state was taken on, for naming it in a refusal. */
+/* The machine a state was taken on, for naming it in a refusal and for
+ * powering on as it (snapshot_machine). */
 typedef struct {
     rom_id_t   rom;       /* by the SHA-1 in the file; ROM_UNKNOWN if none of ours */
     oric_ram_t ram;
     bool       microdisc;
     bool       vsync_hack;
+    /* The pulse, with vsync_hack (oric_config_t's fields). */
+    uint16_t   vsync_line_50hz, vsync_line_60hz, vsync_delay, vsync_low;
 } snap_info_t;
 
 /* Move exactly n bytes; false on any failure. */
@@ -108,6 +115,16 @@ snap_status_t snapshot_check(const oric_t *m, snap_read_fn read, void *ctx, snap
                              snap_media_t *media);
 
 snap_status_t snapshot_load(oric_t *m, snap_read_fn read, void *ctx);
+
+/* The machine a state needs, onto cfg: its ROM, RAM and Microdisc, and
+ * the vertical-sync modification with its pulse. The field, the tape's
+ * settings and the rest of cfg stay as they are, and so does the ROM
+ * when the state's is none of ours. A state refused SNAP_OTHER_ROM,
+ * SNAP_OTHER_RAM or SNAP_OTHER_MACHINE has passed every other check (the
+ * field's first), and loads into a machine powered on as this with the
+ * state's ROM: for SNAP_OTHER_ROM, one of ours (info->rom); for the
+ * others, the ROM the state was checked against, whatever it is. */
+void snapshot_machine(const snap_info_t *info, oric_config_t *cfg);
 
 const char *snapshot_status_str(snap_status_t st);
 

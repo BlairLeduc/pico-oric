@@ -1222,7 +1222,7 @@ the owner found; the emulator does nothing to protect page 4.
 
 EL §8.5 as pico-ace built it: explicit little-endian fields, zero as reset,
 a header with magic, version, lengths and CRC, ROM hashes not ROM bytes, the
-machine configuration (ROM, RAM, Microdisc) and refuse another, the ULA's
+machine configuration (ROM, RAM, Microdisc) recorded, the ULA's
 mode and the field's length recorded, two-pass load, every key released and
 audio restarted after. The fields: the 6502, the VIA (pico-atom's snapshot
 fields), the AY's registers and every internal counter, the ULA's mode and
@@ -1230,12 +1230,10 @@ blink counter, all 64 KiB of RAM, and from M14 the WD1793 and Microdisc
 latches with the drive's head position. As built in M14, in the state
 section's reserved bytes, zero without a Microdisc: the latch, the WD1793's
 registers and lines, each drive's head and the chip's next event; a
-state records whether the Microdisc is fitted and is refused by the other
-fit, named, and is refused while a command runs or a track waits for the
-card. The discs' contents are not in a state; from version 2 their names are (below). From M16 a state records whether the
-vertical-sync modification is fitted, refused by the other setting by
-name, and with it the pulse's lines, delay and width, refused when they
-differ; the pulse itself is worked out again from the boundary, where CB1
+state records whether the Microdisc is fitted, and is refused while a
+command runs or a track waits for the card. The discs' contents are not in a state; from version 2 their names are (below). From M16 a state records whether the
+vertical-sync modification is fitted, and with it the pulse's lines,
+delay and width; the pulse itself is worked out again from the boundary, where CB1
 is always high between two pulses.
 
 As built in M11 (`snapshot.h`): "PORCSNAP", version 1, a 320-byte state
@@ -1253,6 +1251,8 @@ RESET pending are not stored: both are low at every boundary. A state is
 refused, before anything changes, for another ROM (by SHA-1), the other
 RAM fit, a Microdisc (from M14), another field shape, or while the CPU is
 stalled on a tape request; the refusal names the machine a state needs.
+That refusal is now the core's alone: the port powers on as the machine
+the state needs (below).
 Loading releases every key and restarts the sample grid at the restored
 clock; the samples not yet drained, the rate and the DC blocker are the
 port's and stay.
@@ -1274,6 +1274,29 @@ load as before, leaving the drives and the deck as they are. A disc
 written to after the save is put back as it now is; a DOS resumed with
 an older picture of it in memory can disagree with it. The owner decided
 against recording a checksum of each disc to warn of that (2026-10-10).
+
+**A load powers on as the state's machine** (2026-10-10, at the owner's
+request, replacing M11's and M16's refusals by name): a state for another
+ROM, RAM, Microdisc fit, VSync setting or pulse loads into that machine,
+rather than asking the user to set the Machine page first. The core still
+refuses it (`SNAP_OTHER_ROM`, `_RAM`, `_MACHINE`) and says what it needs
+(`snapshot_machine`); the field's shape, which is the build's and no
+power-on changes, is checked first, so a state refused for anything after
+it has passed every other check. The port's first pass (`snapio_check`)
+then checks the file and its discs as before; the menu reads from the card
+the ROM, and with the Microdisc the EPROM, that the state needs, which
+refuses the load by file name before anything changes if one is missing
+or unrecognised (or while a recording is unsaved, as the Machine page's
+Apply does); and only then powers on as that machine, on core 1 with the
+guest parked, as the load does, and loads (`snapio_load`). A ROM none of
+ours is still refused, unless it is the running one. The change is to the
+running machine only, as Apply's is: the Machine page shows it, and Save
+settings keeps it. A Microdisc on a 16K is not a state any machine saves,
+and is refused as not one. A machine waiting on a tape request or busy
+on a disc command, which `snapshot_load` refuses, is powered on the same
+way before the load, even as its own machine: the load replaces it
+anyway, and a Microdisc with drive A empty waits in its EPROM's boot read
+for ever, which refused every load (the owner, 2026-10-10).
 
 **No community snapshot format is imported**: the Oric archive is tapes and
 discs (§17).
@@ -1728,7 +1751,8 @@ loads in Oricutron.
 *Done when:* save mid-program, restore into a machine doing something else,
 run 150 fields, and every byte of state matches (a one-cycle debt error
 must not); a state from another machine, ROM or field rate is refused by
-name; a torn file leaves the running machine untouched.
+name (since 2026-10-10, another machine is powered on as instead, §10.6);
+a torn file leaves the running machine untouched.
 *Measured:* save and load times.
 *Leaves out:* disc state (M14).
 
@@ -1802,7 +1826,7 @@ better is found, the pulse follows Oricutron's `ula.c`: low 12 µs after its
 field wraps, for 260 µs. The signal tape (M13) is disconnected while the
 row is on, and the Tapes page says so; the trap (M10) does not read CB1
 and keeps working. Snapshots record the row and refuse the other setting
-by name (§10.6). `trace-diff.py` passes `--vsynchack on` to Oricutron.
+by name (since 2026-10-10, a load powers on with the state's, §10.6). `trace-diff.py` passes `--vsynchack on` to Oricutron.
 *Done when:* §16's first-active-line row is settled from a primary source
 (the ULA documentation, and the schematic for where the modification
 takes its sync), with how and when; a host test catches CB1's two edges

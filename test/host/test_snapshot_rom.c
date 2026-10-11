@@ -63,6 +63,23 @@ static bool run_to_save(guest_t *x, int max) {
     return x->m.tape.op == TAPE_SAVE;
 }
 
+/* h, refused the state in snap, powered on as snapshot_machine says
+ * and loaded: it must be the machine saved, and run on 150 fields to
+ * `ahead`, the original's. */
+static int switched(const snap_info_t *info, const char *n, const char *from) {
+    oric_config_t cfg = h.m.cfg;
+    snapshot_machine(info, &cfg);
+    CHECK(guest_boot(&h, cfg.rom, cfg.ram), "%s %s: boot as the state's", n, from);
+    h.m.pcm.dc_block = false;
+    CHECK(mem_load(&snap, &h.m) == SNAP_OK, "%s %s: load: %s", n, from,
+          snapshot_status_str(mem_check(&snap, &h.m, NULL)));
+    CHECK(snap_same(&saved, &h.m, n), "%s %s: the machine as loaded", n, from);
+    keymatrix_init(&h.k);
+    guest_fields(&h, 150);
+    CHECK(snap_same(&ahead, &h.m, n), "%s %s: runs on to the same state", n, from);
+    return 0;
+}
+
 static int program(rom_id_t rom, oric_ram_t ram) {
     const char *n = name_of(rom, ram);
     CHECK(guest_boot(&g, rom, ram), "%s: boot", n);
@@ -119,15 +136,18 @@ static int program(rom_id_t rom, oric_ram_t ram) {
     if (guest_find_row(&h.m, "42", 0) < 0) guest_dump(&h.m, stderr);
     CHECK(guest_find_row(&h.m, "42", 0) >= 0, "%s: typing after a restore", n);
 
-    /* The other ROM or RAM refuses it, by name. */
+    /* The other ROM or RAM refuses it, by name; powered on as the state
+     * says, each loads it, and runs on to where the original arrived. */
     oric_ram_t other_ram = ram == ORIC_RAM_16K ? ORIC_RAM_48K : ORIC_RAM_16K;
     CHECK(guest_boot(&h, rom, other_ram), "%s: boot the other RAM", n);
     CHECK(mem_check(&snap, &h.m, &info) == SNAP_OTHER_RAM && info.ram == ram,
           "%s: in the other RAM: %s", n, snapshot_status_str(mem_check(&snap, &h.m, NULL)));
+    switched(&info, n, "from the other RAM");
     rom_id_t other_rom = rom == ROM_BASIC10 ? ROM_BASIC11 : ROM_BASIC10;
-    CHECK(guest_boot(&h, other_rom, ram), "%s: boot the other ROM", n);
+    CHECK(guest_boot(&h, other_rom, other_ram), "%s: boot the other ROM", n);
     CHECK(mem_check(&snap, &h.m, &info) == SNAP_OTHER_ROM && info.rom == rom,
           "%s: in the other ROM: %s", n, snapshot_status_str(mem_check(&snap, &h.m, NULL)));
+    switched(&info, n, "from the other ROM and RAM");
     return 0;
 }
 

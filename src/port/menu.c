@@ -19,6 +19,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "core0.h"
 #include "core1.h"
 #include "discio.h"
 #include "display.h"
@@ -27,6 +28,7 @@
 #include "keymapio.h"
 #include "keymatrix.h"
 #include "log.h"
+#include "microdisc.h"
 #include "pico_oric_version.h"
 #include "roms.h"
 #include "sd.h"
@@ -238,9 +240,9 @@ static void draw_snaps(void) {
         textpage_line(s_scr, ROW_TOP + N_COUNT + 1 + (int)i, line, false);
     }
     textpage_line(s_scr, ROW_TOP + N_COUNT + 2 + (int)SNAPIO_SLOTS,
-                  " In " SNAPIO_STATE_DIR "/. A state loads only", false);
+                  " In " SNAPIO_STATE_DIR "/. A load powers on", false);
     textpage_line(s_scr, ROW_TOP + N_COUNT + 3 + (int)SNAPIO_SLOTS,
-                  " into the machine it was saved on.", false);
+                  " as the machine it was saved on.", false);
 }
 
 /* Which drive an image is in: A to D, or a space. */
@@ -614,17 +616,100 @@ static void save_settings(void) {
     say(err ? " Not saved: %.20s" : " Settings saved", err);
 }
 
+/* The card's part of a power-on as cfg (§12): its ROM into g_boot.image,
+ * with the font, and with the Microdisc its EPROM into g_boot.eprom.
+ * False, with the status row saying why, when one is not there; the
+ * machine is not touched either way. */
+static bool stage_roms(const oric_config_t *cfg) {
+    /* Refused while a recording is not on the card yet (§12, EL §10):
+     * the power-on would drop it. The trap writes each CSAVE before the
+     * guest runs on; the recorder's waits only for a missing card. */
+    uint32_t from, to;
+    if (oric_cassette_unsaved(s.m, &from, &to)) {
+        say(" A recording is not saved: card", "");
+        return false;
+    }
+    /* The Microdisc's overlay RAM is a 48K machine's (§12). */
+    if (cfg->microdisc && cfg->ram != ORIC_RAM_48K) { say(" The Microdisc needs 48K", ""); return false; }
+    if (cfg->microdisc) {
+        if (!s.card) { say(" No card: no microdis.rom", ""); return false; }
+        card_roms_mounted(&s_job, cfg->rom, NULL);
+        if (!card_eprom(&s_job, g_boot.eprom)) { say(" No microdis.rom on the card", ""); return false; }
+    }
+    const char *file = romset_images[cfg->rom].file;
+    if (cfg->rom != s.m->cfg.rom) {
+        if (!s.card) { say(" No card: no %.20s", file); return false; }
+        say(" Reading %.20s...", file);
+        draw();
+        card_roms_mounted(&s_job, cfg->rom, g_boot.image);
+        if (s_job.rom[cfg->rom] == ROMFILE_ABSENT) { say(" No %.20s on the card", file); return false; }
+        if (s_job.loaded != cfg->rom) { say(" %.20s: cannot be read", file); return false; }
+        if (!s_job.loaded_known) { say(" %.20s: unrecognised", file); return false; }
+        /* The emulator's font is the running ROM's (§7.6). */
+        uint8_t font[ORIC_CHARSET_BYTES];
+        roms_charset(&s_job, g_boot.image, font);
+        display_init(font);
+        s_rom_known = true;
+        s.status[0] = 0;
+    } else {
+        /* The power-on empties the socket (oric.h); the same image goes
+         * back in. */
+        memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
+    }
+    s_rom = cfg->rom;
+    return true;
+}
+
+/* The machine as a state needs it (§10.6): powered on here, on core 1
+ * with the guest parked, as the load that follows changes it, with core
+ * 0's own power-on. For a state for another machine, and for one for
+ * this machine while it waits on the tape or is busy on a disc command,
+ * which a load cannot take over: a Microdisc with no disc waits so for
+ * ever, in the EPROM's boot. False, with the status row saying why and
+ * the machine as it was, when the card has not the ROMs it needs. */
+static bool snap_switch(const snap_info_t *in) {
+    oric_config_t cfg = s.m->cfg;
+    snapshot_machine(in, &cfg);
+    if (!stage_roms(&cfg)) {
+        log_core1("  snapshot     : slot %u is the %s's; not loaded:%s\n", s_slot + 1u,
+                  roms_machine_name(cfg.rom, cfg.ram), s.status);
+        return false;
+    }
+    log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it, ROM %s\n", s_slot + 1u,
+              roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
+              cfg.vsync_hack ? " with the VSync hack" : "", romset_images[cfg.rom].file);
+    core0_power_on(s.m, &cfg, g_boot.image);
+    return true;
+}
+
 /* The state in the slot: on success the menu closes, and the guest
- * resumes from it. A load whose second pass failed has left a machine
- * part old and part new: it is not resumed, but powered on again as it
- * is configured, with its own ROM (snapio.h). */
+ * resumes from it. A state for another machine powers on as that
+ * machine first (snap_switch). A load whose second pass failed has left
+ * a machine part old and part new: it is not resumed, but powered on
+ * again as it is configured, with its own ROM (snapio.h). */
 static void snap_load(void) {
-    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K, false, false };
-    bool recovered, changed;
-    uint32_t us;
-    snap_status_t st = snapio_load(s.m, s_slot, &in, &recovered, &changed, &us);
+    snap_info_t in = { ROM_UNKNOWN, ORIC_RAM_48K, false, false, 0, 0, 0, 0 };
+    bool recovered, changed = false;
+    uint32_t t0 = time_us_32();
+    snap_status_t st = snapio_check(s.m, s_slot, &in, &recovered);
+    /* Another ROM is one to power on as only if the card can have it;
+     * for the rest, the ROM is the running one (snapshot.h). */
+    bool busy = oric_tape_pending(s.m) || oric_disc_busy(s.m);
+    if ((st == SNAP_OTHER_ROM && in.rom != ROM_UNKNOWN) || st == SNAP_OTHER_RAM ||
+        st == SNAP_OTHER_MACHINE || (st == SNAP_OK && busy)) {
+        if (!snap_switch(&in)) return;
+        st = SNAP_OK;
+        /* A load that fails now leaves a machine just powered on, not
+         * the one the user had: it is powered on again, as below. */
+        changed = true;
+    }
+    if (st == SNAP_OK) {
+        bool torn;
+        st = snapio_load(s.m, &torn);
+        changed = st != SNAP_OK && (changed || torn);
+    }
     log_core1("  snapshot     : load slot %u: %s%s, %lu us\n", s_slot + 1u, snapshot_status_str(st),
-              recovered ? " (from the unpublished .new)" : "", (unsigned long)us);
+              recovered ? " (from the unpublished .new)" : "", (unsigned long)(time_us_32() - t0));
     if (st == SNAP_OK) {
         /* A tape the state had in the deck and the card no longer has:
          * said on the status line, since the menu closes (snapio.h). */
@@ -634,6 +719,7 @@ static void snap_load(void) {
     }
     if (changed) {
         log_core1("  snapshot     : failed after the machine had changed; powering on again\n");
+        core1_note("Not loaded: powered on again");
         memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
         g_ui.restart_cfg = s.m->cfg;
         g_ui.restart = true;
@@ -644,21 +730,8 @@ static void snap_load(void) {
         say("%s", snapio_said());
     } else if (st == SNAP_IO && !s.used[s_slot]) {
         snprintf(s.status, sizeof s.status, " Slot %u is empty", s_slot + 1u);
-    } else if (st == SNAP_OTHER_MACHINE && in.microdisc != s.m->cfg.microdisc) {
-        say(" Not loaded: needs the Microdisc %s", on_off(in.microdisc));
-        log_core1("  snapshot     : slot %u needs the Microdisc %s\n", s_slot + 1u,
-                  on_off(in.microdisc));
-    } else if (st == SNAP_OTHER_MACHINE) {
-        say(" Not loaded: needs the VSync hack %s", on_off(in.vsync_hack));
-        log_core1("  snapshot     : slot %u needs the VSync hack %s\n", s_slot + 1u,
-                  on_off(in.vsync_hack));
-    } else if ((st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM) && in.rom != ROM_UNKNOWN) {
-        /* Refused by name (§15.2 M11): the machine it needs. */
-        say(" Not loaded: needs the %.14s", roms_machine_name(in.rom, in.ram));
-        log_core1("  snapshot     : slot %u is the %s's, ROM %s\n", s_slot + 1u,
-                  roms_machine_name(in.rom, in.ram), romset_images[in.rom].file);
     } else {
-        say(" Not loaded: %.24s", snapshot_status_str(st));
+        say(" Not loaded: %.26s", snapshot_status_str(st));
     }
 }
 
@@ -667,52 +740,19 @@ static void snap_load(void) {
  * checked on the card before anything is touched; core 0 does the
  * power-on with the image left in g_boot.image (handoff.h). */
 static void apply_machine(void) {
-    /* Refused while a recording is not on the card yet (§12, EL §10):
-     * the power-on would drop it. The trap writes each CSAVE before the
-     * guest runs on; the recorder's waits only for a missing card. */
-    uint32_t from, to;
-    if (oric_cassette_unsaved(s.m, &from, &to)) {
-        say(" A recording is not saved: card", "");
-        return;
-    }
     oric_config_t cfg = s.m->cfg;
     cfg.rom = s.st_rom;
     cfg.ram = s.st_ram;
     cfg.microdisc = s.st_md;
     cfg.vsync_hack = s.st_vs;
-    /* The Microdisc's overlay RAM is a 48K machine's (§12). */
-    if (cfg.microdisc && cfg.ram != ORIC_RAM_48K) { say(" The Microdisc needs 48K", ""); return; }
-    if (cfg.microdisc) {
-        if (!s.card) { say(" No card: no microdis.rom", ""); return; }
-        card_roms_mounted(&s_job, cfg.rom, NULL);
-        if (!card_eprom(&s_job, g_boot.eprom)) { say(" No microdis.rom on the card", ""); return; }
-    }
-    const char *file = romset_images[cfg.rom].file;
-    if (cfg.rom != s.m->cfg.rom) {
-        if (!s.card) { say(" No card: no %.20s", file); return; }
-        say(" Reading %.20s...", file);
-        draw();
-        card_roms_mounted(&s_job, cfg.rom, g_boot.image);
-        if (s_job.rom[cfg.rom] == ROMFILE_ABSENT) { say(" No %.20s on the card", file); return; }
-        if (s_job.loaded != cfg.rom) { say(" %.20s: cannot be read", file); return; }
-        if (!s_job.loaded_known) { say(" %.20s: unrecognised", file); return; }
-        /* The emulator's font is the running ROM's (§7.6). */
-        uint8_t font[ORIC_CHARSET_BYTES];
-        roms_charset(&s_job, g_boot.image, font);
-        display_init(font);
-        s_rom_known = true;
-    } else {
-        /* The power-on empties the socket (oric.h); the same image goes
-         * back in. */
-        memcpy(g_boot.image, s.m->rom, ORIC_ROM_SIZE);
-    }
+    oric_config_t was = s.m->cfg;
+    if (!stage_roms(&cfg)) return;
     log_core1("  machine      : the %s%s%s, staged; restarting as the %s%s%s\n",
-              roms_machine_name(s.m->cfg.rom, s.m->cfg.ram),
-              s.m->cfg.microdisc ? " with the Microdisc" : "",
-              s.m->cfg.vsync_hack ? " with the VSync hack" : "",
+              roms_machine_name(was.rom, was.ram),
+              was.microdisc ? " with the Microdisc" : "",
+              was.vsync_hack ? " with the VSync hack" : "",
               roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
               cfg.vsync_hack ? " with the VSync hack" : "");
-    s_rom = cfg.rom;
     g_ui.restart_cfg = cfg;
     g_ui.restart = true;
     s.done = true;             /* straight into the new machine */

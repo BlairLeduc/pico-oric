@@ -22,7 +22,7 @@
 #include "test_util.h"
 
 static uint8_t rom[ORIC_ROM_SIZE];
-static oric_t g, h, ahead, before, other, saved;
+static oric_t g, h, ahead, before, other, saved, twin;
 static mem_t snap;
 
 #define DONE 0x02u   /* #A5 once the test ROM is idling (test_test_rom.c) */
@@ -142,7 +142,7 @@ int main(void) {
     oric_key_set(&h, 2, 5, true);
     oric_key_set(&h, 7, 4, true);
     CHECK(!snap_same(&ahead, &h, "control"), "control: a machine not restored must differ");
-    snap_info_t info = { ROM_BASIC10, ORIC_RAM_16K, true, true };
+    snap_info_t info = { ROM_BASIC10, ORIC_RAM_16K, true, true, 1, 2, 3, 4 };
     CHECK(mem_check(&snap, &h, &info) == SNAP_OK, "check: %s",
           snapshot_status_str(mem_check(&snap, &h, NULL)));
     CHECK(info.rom == ROM_UNKNOWN && info.ram == ORIC_RAM_48K && !info.microdisc && !info.vsync_hack,
@@ -271,6 +271,12 @@ int main(void) {
     poke_state(163, 0);
     poke_state(162, 7);
     CHECK(mem_check(&snap, &h, NULL) == SNAP_NOT_SNAPSHOT, "RAM fit 7");
+    /* The Microdisc on a 16K, which no machine saves or powers on as. */
+    poke_state(163, 1);
+    poke_state(162, (uint8_t)ORIC_RAM_16K);
+    CHECK(mem_check(&snap, &h, NULL) == SNAP_NOT_SNAPSHOT, "a Microdisc on 16K: %s",
+          snapshot_status_str(mem_check(&snap, &h, NULL)));
+    poke_state(163, 0);
     poke_state(162, (uint8_t)ORIC_RAM_48K);
     CHECK(mem_check(&snap, &h, NULL) == SNAP_OK, "made good again");
     CHECK(snap_same(&before, &h, "untouched"), "refused files change nothing");
@@ -311,9 +317,27 @@ int main(void) {
         CHECK(mem_load(&own, &other) == SNAP_OK, "16K load");
         fields(&other, 150);
         CHECK(snap_same(&ahead, &other, "16K"), "the 16K resumes to the same state");
+
+        /* Powered on as the state says, it loads, and runs on as it does
+         * in its own machine. Our ROM is none of ours by SHA-1, so the
+         * running one stays (snapshot_machine). */
+        oric_config_t as = c16;
+        as.rom = ROM_BASIC10;
+        snapshot_machine(&info, &as);
+        CHECK(as.ram == ORIC_RAM_48K && as.rom == ROM_BASIC10 && !as.microdisc && !as.vsync_hack,
+              "the machine it needs: ram %d rom %d", (int)as.ram, (int)as.rom);
+        CHECK(boot(&other, &as, rom), "boot as the state's");
+        CHECK(mem_load(&snap, &other) == SNAP_OK, "loads into the machine it needs");
+        CHECK(snap_same(&saved, &other, "switched"), "as the one saved");
+        CHECK(boot(&twin, &cfg, rom) && mem_load(&snap, &twin) == SNAP_OK, "and into its own");
+        fields(&other, 150);
+        fields(&twin, 150);
+        CHECK(snap_same(&twin, &other, "switched, resumed"), "and runs on as it does there");
     }
 
-    /* Another field: a line longer at 50 Hz. */
+    /* Another field: a line longer at 50 Hz. It is the build's, which no
+     * power-on changes, so it is found before anything that one does:
+     * here the RAM as well (snapshot.h). */
     {
         oric_config_t c = cfg;
         c.lines_50hz++;
@@ -321,6 +345,10 @@ int main(void) {
         CHECK(mem_check(&snap, &other, NULL) == SNAP_OTHER_FIELD, "another field: %s",
               snapshot_status_str(mem_check(&snap, &other, NULL)));
         CHECK(mem_load(&snap, &other) == SNAP_OTHER_FIELD, "load refuses another field");
+        c.ram = ORIC_RAM_16K;
+        CHECK(boot(&other, &c, rom), "boot another field, 16K");
+        CHECK(mem_check(&snap, &other, NULL) == SNAP_OTHER_FIELD, "another field and RAM: %s",
+              snapshot_status_str(mem_check(&snap, &other, NULL)));
     }
 
     /* ---- the media: the port's drives and deck, from version 2 -------- */

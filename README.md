@@ -229,9 +229,11 @@ is refused, naming it, and one whose tape has gone loads with the deck
 empty. A disc written to after the save goes back in as it now is.
 
 > [!IMPORTANT]
-> A saved state is in this emulator's own format, and loads only into
-> the machine that saved it: the same ROM, RAM, Microdisc and VSync
-> hack. The page names the machine a refused state needs.
+> A saved state is in this emulator's own format. Loading one powers on
+> as the machine that saved it, with the same ROM, RAM, Microdisc and
+> VSync hack, whatever the *Machine* page had: the ROMs it needs must be
+> on the card, and the page names one that is not. *Save settings*
+> keeps the machine it loaded.
 
 ### The machine
 

@@ -342,6 +342,23 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     info->ram = st[S_RAM] == ORIC_RAM_16K ? ORIC_RAM_16K : ORIC_RAM_48K;
     info->microdisc = (st[S_MACHINE] & M_MICRODISC) != 0;
     info->vsync_hack = (st[S_MACHINE] & M_VSYNC) != 0;
+    info->vsync_line_50hz = get16(st + S_VS_LINE_50);
+    info->vsync_line_60hz = get16(st + S_VS_LINE_60);
+    info->vsync_delay = get16(st + S_VS_DELAY);
+    info->vsync_low = get16(st + S_VS_LOW);
+}
+
+void snapshot_machine(const snap_info_t *info, oric_config_t *cfg) {
+    /* A ROM none of ours is refused for itself unless it is m's. */
+    if (info->rom != ROM_UNKNOWN) cfg->rom = info->rom;
+    cfg->ram = info->ram;
+    cfg->microdisc = info->microdisc;
+    cfg->vsync_hack = info->vsync_hack;
+    if (!info->vsync_hack) return;
+    cfg->vsync_line_50hz = info->vsync_line_50hz;
+    cfg->vsync_line_60hz = info->vsync_line_60hz;
+    cfg->vsync_delay = info->vsync_delay;
+    cfg->vsync_low = info->vsync_low;
 }
 
 /* Could a machine have saved this? A file passes its CRC whoever wrote
@@ -355,6 +372,9 @@ static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
     if (st[S_RAM] > ORIC_RAM_48K || st[S_SR_HALVES] > 16u || (st[S_MACHINE] & ~(M_MICRODISC | M_VSYNC)) ||
         st[S_TAPE_NAME_LEN] > ORIC_TAP_NAME_MAX || st[S_ULA_MODE] > 7u || st[S_FRAME_MODE] > 7u)
         return false;
+    /* The Microdisc's overlay is a 48K machine's (microdisc.h), so no
+     * machine saves it on a 16K, and none can be powered on as one. */
+    if ((st[S_MACHINE] & M_MICRODISC) && st[S_RAM] != ORIC_RAM_48K) return false;
 
     /* The VIA's counters after due() and a sync: from just below zero
      * to a full count past the latch. */
@@ -395,23 +415,25 @@ static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
     return budget <= 0 && budget >= -64;
 }
 
-/* Would this state resume on this machine? The ROM and the RAM first,
- * which the user can change and the refusal names. */
+/* Would this state resume on this machine? The field first, which is
+ * the build's: a state refused for anything after it resumes on a
+ * machine powered on as snapshot_machine says. Then the ROM and the RAM,
+ * which the refusal names. */
 static snap_status_t compatible(const oric_t *m, const uint8_t st[SNAP_STATE_LEN]) {
     if (!plausible(st)) return SNAP_NOT_SNAPSHOT;
+    if (get16(st + S_LINE_CYCLES) != m->cfg.line_cycles ||
+        get16(st + S_LINES_50) != m->cfg.lines_50hz || get16(st + S_LINES_60) != m->cfg.lines_60hz)
+        return SNAP_OTHER_FIELD;
     uint8_t rom[SHA1_DIGEST_LEN];
     rom_hash(m, rom);
     if (memcmp(rom, st + S_ROM, sizeof rom) != 0) return SNAP_OTHER_ROM;
     if (st[S_RAM] != (uint8_t)m->cfg.ram) return SNAP_OTHER_RAM;
     if (st[S_MACHINE] != machine_of(m)) return SNAP_OTHER_MACHINE;
-    if (get16(st + S_LINE_CYCLES) != m->cfg.line_cycles ||
-        get16(st + S_LINES_50) != m->cfg.lines_50hz || get16(st + S_LINES_60) != m->cfg.lines_60hz)
-        return SNAP_OTHER_FIELD;
     if (m->cfg.vsync_hack &&
         (get16(st + S_VS_LINE_50) != m->cfg.vsync_line_50hz ||
          get16(st + S_VS_LINE_60) != m->cfg.vsync_line_60hz ||
          get16(st + S_VS_DELAY) != m->cfg.vsync_delay || get16(st + S_VS_LOW) != m->cfg.vsync_low))
-        return SNAP_OTHER_FIELD;
+        return SNAP_OTHER_MACHINE;
     return SNAP_OK;
 }
 
@@ -568,7 +590,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_OTHER_ROM:     return "for another ROM";
     case SNAP_OTHER_MACHINE: return "for another machine";
     case SNAP_OTHER_FIELD:   return "another field timing";
-    case SNAP_BUSY:          return "the tape or the disc is busy";
+    case SNAP_BUSY:          return "the tape or disc is busy";
     case SNAP_NO_DISC:       return "a disc it needs is missing";
     }
     return "?";

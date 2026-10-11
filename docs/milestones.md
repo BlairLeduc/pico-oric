@@ -4,6 +4,41 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**After M16, a load powers on as the state's machine** (`snapshot_machine`
+in `src/core/snapshot.*`; `snapio_check` and `snapio_load` in
+`src/port/snapio.*`; `stage_roms` and `snap_switch` in `menu.c`), on
+`main` on 2026-10-10 at the owner's request (design.md §10.6): a state
+for another ROM, RAM, Microdisc fit, VSync setting or pulse is no longer
+refused by name, but loaded into a machine powered on as it, the ROMs
+read from the card first. The core checks the field's shape before
+anything a power-on changes, refuses a Microdisc on a 16K as not a
+state, and moves a pulse that differs from `SNAP_OTHER_FIELD` to
+`SNAP_OTHER_MACHINE`. **Checked on the host:** `test_snapshot` (our
+ROM, so in CI) loads a 48K state into a 16K powered on as the state
+says, and it runs 150 fields to the state its own machine reaches;
+another field is refused even with the RAM different too;
+`test_snapshot_rom` does the same on all four machines from the other
+RAM, and from the other ROM and RAM, to the original's state 150 fields
+on; `test_vsync` from the hack off, from another pulse, and the hack
+off into a machine with it, each to the same interrupts and pulse;
+`test_disc` with the Microdisc. **Found by the owner** on the board:
+every load was refused, the message cut to "the tape or disc is", while
+a Microdisc with drive A empty sat in its EPROM's boot read, busy for
+ever (reproduced on the host: busy in every field of 3,000). A busy
+machine is now powered on before the load, and `test_disc` holds a load
+refused mid-command and taken after a power-on; the message is shorter
+and the status row's width wider. **Planted bugs**, each caught and
+removed: `snapshot_machine` not copying the pulse's delay fails
+`test_vsync`'s load; not copying the RAM fails `test_snapshot` and
+`test_snapshot_rom`. Both firmware builds pass, with and without the
+UART. **On the board**, by the owner on a Pico 2 W, 2026-10-10: states
+saved before the change load as expected, from a machine with the
+Microdisc fitted and drive A empty; and a state loads from a machine
+with another ROM, another Microdisc setting and another VSync setting,
+each powered on as the state's. **Not checked** on the board: a state
+whose ROM is not on the card, which should be refused by file name with
+the machine left as it was.
+
 **M15, finish**, built on branch `m15-finish` on 2026-10-10
 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2), on the Plus 2 W
 `7458DC82A89AAC12` (RP2350B, chip rev 2), **done** the same day: every
