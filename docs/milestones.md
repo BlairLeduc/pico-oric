@@ -35,9 +35,8 @@ UART. **On the board**, by the owner on a Pico 2 W, 2026-10-10: states
 saved before the change load as expected, from a machine with the
 Microdisc fitted and drive A empty; and a state loads from a machine
 with another ROM, another Microdisc setting and another VSync setting,
-each powered on as the state's. **Not checked** on the board: a state
-whose ROM is not on the card, which should be refused by file name with
-the machine left as it was.
+each powered on as the state's; and a state whose ROM is not on the
+card is refused with an error on the status row.
 
 **M15, finish**, built on branch `m15-finish` on 2026-10-10
 (Pico SDK 2.3.1, arm-none-eabi-gcc 15.2), on the Plus 2 W
