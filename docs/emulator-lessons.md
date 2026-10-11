@@ -2,7 +2,7 @@
 
 A standalone guide for developers and agents starting an emulator of a vintage
 machine on the **ClockworkPi PicoCalc**, in C against the Raspberry Pi Pico SDK.
-It collects what two complete emulators taught us about architecture,
+It collects what three complete emulators taught us about architecture,
 accuracy, performance, testing and process:
 
 - an **Acorn Atom**: a 1 MHz 6502, an MC6847 video display generator, an
@@ -11,11 +11,16 @@ accuracy, performance, testing and process:
 - a **Jupiter Ace**: a 3.25 MHz Z80 with a Forth ROM, a 32×24 character
   display built from 768 bytes of screen RAM and 1 KiB of write-only
   character RAM, a 40-key matrix, and one port bit each for the speaker
-  and the tape.
+  and the tape;
+- an **Oric-1 and Oric Atmos**: a 1 MHz 6502, a ULA drawing 240×224 in
+  colour with serial attributes, a 6522 VIA, an AY-3-8912 sound chip
+  reached only through the VIA, tape, and the Microdisc's WD1793 floppy
+  controller.
 
-The Ace was built second, from this guide and by reusing the Atom's drivers
-and much of its core (§14.6), and what it added is folded in. None of it
-depends on either project's source. Copy it into a new project as is.
+The Ace was built second and the Oric third, each from this guide and by
+reusing its predecessors' drivers and cores (§14.6), and what each added is
+folded in. None of it depends on any project's source. Copy it into a new
+project as is.
 
 **Companion document.** `hardware-notes.md` is the authority on the host: the
 PicoCalc's wiring, peripheral protocols, timing and measured costs.
@@ -26,9 +31,10 @@ emulator does with them.
 **Scope, October 2026.** The figures are measurements from a Pimoroni Pico
 Plus 2 W (RP2350B) at 150 MHz unless stated otherwise. Each is the number for
 one guest on one board, and is here to calibrate your estimates, not to
-replace your own measurements. Each example names its machine (the Atom or
-the Ace) and the guest part involved (a 6502, an MC6847, an 8255, a 6522, an
-8271, a Z80), so the lesson can be mapped onto the parts in yours.
+replace your own measurements. Each example names its machine (the Atom, the
+Ace or the Oric) and the guest part involved (a 6502, an MC6847, an 8255, a
+6522, an 8271, a Z80, an AY-3-8912, a WD1793), so the lesson can be mapped
+onto the parts in yours.
 
 **Contents**
 
@@ -264,7 +270,13 @@ instruction granularity (§4.5).
 
 **On a 6502, trap and count undocumented opcodes** in a first version, and
 put the count on the heartbeat. Zero over a soak is evidence; a nonzero count
-tells you which title needs them.
+tells you which title reached one, which is not the same as needing it. Run
+the archive (§11.6) and trace the instructions before each title's first.
+On the Oric, 62 of TOSEC's 1,061 tapes executed one on the Atmos and 198 on
+the Oric-1, and every one got there by a corrupt dump, a return or jump
+into data, the ROM autorunning a data file, or a title for the other ROM
+calling into it. None used one on purpose, and the stable subset was not
+implemented.
 
 **On a Z80, implement the undocumented behaviour instead**: the IXH/IXL/IYH/IYL
 forms, `SLL`, the `DDCB`/`FDCB` register-copy forms, flag bits 3 and 5,
@@ -434,6 +446,15 @@ was left as configuration with the finding recorded.
 
 **VRAM needs no write hook** if the presenter diffs snapshots (§5.3). That is
 cheaper than tracking stores and cannot under-mark.
+
+**A paging latch the software writes constantly must be cheap to write.**
+The Oric's Microdisc maps its EPROM over the BASIC ROM, and the Sedoric DOS
+flips it in and out about every 15 instructions while it waits for a key,
+each flip a remap of 64 pages: core 0 was 42.2 % busy at its prompt against
+34.2 % at BASIC's. Rebuild the map only when the bits that choose it
+change, do not end the run slice on a latch write, and keep the access path
+in SRAM: 41.4 %. Mark in the per-page flags which array each page points
+into, so that copying the machine can rebuild the table.
 
 ### 4.2 Model the chip, then wire it
 
@@ -986,6 +1007,14 @@ everything else unchanged so the game's own prompts still type.
   first cut put fire under the same thumb as the directions; on the device a
   key at the far side of the keyboard (`]`) played better, and the Ace kept
   it.
+- **Choose the built-ins by survey.** Run the archive (§11.6) and record
+  which keys each title's own code tests. Of the 973 Oric tapes that load
+  on the Atmos, 47 test particular keys: six the arrows, which the
+  standard map already serves, five Z X ' / (left, right, up, down) and
+  one A Z , . (up and down on A and Z). Q A O P, the design's guess, is a
+  few BASIC games' and no machine-code title's. A title that reads its
+  keys through the ROM's own scan tests nothing at the matrix, so read the
+  archive's BASIC for the keys it compares as well.
 
 ---
 
@@ -1052,13 +1081,36 @@ the request from a file and return as the routine would have.
   Name the deliberate differences (`R`, which counts instructions the trap
   did not run; a block shorter than the ROM asked for).
 - **A planted bug that passes marks dead code.** Of three planted in the
-  Ace's trap, two changed state the ROM's epilogue overwrites anyway.
+  Ace's trap, two changed state the ROM's epilogue overwrites anyway; of
+  twenty-three in the Oric's, eight passed, seven of them on dead code
+  (since taken out) and one on a gap in the test.
 - **Find the file the user meant.** Archive files are seldom named after the
   program inside (the Ace's `tut-tut.tap` holds `TUTTUT`): with no file of the
   name asked for, play the first tape whose first header carries it. A load
   that reaches the end of a tape rewinds once, as a user would, and is
   declined the second time. Skip the `._` files macOS writes beside every
   file it copies to the card (HW §7.1).
+- **Give up rather than decline where the ROM would wait in silence.**
+  Declining suits a ROM that then prompts and can be broken out of. The
+  Oric's, declined, waits for a signal with "Found" as its last message,
+  and its owner read a `CLOAD` of a name not on the tape as a hang. There
+  the emulator presses the reset button instead (the ROM's warm start,
+  which keeps the program) and the status line names the file not found:
+  at the end of the tape a second time, with no tape or no card, or with
+  a file cut short. Test that it reaches the prompt with the program's
+  bytes intact.
+- **Match a name as each ROM does.** The Oric's two ROMs keep different
+  lengths of a name read off tape: 1.1 keeps 16 characters and 1.0 the
+  whole name. A trap matching 16 in both put a tape in the deck that 1.0
+  then passed over, unable to answer. Settle the length by executing each
+  ROM.
+- **Serve what the archive expects** (§11.6). Titles in parts may ask for
+  the next part by its file name (`CLOAD"GAME.TA1"`), as the emulator the
+  archive was made for served them, so look for the name as it is before
+  `NAME.tap`. A file one byte short of its header's length at the end of
+  the tape loads, its last address keeping its byte, as the reference
+  emulator allows "for broken tape images". With both, the Oric titles
+  that load went from 879 of 1,061 to 980.
 
 ### 8.3 Tape, phase 2: the signal
 
@@ -1160,7 +1212,8 @@ snapshots are expected there.
   Atom's were not where the old document put them, and the interrupt was NMI.
 - Short images (truncated after the last used sector) read zeros past their
   end and grow when written. A read-only file is a write-protected disc.
-- Refuse a snapshot while a command is in progress.
+- Refuse to save a snapshot while a command is in progress. A load needs
+  no such wait: it replaces the machine, so power it on first (§8.5).
 - **Let the disc turn in guest cycles.** The byte under the head is a
   function of the cycle count (on the Oric's Microdisc, byte `(t / 32) mod
   6400` of the track); a search waits for its ID to come round, a transfer
@@ -1192,15 +1245,66 @@ snapshots are expected there.
 - **Header with magic, version, lengths and a CRC.** **Encode every field so
   zero is its reset state** and reserve bytes; then a later version can fill
   reserved bytes and an older file still loads as an idle device.
-- **Store ROM hashes, not ROM bytes**, and refuse a machine whose ROMs or
-  memory map differ. Record the guest clock and refuse the other one.
+- **Store ROM hashes, not ROM bytes**, and record everything a power-on
+  chooses: the ROMs, the RAM, the hardware fitted, the guest clock.
 - **Record every timing-model choice** that changes how the machine runs (the
-  field's shape, wait states on or off) and refuse a state made under
-  another. When the Ace's field moved to the circuit's numbering (§5.6),
-  every earlier state became one that is refused, not misloaded.
+  field's shape, wait states on or off). One the user makes at power-on is
+  part of the machine the state names (next point); one the build makes
+  refuses a state made under another. When the Ace's field moved to the
+  circuit's numbering (§5.6), every earlier state became one that is
+  refused, not misloaded.
+- **Load a state into the machine it names.** A load replaces the RAM, the
+  CPU and every chip, so all that lies outside the state is what a power-on
+  chooses, and the state records all of it. Rather than refuse a state
+  for another machine and send the user to the machine page (§10), check
+  the file, read the ROMs it needs from the card, and refuse by file name
+  if one is missing or unrecognised, or while an unsaved recording exists,
+  as the machine page's restart does; only then power on as that machine
+  and load. The change is to the running machine, as the machine page's
+  is, and a save of the settings keeps it. Refuse, naming what is wrong,
+  only what no power-on can give: a choice the build makes, or a ROM the
+  emulator does not know. Order the core's checks so that those come
+  first, and a state refused only for its machine has passed every other
+  check. The Atom, the Ace and the Oric's first version refused by name;
+  the Oric's owner chose this (2026-10-10), and checked it on the board
+  across ROMs, the disc interface and a hardware modification. Its cost:
+  a card that fails while the second pass reads RAM leaves a machine
+  freshly powered on as the state's, not the one the user had.
+- **A busy device must not block a load.** A state is not taken
+  mid-command, so refuse a save while a disc command runs or a tape
+  request waits. Do not refuse a load for it: the load replaces the
+  machine, so power on first, even as the machine already running. The
+  Oric's Microdisc, booting with drive A empty, waits in its EPROM's read
+  for ever, and until the load powered on first, every load was refused.
 - **Load in two passes.** The first reads and checks everything without
   touching the machine; only then does the second change anything. A torn,
   foreign or newer file leaves the running machine exactly as it was.
+- **A good CRC does not mean your emulator wrote the file.** The chips
+  trust their fields, so check each against the range a running machine
+  keeps it in, and refuse as not a state any field outside it. In the
+  Oric's, an AY period of 0 divided by zero, a register number past 15
+  indexed past a table, and a timer far below zero or a sound chip's clock
+  far behind the CPU's kept core 0 in one loop for minutes. A reviewer
+  found the first two, and the rest turned up while fixing them. Test it
+  with such files carrying good CRCs, and with the check planted out.
+- **Store what cannot be worked out; work out the rest on load.** The
+  Oric's IRQ lines follow from the VIA's flags, and the sound chip's wiring
+  from the VIA's outputs. A field stored but never read at a boundary is
+  dead, and a planted bug shows it (§8.2): the Oric's NMI level and RESET
+  pending are low at every boundary, and were dropped.
+- **What a trap keeps between its steps is machine state.** A field
+  boundary can fall between a trapped save's header and its data, so the
+  Oric's state carries the header the trap kept; restored, it asks for the
+  same file.
+- **Carry the media's names, not their contents.** A disc program resumed
+  without its discs resumes a DOS whose disc has gone. The Oric's states
+  record each drive's file and the deck's, with the tape's place, and put
+  them back after a load. A disc missing from the card refuses the load in
+  the first pass, by drive and file; a missing tape does not, since its
+  program is in memory, and the deck is left empty with a word on the
+  status line. A disc written since the save comes back as it is now, and
+  a DOS resumed with an older picture of it can disagree with it; the
+  Oric's owner decided against a checksum to warn of that.
 - After a load, release all keys and restart audio from the restored clock.
   The beeper's sample grid is not state: the speaker's edges come out the
   same, and the samples within one of them.
@@ -1209,6 +1313,13 @@ snapshots are expected there.
 - Test by execution: save mid-program, restore into a machine that has been
   doing something else, run 150 fields, and require identical state (RAM,
   CPU, cycle counter, speaker, debt). A debt one cycle out must not match.
+  **Compare straight after the load as well**, and the samples sample for
+  sample: two machines can converge within 150 fields and hide a field the
+  load left out. On the Oric, a load that skipped the VIA's wiring took an
+  interrupt one instruction late, which in the test ROM's idle loop landed
+  at the same place and phase; a load without the sound chip's remix
+  showed only in the samples. Give the chips' latches values a reset does
+  not, or a latch the load forgets is zero in both machines.
 - **Log destructive actions.** An Ace run over the UART, with no files on the
   card, stopped on Delete and removed a save slot without a word.
 
@@ -1248,7 +1359,9 @@ Rules that worked:
   it, and if another line does, makes it a comment, keeping its text. So
   saving clears the problem the status row names rather than keeping it
   for ever. (The Ace's owner found the old rule on the device: a refused
-  line survived every save.)
+  line survived every save.) After a save, say afresh what the written
+  file holds, or the status row names a problem the save has fixed until
+  the next boot.
   Keep comment columns aligned. Refuse a save when the file has a duplicate
   key.
 - **Parse your own output before writing it**, and refuse if it does not give
@@ -1259,7 +1372,14 @@ Rules that worked:
   before core 0 powers the machine on.
 - A value the user may set outside the emulator (the backlight, which the
   MCU's own chords change) can be left unset, meaning "leave it", and a save
-  keeps what the file has.
+  keeps what the file has. Reading the hardware's level at boot is not the
+  user setting it: the Oric's first save, on code taken from the Ace,
+  wrote a `backlight = 2` nothing had set. Write the key only once the
+  menu has changed it. And never write the sentinel: a refused
+  `backlight = 16`, saved with no backlight set, was rewritten as
+  `backlight = 0`, the code's "leave it", which no line can say, so the
+  parser refused the rewritten line too while the save reported success.
+  Make such a line a comment.
 - Build-time overrides (`-DBOOT_TAPE=...`, `-DBOOT_CLOCK=...`) win over the
   file, so a run driven over the UART knows what it booted with (§13.2).
 
@@ -1326,6 +1446,15 @@ lives in and takes a zero sum as the DOS already loaded, so from zero-filled
 RAM a cold boot loaded four sectors of sixty and crashed. Power that RAM on
 in the reference emulator's pattern (Oricutron's: 128 zeros, then 128
 `#FF`s, a page), and only that RAM, if the rest is held to traces.
+
+**Load the ROM, then power on.** A CPU fetches its reset vector at
+power-on, from whatever is in the socket then. The Oric's core powered on
+as it was created, with the socket empty; the host harness and the trace
+tool reset again after loading the ROM and the firmware did not, so the
+board's first image ran from the open bus's vector at `#FFFF`. Give the
+core one order, document it where the machine is created, and have the
+host harness take the firmware's steps, so the host cannot hide the
+firmware's mistake.
 
 ### 9.3 Turbo and faster guest clocks
 
@@ -1557,6 +1686,14 @@ speaker edges grow.
   A first Ace soak with every counter zero had dumps showing only one of the
   two keys read; the check was tightened and the soak run again. A later
   release soak failed on the keys alone, and was recorded as such.
+- **Choose a sign of life the idle guest does not give.** The Oric's soak
+  counted writes to the sound chip, but every keyboard scan writes the
+  chip's port A, so the count grew with the program stopped, and a soak
+  record cited it as evidence before anyone noticed. Count what only the
+  program does (the Oric's starts an envelope once a pass), and hold the
+  rule to a control: the program stopped at an error started 6 envelopes
+  in the host test's window, the ROM's key clicks and error, against 18
+  running.
 - **Keys typed over the UART bypass the southbridge**, so a UART soak does
   not exercise the real keyboard. Soak the release build too, with no UART:
   keys held by hand on the PicoCalc and the counters read over SWD with both
@@ -1566,6 +1703,39 @@ speaker edges grow.
 - Record the power source: the southbridge's charging bit proves USB power;
   its absence does not (HW §6). The Ace's release soak read the die at
   20–21 °C throughout, on battery, at about 21 % of core 0.
+
+### 11.6 Run the archive on the host
+
+Load every title in the archive on the host harness (§11.2), on each
+machine, the way the port serves the card, and run it for a fixed time:
+the Oric's ran each of TOSEC's 1,061 tapes for a minute of guest time,
+started its last file with `RUN` or `CALL` if it did not start itself,
+and pressed a key half way. Keep each title's last frame and text screen
+beside a one-line report; both machines took under two minutes. Count
+what the run can count: undocumented opcodes, with the instructions
+before the first (replay the field that reached it an instruction at a
+time); titles that load on neither machine, and why; the largest file
+and the largest tape, which size the buffers.
+
+What the Oric's run found, before any change:
+
+- **Classify the failures before fixing any.** 50 of the 1,061 were not
+  tapes: ROM images, tools for another computer, a disc image filed as a
+  tape.
+- **The archive follows the emulator it was made for.** 83 tapes end a
+  byte short, and titles in parts ask for their next part by file name;
+  two rules in the tape code took the titles that load from 879 to 980
+  (§8.2).
+- **The undocumented opcodes it reached were crashes** (§3.1), and the
+  question was closed by evidence rather than by folklore that Oric
+  software used them.
+- **What the titles do, surveyed**: which keys their own code tests
+  (§7.3), and which enable an interrupt the ROM leaves off. The three that
+  looked like users of a hardware modification were crashes too.
+
+Run it again for every media path with its own code (the tape signal as
+well as the trap; every disc image, held to the reference by screen,
+§8.4), and after a change to the CPU or the bus.
 
 ---
 
@@ -1684,6 +1854,13 @@ it reads the package at run time (HW §8.1). Log every key press and release
 with its code during bring-up; the Ace's capture of an Alt-first release
 became a test case.
 
+**Show that the machine on the board is the host's.** Once the guest
+boots, log the CPU's registers and cycle count at the end of each of the
+first 150 fields, from power-on through the boot to the prompt, and print
+the same from a host program running the same loop. The Oric's two lists
+were identical. It is the whole machine's counterpart of the CPU bench's
+check (§12).
+
 With drivers reused from an earlier emulator (§14.6), bring-up is
 re-verifying on the new tree, not re-deriving: the Ace's took a day.
 
@@ -1799,7 +1976,9 @@ The Ace's, with no disc and reused drivers:
 ```
 
 The host-only milestones (machine, video, keyboard) ran alongside the gate
-and bring-up. Sixteen milestones took three days.
+and bring-up. Sixteen milestones took three days. The Oric's seventeen,
+with the Atom's 6502 and VIA and the Ace's port reused, and a disc
+interface and a video-sync modification added, took four.
 
 Record each milestone's result where the next person will look: the date,
 the board's identity, the compiler, what was checked on the device and by
@@ -1934,11 +2113,14 @@ Media and settings
 - [ ] ROMs by SHA-1; embedded with a failing build check where a permission
       allows, otherwise a missing-ROM page, never a blank screen.
 - [ ] Traps on handlers, stalling the CPU, leaving the ROM's state byte for
-      byte (or letting the ROM finish); tested against the ROM's own routine.
+      byte (or letting the ROM finish); tested against the ROM's own routine;
+      giving up to the prompt where a declined ROM would wait in silence.
 - [ ] Tape signal at the writer's exact counts, tested edge for edge against
       the ROM's own save; recorder keeps whole blocks.
 - [ ] Snapshots: explicit fields, zero is reset, ROM hashes, timing-model
-      choices recorded, two-pass load.
+      choices recorded, two-pass load, every field checked plausible, the
+      media's names carried; a load powers on as the state's machine and is
+      never blocked by a busy device; compared straight after the load.
 - [ ] Community snapshot formats settled from a description, a loader and a
       corpus; checked against a reference over the corpus.
 - [ ] Every write through `.new` and rename, recovery on load.
@@ -1956,6 +2138,8 @@ Process
       with a not-checked list.
 - [ ] Reference emulator building from the first host milestone.
 - [ ] Perf workloads scripted; each feature measured against a control build.
+- [ ] The archive run on the host before undocumented opcodes or built-in
+      layouts are decided.
 - [ ] 30-minute soak with every counter zero and the workload seen
       running; the release build soaked with counters read over SWD.
 - [ ] Owner's decisions numbered and dated; a PR per milestone.

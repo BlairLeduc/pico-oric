@@ -1142,6 +1142,25 @@ file, reading it in 512-byte pieces and hashing it with SHA-1 took
 20.2–20.6 ms (two files), and an 8 KiB file 11.7 ms. A cold mount took
 231–238 ms and a warm one 14.6 ms, as before.
 
+**Measured** on a Plus 2 W, 2026-10-08 to 2026-10-10, the same driver,
+larger transfers, each with nothing else using the card:
+
+| Transfer | Time |
+|---|---|
+| a 59–99-byte text file opened, read and parsed | 7.1–8.1 ms |
+| a 6,400-byte track read from a 538 KB image | 22.9–23.4 ms |
+| the same track written back into the image | 39–45 ms |
+| a 65,876-byte file written to `name.new`, the old file unlinked, the new renamed | 281 ms |
+| the same file read twice, start to end | 142 ms |
+| the same file read once, its CRC checked | 78 ms |
+| a 307,254-byte file written in 7,680-byte pieces, through `.new` and a rename | 938 ms |
+
+The last includes drawing each piece's rows and a keyboard poll every
+33 ms between pieces, about 0.13 s of it at §6.1's cost. So a large file
+reads at about 0.85–0.93 MB/s and writes at about 0.23–0.38 MB/s, on top
+of the ~10 ms an open costs (above): a quarter-second write is ordinary,
+and holds up everything that waits for the card.
+
 Three more things from the same driver on the same board:
 
 - **Bound every wait below the southbridge's 2.5 s watchdog** (§6.1) when one
