@@ -124,49 +124,55 @@ const char *snapio_said(void) {
     return s_said;
 }
 
-static snap_status_t load_file(oric_t *m, const char *p) {
-    if (f_open(&s_file, p, FA_READ) != FR_OK) return SNAP_IO;
-    snap_status_t st = snapshot_load(m, fread_cb, &s_file);
-    f_close(&s_file);
-    return st;
+/* The file snapio_check passed, for snapio_load. */
+static char s_from[40];
+
+/* A state for a machine the menu can power on as (snapshot_machine):
+ * whole, and refused only for its ROM, RAM, Microdisc or pulse. */
+static bool other_machine(snap_status_t st) {
+    return st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM || st == SNAP_OTHER_MACHINE;
 }
 
-snap_status_t snapio_load(oric_t *m, unsigned slot, snap_info_t *info, bool *recovered,
-                          bool *changed, uint32_t *us) {
-    uint32_t t0 = time_us_32();
+snap_status_t snapio_check(const oric_t *m, unsigned slot, snap_info_t *info, bool *recovered) {
     char main_path[40], tmp[40];
     path(main_path, sizeof main_path, slot, "sav");
     path(tmp, sizeof tmp, slot, "new");
     *recovered = false;
-    *changed = false;
     s_said[0] = 0;
-    /* Refused before the card is touched, as a save is: snapshot_load's
-     * own refusal comes after the check, where a failure is taken for a
-     * machine part changed, and the menu would power it on again. */
-    if (oric_tape_pending(m) || oric_disc_busy(m)) {
-        *us = 0;
-        return SNAP_BUSY;
-    }
-
+    s_from[0] = 0;
     snap_status_t st = check_file(m, main_path, info);
     const char *from = main_path;
     if (st == SNAP_IO || st == SNAP_CORRUPT || st == SNAP_NOT_SNAPSHOT) {
         /* Missing or damaged: an interrupted publish leaves a whole .new.
          * A state that is whole but for another machine is not damage,
          * and is reported as it is. */
-        if (check_file(m, tmp, info) == SNAP_OK) {
+        snap_info_t alt = *info;
+        snap_status_t t = check_file(m, tmp, &alt);
+        if (t == SNAP_OK || other_machine(t)) {
             *recovered = true;
-            st = SNAP_OK;
+            *info = alt;
+            st = t;
             from = tmp;
         }
     }
-    if (st == SNAP_OK) st = check_discs();
-    if (st == SNAP_OK) {
-        st = load_file(m, from);
-        *changed = st != SNAP_OK;
-        if (st == SNAP_OK) restore_media(m);
+    if (st == SNAP_OK || other_machine(st)) {
+        snap_status_t d = check_discs();
+        if (d != SNAP_OK) return d;
+        snprintf(s_from, sizeof s_from, "%s", from);
     }
-    *us = time_us_32() - t0;
+    return st;
+}
+
+snap_status_t snapio_load(oric_t *m, bool *changed) {
+    *changed = false;
+    if (!s_from[0]) return SNAP_IO;
+    if (f_open(&s_file, s_from, FA_READ) != FR_OK) return SNAP_IO;
+    snap_status_t st = snapshot_load(m, fread_cb, &s_file);
+    f_close(&s_file);
+    s_from[0] = 0;
+    /* Every other refusal comes before anything changes (snapshot.h). */
+    *changed = st == SNAP_TORN;
+    if (st == SNAP_OK) restore_media(m);
     return st;
 }
 

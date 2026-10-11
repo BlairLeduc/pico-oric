@@ -11,6 +11,11 @@
  * is missing or damaged falls back to a whole slotN.new, which is what an
  * interrupted publish leaves. Nothing changes in the machine, the drives
  * or the deck until a file, and every disc it names, has passed.
+ *
+ * The two passes are two calls, so that a state for another machine can
+ * be loaded into that machine (design.md §10.6): snapio_check names it,
+ * the menu powers on as it, and snapio_load loads the file the check
+ * passed.
  */
 #ifndef PICO_ORIC_SNAPIO_H
 #define PICO_ORIC_SNAPIO_H
@@ -25,14 +30,25 @@
 #define SNAPIO_STATE_DIR "/oric/states"
 
 /* The card must be mounted (storage.h) for all of these. *us is the wall
- * time the call took. A load fills *info as snapshot_check does, for
- * naming the machine a refused state needs, and sets *changed when a
- * file passed its check but the second pass then failed, the card going
- * or the file changing between them: the machine is then part old, part
- * new, and must be powered on again rather than resumed. */
+ * time the save took. */
 snap_status_t snapio_save(const oric_t *m, unsigned slot, uint32_t *us);
-snap_status_t snapio_load(oric_t *m, unsigned slot, snap_info_t *info, bool *recovered,
-                          bool *changed, uint32_t *us);
+
+/* The first pass over the slot: fills *info as snapshot_check does, and
+ * sets *recovered when the slot was its .new. SNAP_OK, or SNAP_OTHER_ROM,
+ * SNAP_OTHER_RAM or SNAP_OTHER_MACHINE for a state that is whole and
+ * whose discs are on the card, but for another machine
+ * (snapshot_machine); then snapio_load may follow. The machine itself
+ * is not checked: one waiting on the tape or busy on a disc command,
+ * which snapshot_load refuses, is powered on first (menu.c). */
+snap_status_t snapio_check(const oric_t *m, unsigned slot, snap_info_t *info, bool *recovered);
+
+/* The second pass, over the file the last snapio_check passed, and the
+ * media put back. *changed is set when it failed after the machine had
+ * begun to change (SNAP_TORN), the card going or the file changing
+ * between the passes: the machine is then part old, part new, and must
+ * be powered on again rather than resumed. Any other refusal, as into a
+ * machine other than the one it needs, leaves it as it was. */
+snap_status_t snapio_load(oric_t *m, bool *changed);
 bool          snapio_exists(unsigned slot);
 
 /* A save records the drives' discs and the deck's tape and place, and a

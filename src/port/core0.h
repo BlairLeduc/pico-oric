@@ -14,7 +14,9 @@
 void core0_run(oric_t *m, keymatrix_t *k) __attribute__((noreturn));
 
 /* Power the machine on as cfg with the ROM in `image`, at the audio's
- * real rate: main()'s first power-on and the Machine page's restart. */
+ * real rate: main()'s first power-on, the Machine page's restart, and a
+ * state's for another machine, which core 1 does with the guest parked,
+ * as it does the load that follows (menu.c). */
 void core0_power_on(oric_t *m, const oric_config_t *cfg, const uint8_t image[ORIC_ROM_SIZE]);
 
 #endif /* PICO_ORIC_CORE0_H */

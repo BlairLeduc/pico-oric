@@ -4,6 +4,8 @@ An Oric-1 and Oric Atmos emulator for the ClockworkPi PicoCalc, on a
 Raspberry Pi Pico 2 or compatible board (RP2350). Boards based on the
 RP2040 are not supported, as the emulator needs more SRAM than they have.
 
+![BASIC](assets/basic.png)
+
 The Oric-1 (Tangerine, 1983) and the Oric Atmos (1984) are British home
 computers built around a 6502A at 1 MHz, a 6522 VIA, an AY-3-8912 sound
 chip and a custom ULA that draws a 240×224 colour picture using serial
@@ -99,11 +101,21 @@ card:
 
 ## Software
 
+![Xenon1](assets/Xenon1.png)
+
 TOSEC's Oric collection, on the Internet Archive as
 [*Tangerine Oric 1 and Atmos TOSEC 2012-04-23*](https://archive.org/details/Tangerine_Oric_1_and_Atmos_TOSEC_2012_04_23),
 holds the archive's tapes and discs. Put `.tap` files in `/oric/tapes/`
 and `.dsk` files in `/oric/discs/`. The emulator has been run against
 every tape in that set (`docs/milestones.md`, M12).
+
+![Oricium](assets/oricium.png)
+
+### Modern Software
+
+![Petscii Robots](assets/petsciirobots.png)
+
+![Blake's 7](assets/blakes7.png)
 
 ## Using it
 
@@ -195,6 +207,8 @@ the Oric as fast as it can while a tape plays, without sound.
 
 ### Discs
 
+![Seroric](assets/sedoric3.png)
+
 The Microdisc, Oric's disc interface, is a row on the *Machine* page. It
 needs a 48K machine and `microdis.rom` on the card, and boots the disc in
 drive A. The *Discs* page (`F2`) puts an image in a drive: left and right
@@ -215,9 +229,11 @@ is refused, naming it, and one whose tape has gone loads with the deck
 empty. A disc written to after the save goes back in as it now is.
 
 > [!IMPORTANT]
-> A saved state is in this emulator's own format, and loads only into
-> the machine that saved it: the same ROM, RAM, Microdisc and VSync
-> hack. The page names the machine a refused state needs.
+> A saved state is in this emulator's own format. Loading one powers on
+> as the machine that saved it, with the same ROM, RAM, Microdisc and
+> VSync hack, whatever the *Machine* page had: the ROMs it needs must be
+> on the card, and the page names one that is not. *Save settings*
+> keeps the machine it loaded.
 
 ### The machine
 

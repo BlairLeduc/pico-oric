@@ -285,8 +285,33 @@ static int test_slices(void) {
 }
 
 /* A state saved with the modification resumes its pulse where it was;
- * one is refused by the other setting, by name, and by another pulse. */
+ * one is refused by the other setting, by name, and by another pulse,
+ * and loads into a machine powered on as it says. */
 static mem_t s_snap;
+static oric_t s_ahead;
+
+/* s_snap into a machine that was `from`, powered on as the state says
+ * (snapshot_machine): it loads, and runs on with s_m, the original, to
+ * the same interrupts. s_m runs on too. */
+static int switched(const snap_info_t *info, const oric_config_t *from, const char *what) {
+    oric_config_t as = *from;
+    snapshot_machine(info, &as);
+    make(&s_m2, &as, false);
+    CHECK(mem_load(&s_snap, &s_m2) == SNAP_OK, "%s: loads as the state's machine: %s", what,
+          snapshot_status_str(mem_check(&s_snap, &s_m2, NULL)));
+    CHECK(s_m2.cfg.vsync_hack == info->vsync_hack, "%s: the hack as the state had it", what);
+    /* The original from where it was saved, again. */
+    make(&s_ahead, &s_m.cfg, false);
+    CHECK(mem_load(&s_snap, &s_ahead) == SNAP_OK, "%s: and into its own", what);
+    for (int f = 0; f < 20; f++) {
+        oric_run_field(&s_ahead);
+        oric_run_field(&s_m2);
+    }
+    CHECK(s_ahead.ram[0x10] == s_m2.ram[0x10] && memcmp(&s_ahead.ram[RING], &s_m2.ram[RING], 256) == 0 &&
+              s_m2.cpu.cycles == s_ahead.cpu.cycles && s_m2.vs.due == s_ahead.vs.due,
+          "%s: the same interrupts: %u and %u", what, s_ahead.ram[0x10], s_m2.ram[0x10]);
+    return 0;
+}
 
 static int test_snapshot(void) {
     oric_config_t cfg;
@@ -318,14 +343,17 @@ static int test_snapshot(void) {
     CHECK(mem_check(&s_snap, &s_m2, &info) == SNAP_OTHER_MACHINE && info.vsync_hack && !info.microdisc,
           "a state with the hack is refused without it, named: %s",
           snapshot_status_str(mem_check(&s_snap, &s_m2, NULL)));
+    switched(&info, &off, "without the hack");
     oric_config_t shape = cfg;
     shape.vsync_delay = 13;
     make(&s_m2, &shape, false);
-    CHECK(mem_check(&s_snap, &s_m2, NULL) == SNAP_OTHER_FIELD, "and by another pulse: %s",
+    CHECK(mem_check(&s_snap, &s_m2, &info) == SNAP_OTHER_MACHINE, "and by another pulse: %s",
           snapshot_status_str(mem_check(&s_snap, &s_m2, NULL)));
+    switched(&info, &shape, "with another pulse");
 
     /* And the other way: a state without it, into a machine with it. */
     make(&s_m, &off, false);
+    irq_program(&s_m, 0x00);
     oric_run_field(&s_m);
     memset(&s_snap, 0, sizeof s_snap);
     CHECK(mem_save(&s_snap, &s_m) == SNAP_OK, "save without");
@@ -334,6 +362,7 @@ static int test_snapshot(void) {
     CHECK(mem_check(&s_snap, &s_m2, &info) == SNAP_OTHER_MACHINE && !info.vsync_hack,
           "a state without the hack is refused with it: %s",
           snapshot_status_str(mem_check(&s_snap, &s_m2, NULL)));
+    switched(&info, &cfg, "with the hack");
     return test_failures;
 }
 
