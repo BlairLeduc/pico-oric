@@ -41,6 +41,16 @@
  * image, are unformatted: nothing is found there, and nothing written
  * there is kept.
  *
+ * Each drive has a type, its sides and tracks, apart from the disc in
+ * it, and is modelled as the mechanism is (design.md §10.5). The head
+ * stops at the drive's last track, and steps past it are lost; the
+ * track register counts them all the same, so a command there finds the
+ * last track's IDs, and Write Track writes over that track. A one-sided
+ * drive has no side select: either side of the latch is the disc's
+ * first. Nothing is refused, as a real drive refuses nothing: a format
+ * larger than the drive overwrites its last track, and the DOS finds out
+ * when an ID does not match.
+ *
  * Not modelled: CRC errors, since 24 of the archive's 221 images carry
  * CRCs that tools never computed, and Oricutron loads them; density, as
  * every image is MFM; READY, which the Microdisc ties active (MAME's
@@ -79,7 +89,8 @@
 typedef struct {
     bool       loaded;
     bool       protect;
-    mfm_geom_t geom;
+    mfm_geom_t geom;       /* the disc's                         */
+    mfm_geom_t type;       /* the drive's: its sides and tracks  */
     uint8_t    cyl;        /* the head, physically               */
 } wd_drive_t;
 
@@ -129,7 +140,8 @@ typedef struct {
     uint32_t sectors_read, sectors_written, tracks_written;
 } wd1793_t;
 
-/* Power on: no discs, heads at track 0, nothing in progress. */
+/* Power on: no discs, heads at track 0, nothing in progress, and every
+ * drive the default type (ORIC_DISC_DRIVE_SIDES, _TRACKS). */
 void wd_init(wd1793_t *f);
 
 /* The MR pin, on the Oric's RESET line: the command in progress is
@@ -159,6 +171,11 @@ void wd_served(wd1793_t *f, bool ok, uint64_t now);
  * (wd_request); the track in hand is dropped if it was that drive's. */
 void wd_insert(wd1793_t *f, unsigned drive, mfm_geom_t g, bool protect, uint64_t now);
 void wd_eject(wd1793_t *f, unsigned drive, uint64_t now);
+
+/* The drive's type, its sides (1 or 2) and tracks (1 to
+ * ORIC_DISC_TRACKS_MAX). A head beyond its last track is put there. As
+ * for wd_insert, the port puts back a written track first. */
+void wd_drive_type(wd1793_t *f, unsigned drive, mfm_geom_t type, uint64_t now);
 
 /* Busy on a command: a snapshot now would lose it. */
 static inline bool wd_busy(const wd1793_t *f) { return (f->status & WD_ST_BUSY) != 0; }

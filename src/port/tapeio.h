@@ -71,9 +71,12 @@ void tapeio_card_changed(void);
  * NULL or "" empties the deck. NULL, or why not. */
 const char *tapeio_insert(const char *path);
 const char *tapeio_inserted(void);     /* "" when the deck is empty   */
-/* A new empty tape, TAPEnn.tap in TAPEIO_DIR, in the deck. NULL, or why
- * not. */
-const char *tapeio_new(void);
+/* A new empty tape, name.tap in TAPEIO_DIR, in the deck: name is the
+ * menu's, up to ORIC_MEDIA_NAME_MAX characters, and a tape of that name
+ * already there is refused. NULL, or why not. tapeio_next_name gives the
+ * menu its first offer, TAPEnn, the first number free; "" if none is. */
+const char *tapeio_new(const char *name);
+void        tapeio_next_name(char out[ORIC_MEDIA_NAME_MAX + 1]);
 bool        tapeio_chosen(void);       /* put in by the menu or boot_tape, not found by name */
 void        tapeio_rewind(void);
 uint32_t    tapeio_position(void);     /* files passed since the start */

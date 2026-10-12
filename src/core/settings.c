@@ -15,6 +15,8 @@ void settings_default(settings_t *s) {
     s->ram       = cfg.ram;
     s->microdisc = false;
     s->vsync_hack = false;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+        s->drive[d] = (mfm_geom_t){ ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS };
     s->volume    = 8u;
     s->perf      = false;
     s->status    = true;
@@ -88,6 +90,25 @@ static settings_status_t ram(settings_t *s, const char *v) {
     return SET_BAD_VALUE;
 }
 
+const mfm_geom_t settings_drive_types[SETTINGS_DRIVE_TYPES] = {
+    { 1, 42 }, { 2, 42 }, { 1, 82 }, { 2, 82 },
+};
+static const char *const k_drives[SETTINGS_DRIVE_TYPES] = { "1x42", "2x42", "1x82", "2x82" };
+
+const char *settings_drive_str(mfm_geom_t type) {
+    for (unsigned i = 0; i < SETTINGS_DRIVE_TYPES; i++)
+        if (settings_drive_types[i].sides == type.sides && settings_drive_types[i].tracks == type.tracks)
+            return k_drives[i];
+    return "?";
+}
+
+static settings_status_t drive(mfm_geom_t *out, const char *v) {
+    for (unsigned i = 0; i < SETTINGS_DRIVE_TYPES; i++) {
+        if (same_name(v, k_drives[i])) { *out = settings_drive_types[i]; return SET_OK; }
+    }
+    return SET_BAD_VALUE;
+}
+
 static settings_status_t layout(settings_t *s, const char *v) {
     if (same_name(v, "standard")) { s->layout[0] = 0; return SET_OK; }
     size_t n = strlen(v);
@@ -98,12 +119,13 @@ static settings_status_t layout(settings_t *s, const char *v) {
 
 /* Every setting the file may give, in §10.7's order. Only the boot tape
  * and disc may be left empty, meaning none. */
-enum { K_ROM, K_RAM, K_MICRODISC, K_VSYNC_HACK, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT,
-       K_FAST_TAPE, K_BOOT_TAPE, K_BOOT_DISC, K_COUNT };
+enum { K_ROM, K_RAM, K_MICRODISC, K_VSYNC_HACK, K_DRIVE0, K_DRIVE3 = K_DRIVE0 + 3, K_VOLUME,
+       K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE, K_BOOT_TAPE, K_BOOT_DISC, K_COUNT };
+_Static_assert(K_DRIVE3 - K_DRIVE0 + 1 == ORIC_DISC_DRIVES, "a key for each drive");
 
 static const char *const k_names[K_COUNT] = {
-    "rom", "ram", "microdisc", "vsync_hack", "volume", "perf", "status", "backlight", "layout",
-    "fast_tape", "boot_tape", "boot_disc",
+    "rom", "ram", "microdisc", "vsync_hack", "drive0", "drive1", "drive2", "drive3", "volume",
+    "perf", "status", "backlight", "layout", "fast_tape", "boot_tape", "boot_disc",
 };
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
@@ -113,6 +135,8 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_RAM:       return ram(s, v);
     case K_MICRODISC: return on_off(v, &s->microdisc);
     case K_VSYNC_HACK: return on_off(v, &s->vsync_hack);
+    case K_DRIVE0: case K_DRIVE0 + 1: case K_DRIVE0 + 2: case K_DRIVE3:
+        return drive(&s->drive[k - K_DRIVE0], v);
     case K_VOLUME:    return number(v, 0u, 8u, &s->volume);
     case K_PERF:      return on_off(v, &s->perf);
     case K_STATUS:    return on_off(v, &s->status);
@@ -240,6 +264,9 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_RAM:       return a->ram == b->ram;
     case K_MICRODISC: return a->microdisc == b->microdisc;
     case K_VSYNC_HACK: return a->vsync_hack == b->vsync_hack;
+    case K_DRIVE0: case K_DRIVE0 + 1: case K_DRIVE0 + 2: case K_DRIVE3:
+        return a->drive[k - K_DRIVE0].sides == b->drive[k - K_DRIVE0].sides &&
+               a->drive[k - K_DRIVE0].tracks == b->drive[k - K_DRIVE0].tracks;
     case K_VOLUME:    return a->volume == b->volume;
     case K_PERF:      return a->perf == b->perf;
     case K_STATUS:    return a->status == b->status;
@@ -259,6 +286,8 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_RAM:       return settings_ram_str(s->ram);
     case K_MICRODISC: return s->microdisc ? "on" : "off";
     case K_VSYNC_HACK: return s->vsync_hack ? "on" : "off";
+    case K_DRIVE0: case K_DRIVE0 + 1: case K_DRIVE0 + 2: case K_DRIVE3:
+        return settings_drive_str(s->drive[k - K_DRIVE0]);
     case K_VOLUME:
     case K_BACKLIGHT: {
         unsigned v = k == K_VOLUME ? s->volume : s->backlight;

@@ -63,6 +63,8 @@ void wd_init(wd1793_t *f) {
     memset(f, 0, sizeof *f);
     f->due = WD_NEVER;
     f->type1 = true;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+        f->drv[d].type = (mfm_geom_t){ ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS };
 }
 
 static void idle(wd1793_t *f) {
@@ -103,6 +105,8 @@ static void make_void(wd1793_t *f, uint8_t d, uint8_t s, uint8_t c) {
  * there now; otherwise the request is posted. */
 static bool need_track(wd1793_t *f) {
     uint8_t d = f->drive, s = f->side, c = sel(f)->cyl;
+    /* A one-sided drive has no side select (wd1793.h). */
+    if (s >= sel(f)->type.sides) s = 0;
     if (f->buf_ok && f->buf_drive == d && f->buf_side == s && f->buf_cyl == c) return true;
     const mfm_geom_t *g = &sel(f)->geom;
     bool unformatted = s >= g->sides || c >= g->tracks;
@@ -277,9 +281,12 @@ static void type1(wd1793_t *f, uint8_t v, uint64_t now) {
         break;
     }
     if (dir) f->step_in = dir > 0;
+    /* The head stops at track 0 and at the drive's last track, and the
+     * track register does not know (wd1793.h). The pulses take their
+     * time all the same. */
     int cyl = (int)d->cyl + dir * (int)steps;
     if (cyl < 0) cyl = 0;
-    if (cyl > (int)ORIC_DISC_TRACKS_MAX - 1) cyl = (int)ORIC_DISC_TRACKS_MAX - 1;
+    if (cyl > (int)d->type.tracks - 1) cyl = (int)d->type.tracks - 1;
     d->cyl = (uint8_t)cyl;
     f->phase = PH_STEPPED;
     f->due = now + (uint64_t)steps * step_cycles[v & 3u];
@@ -613,5 +620,15 @@ void wd_eject(wd1793_t *f, unsigned drive, uint64_t now) {
     if (drive >= ORIC_DISC_DRIVES) return;
     f->drv[drive].loaded = false;
     f->drv[drive].protect = false;
+    drive_changed(f, drive, now);
+}
+
+void wd_drive_type(wd1793_t *f, unsigned drive, mfm_geom_t type, uint64_t now) {
+    if (drive >= ORIC_DISC_DRIVES || type.sides < 1u || type.sides > 2u || type.tracks < 1u ||
+        type.tracks > ORIC_DISC_TRACKS_MAX)
+        return;
+    wd_drive_t *d = &f->drv[drive];
+    d->type = type;
+    if (d->cyl > type.tracks - 1u) d->cyl = (uint8_t)(type.tracks - 1u);
     drive_changed(f, drive, now);
 }

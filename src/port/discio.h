@@ -59,8 +59,26 @@ const char *discio_probe(const char *path, mfm_geom_t *g, bool *protect);
 const char *discio_inserted(unsigned drive);   /* "" when none          */
 bool        discio_protected(unsigned drive);
 
-/* The drives into a machine just powered on (core0_power_on). */
+/* The drives into a machine just powered on (core0_power_on): their
+ * types, then their discs. */
 void discio_attach(oric_t *m);
+
+/* Each drive's type, its sides and tracks (wd1793.h), from the settings
+ * at boot and the Machine page; a power-on puts it in. Two sides of 82
+ * tracks until set. */
+void       discio_set_type(unsigned drive, mfm_geom_t type);
+mfm_geom_t discio_type(unsigned drive);
+
+/* A new disc for a drive, name.dsk in DISCIO_DIR, of the drive's type and
+ * unformatted (mfm_blank), for the DOS to format; then put in that drive.
+ * name is the menu's, up to ORIC_MEDIA_NAME_MAX characters; a disc of
+ * that name already there is refused. Written through name.dsk.new and a
+ * rename, polling the keyboard as it goes, since the largest takes
+ * seconds (hardware-notes.md §6.1, §7.1). The card must be mounted, and
+ * core 0 parked. NULL, or why not. discio_next_name gives the menu its
+ * first offer, DISCnn, the first number free; "" if none is. */
+const char *discio_new(oric_t *m, unsigned drive, const char *name);
+void        discio_next_name(char out[ORIC_MEDIA_NAME_MAX + 1]);
 
 /* Each drive's reads and writes since boot, for the heartbeat. */
 uint32_t discio_tracks(bool written);

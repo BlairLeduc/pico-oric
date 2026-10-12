@@ -481,7 +481,12 @@ static void md_decode(oric_t *m, const uint8_t *st) {
     f->intrq = wf & W_INTRQ; f->drq = wf & W_DRQ; f->type1 = wf & W_TYPE1;
     f->hold_intrq = wf & W_HOLD_INTRQ; f->index_intrq = wf & W_INDEX_INTRQ;
     f->step_in = wf & W_STEP_IN;
-    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) f->drv[d].cyl = st[S_WD_CYL + d];
+    /* The drives' types are the port's, not the state's: a head is
+     * never past its drive's last track (wd1793.h). */
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) {
+        uint8_t last = (uint8_t)(f->drv[d].type.tracks - 1u);
+        f->drv[d].cyl = st[S_WD_CYL + d] > last ? last : st[S_WD_CYL + d];
+    }
     f->head_until = get64(st + S_WD_HEAD_UNTIL);
     f->due = get64(st + S_WD_DUE);
     f->phase = 0;

@@ -4,6 +4,71 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**After M16, drive types, new discs and named media** (`wd_drive_type`
+and the end stop in `src/core/wd1793.*`; `mfm_blank` in `mfmdisk.*`;
+`drive0`–`drive3` in `settings.*`; `discio_new` and the types in
+`src/port/discio.*`; the Machine page's drive rows, the Discs page's
+*New disc* and the name editor in `menu.c`; `tapeio_new` by name), on
+branch `drive-types` on 2026-10-12 at the owner's request (design.md
+§10.5, §10.7, §12, §16). Each drive has a type, one or two sides of 42
+or 82 tracks, two of 82 by default; the head stops at its last track
+while the track register counts on, and a one-sided drive ignores the
+side, so nothing is refused, as on a real drive. *New disc* makes an
+unformatted image of the chosen drive's type and puts it in that drive;
+a new tape or disc is named on the status row, `TAPEnn` or `DISCnn`
+offered. **Checked on the host:** `test_disc`'s controller cases (in
+CI): a seek to 60 in a 42-track drive takes 60 steps' time and leaves
+the head at 41, Read Address finds track 41, a verify fails, Write
+Track formats track 41 as 61 and Restore takes 41 steps, each against
+the 82-track drive as the control; a one-sided drive reads and writes
+side 0 for the latch's side 1, against the two-sided control. With the
+ROMs and both DOSes: Sedoric's `INIT B,17,82,D` on a new 2×82 disc,
+then a file saved and listed; `INIT` larger than the drive (82 in 42)
+and two-sided in a one-sided drive both complete, leaving the last
+track's IDs naming track 81 and side 1, against the format that fits;
+Oric DOS V1.13 (TOSEC's `ZZZ-UNK-ORICDOS.dsk`, now in `roms/README.md`)
+boots in both ROMs, `!FORMAT 1` formats a new 2×82 disc to its `!SYS`'s
+two sides of 80 (2,558 sectors), and a program is saved, listed, loaded
+and run; in a one-sided 42-track drive the format completes, track 41
+naming 79. `test_settings`: the default, each drive key, five refusals,
+a type rewritten in place and only a changed drive added. All 33 tests
+pass. **Planted**, each caught and then removed: no end stop (five
+checks fail), no side aliasing (two). **In Oricutron**, booting each DOS
+from drive 0 with `-D`, new in `oricutron-trace`, and
+`trace-diff.py disc --drive1`: Sedoric's new 2×82 disc lists, loads and
+runs `M14` (Atmos); Oric DOS's lists, loads and runs `PROG` in both
+ROMs. **The archive:** `disc-corpus.sh` over TOSEC's 221 images with the
+default drives gives `ours.tsv` and every screen identical to M14's run
+(193 of 206 as Oricutron's, the same 13 not). **Found in a scratch run,
+not kept as a test:** Sedoric's `SAVE` ignores the chip's Record Not
+Found, so after `INIT` 82 in a 42-track drive the eleventh of 26 16 KiB
+saves on end at `Ready` and are not on the disc. Both firmware builds
+pass, with and without the UART; static RAM 2,248 bytes more than
+`main` (315,252 bss). **On the board**, a Pico 2 W driven over the UART,
+2026-10-12 (`out/drives/board/run1.log`): the Machine page staged the
+Atmos 48K, the Microdisc and drive 2 as one side of 42 tracks, and
+Apply logged the drive and powered on. *New disc* for drive 1 named
+`SED82` (the offer erased and typed over) made 1,049,856 bytes in
+3.46 s, inside the 3–4.5 s estimate, with no I2C errors through it;
+for drive 2, Enter alone took `DISC01`, 269,056 bytes in 0.92 s; for
+drive 1 again, `ORIC80` in 3.42 s. Sedoric 3, booted from the card,
+`INIT B,17,82,D` on `SED82` (164 tracks formatted), then `SAVE` and
+`DIR B`: the file, 2,770 sectors free (D/82/17). Oric DOS V1.13, booted
+by the menu's Reset from the card's `oricdos.dsk`: `!FORMAT 1` on
+`ORIC80`, a program saved, `!DIR 1` (2,557 free of 2,558), loaded and
+run. Save settings wrote the drives (99 bytes to 152); after a reset
+over SWD the boot log read `drives 2x82 2x82 1x42 2x82`, and `ORIC80`,
+put back in drive 1, loaded and ran the program. *New tape* named
+`BOARDT` went in the deck, and `CSAVE"T"` appended to it and `CLOAD"T"`
+read it back. **By the owner** on a Pico 2 W, the same day: the discs
+work after a power cycle; the menus look right; a tape named by hand is
+made, and one named as a tape already there is refused. Found: `_`
+shows as `£` in the Oric's font, so it was taken out of the names and
+the cursor, which is now an inverse block. Then, by the owner on the
+Pico 2 W the same day: the block cursor looks right, `_` is not taken,
+and Esc abandons the new tape or disc. **Not checked:** a format larger
+than the drive on the board, which the host covers.
+
 **After M16, the status line as pico-atom lays it out** (`status_format`
 in `src/core/status.*`, `wd_head_loaded` in `wd1793.h`, `draw_status`
 in `core1.c`), on `main` on 2026-10-11 at the owner's request: the deck

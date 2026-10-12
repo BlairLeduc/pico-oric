@@ -134,24 +134,33 @@ static FRESULT taken(const char *path) {
     return f_stat(tmp, &fi);
 }
 
-/* pico-atom's New tape (§12): TAPE01.tap, or the next number free, made
- * empty and put in the deck, where CSAVE appends to it. FatFs makes no
- * missing parent, so /oric first, as a save does. */
-const char *tapeio_new(void) {
+void tapeio_next_name(char out[ORIC_MEDIA_NAME_MAX + 1]) {
     char path[ORIC_PATH_MAX];
-    (void)f_mkdir("/oric");
-    (void)f_mkdir(TAPEIO_DIR);
+    out[0] = 0;
     for (unsigned n = 1; n <= 99u; n++) {
         snprintf(path, sizeof path, "%s/TAPE%02u.tap", TAPEIO_DIR, n);
         FRESULT fr = taken(path);
         if (fr == FR_OK) continue;
-        if (fr != FR_NO_FILE) return "card error";
-        if (f_open(&s_f, path, FA_CREATE_NEW | FA_WRITE) != FR_OK) return "cannot create";
-        f_close(&s_f);
-        log_core1("  tape         : %s made\n", path);
-        return tapeio_insert(path);
+        if (fr == FR_NO_FILE) snprintf(out, ORIC_MEDIA_NAME_MAX + 1, "TAPE%02u", n);
+        return;
     }
-    return "TAPE99 is the last";
+}
+
+/* pico-atom's New tape (§12), named in the menu: made empty and put in
+ * the deck, where CSAVE appends to it. FatFs makes no missing parent, so
+ * /oric first, as a save does. */
+const char *tapeio_new(const char *name) {
+    char path[ORIC_PATH_MAX];
+    (void)f_mkdir("/oric");
+    (void)f_mkdir(TAPEIO_DIR);
+    snprintf(path, sizeof path, "%s/%.*s.tap", TAPEIO_DIR, (int)ORIC_MEDIA_NAME_MAX, name);
+    FRESULT fr = taken(path);
+    if (fr == FR_OK) return "already there";
+    if (fr != FR_NO_FILE) return "card error";
+    if (f_open(&s_f, path, FA_CREATE_NEW | FA_WRITE) != FR_OK) return "cannot create";
+    f_close(&s_f);
+    log_core1("  tape         : %s made\n", path);
+    return tapeio_insert(path);
 }
 
 void tapeio_media(snap_media_t *md) {

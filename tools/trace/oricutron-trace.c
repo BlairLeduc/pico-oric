@@ -31,7 +31,9 @@
  * to the sync's line by the build script (ORICUTRON_VSYNC_LINE); -V turns
  * it on at a cycle instead, after a tape has loaded by the signal, which
  * the hack disconnects. -M ADDR:LEN, both hex, prints memory at the end
- * as the CPU would read it.
+ * as the CPU would read it. -D puts a second disc in drive 1, beside
+ * -d's: a disc a DOS formatted, which does not boot, read by the DOS
+ * booted from drive 0 (design.md §10.5).
  */
 
 #include <stdio.h>
@@ -98,7 +100,7 @@ static void press(const ks_event_t *e) {
 
 int main(int argc, char **argv) {
     const char *rombase = NULL, *keyfile = NULL, *mach = "atmos", *tapefile = NULL;
-    const char *discfile = NULL;
+    const char *discfile = NULL, *disc1file = NULL;
     int screen = 0, pattern = 0, vsync_hack = 0;
     unsigned long long vsync_at = ~0ull;
     unsigned dump_at = 0, dump_len = 0;
@@ -111,6 +113,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-q"))                 quiet = 1;
         else if (!strcmp(argv[i], "-t") && i + 1 < argc) tapefile = argv[++i];
         else if (!strcmp(argv[i], "-d") && i + 1 < argc) discfile = argv[++i];
+        else if (!strcmp(argv[i], "-D") && i + 1 < argc) disc1file = argv[++i];
         else if (!strcmp(argv[i], "-p"))                 pattern = 1;
         else if (!strcmp(argv[i], "-v"))                 vsync_hack = 1;
         else if (!strcmp(argv[i], "-V") && i + 1 < argc) vsync_at = strtoull(argv[++i], NULL, 0);
@@ -122,7 +125,7 @@ int main(int argc, char **argv) {
              : !strcmp(mach, "o16k") ? MACH_ORIC1_16K : -1;
     if (!rombase || type < 0 || (max_insns == ~0ull && max_cycles == ~0ull)) {
         fprintf(stderr, "usage: %s ROMBASE [-m atmos|oric1|o16k] [-n INSNS] [-c CYCLES] [-k KEYS] [-s] "
-                "[-t TAPE] [-d DISC] [-p] [-q] [-v] [-V CYCLE] [-M ADDR:LEN]\n", argv[0]);
+                "[-t TAPE] [-d DISC] [-D DISC1] [-p] [-q] [-v] [-V CYCLE] [-M ADDR:LEN]\n", argv[0]);
         return 2;
     }
     if (!ks_load(&ks, keyfile)) return 2;
@@ -155,6 +158,10 @@ int main(int argc, char **argv) {
     if (!pattern) memset(oric.mem, 0, type == MACH_ORIC1_16K ? 16384 : 0xC000);
     if (discfile && !diskimage_load(&oric, (char *)discfile, 0)) {
         fprintf(stderr, "%s: Oricutron would not load it\n", discfile);
+        return 2;
+    }
+    if (discfile && disc1file && !diskimage_load(&oric, (char *)disc1file, 1)) {
+        fprintf(stderr, "%s: Oricutron would not load it\n", disc1file);
         return 2;
     }
     m6502_reset(&oric.cpu);

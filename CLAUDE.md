@@ -165,6 +165,7 @@ tools/build.sh -DPICO_ORIC_TAPE=OFF build/notape         # the trap's check out:
 build/host/test/host/test_cassette --write out/m13/rec    # the recorder's files, for trace-diff tape
 build/host/test/host/test_disc --write out/m14/host       # Sedoric's saves as .dsk files
 tools/trace-diff.py disc out/m14/host/saved-1.1.dsk --then 'LOAD"M14"\nRUN\n'  # read by Oricutron
+tools/trace-diff.py disc roms/sedoric3.dsk --drive1 out/m14/host/init.dsk --then 'DIR B\n'  # a data disc in drive 1
 tools/disc-corpus.sh                                      # every .dsk, ours against Oricutron's screen
 
 # M12's corpus (TOSEC, fetched into out/corpus, not committed) and soak
@@ -188,8 +189,9 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   README is in git). Host tests find `basic10.rom`, `basic11b.rom` and
   `microdis.rom` there by SHA-1 and **skip** without them; CI has none, and
   runs a test ROM of our own instead (design.md §13.3). `test_disc` also
-  wants the Sedoric 3.006 disc there, any name ending `.dsk`, by SHA-1
-  (`roms/README.md`); its controller tests run without it. A skip is not a pass.
+  wants the Sedoric 3.006 disc and Oric DOS V1.13's there, any name ending
+  `.dsk`, by SHA-1 (`roms/README.md`); its controller tests run without
+  them. A skip is not a pass.
 - **Our own test ROM** (`test/asm/oric_test_rom.s`) is assembled by CMake
   when ca65 is on the path at configure time; it is what proves the wiring
   in CI. `test/host/guest.c` types as the firmware will, PicoCalc
@@ -265,6 +267,11 @@ without the SDK is what keeps SDK headers out of `src/core/`.
   the cassette's do). Run `test_disc` after touching `wd1793.c`,
   `microdisc.c`, `oric_run` or `bus.c`'s page `#03`; its timings are exact
   to the cycle, each with a control.
+- **A drive is its mechanism, and refuses nothing** (design.md §10.5): its
+  type (sides, tracks) is the port's, apart from the disc's geometry; the
+  head stops at its last track while the track register counts on, and a
+  one-sided drive ignores the side. A format larger than the drive must
+  complete, as on a real Oric; do not add an error the hardware lacks.
 - **There is no framebuffer, and no VRAM-byte diff.** A serial attribute
   changes every cell to its right without changing their bytes; the
   presenter's shadow holds **decoded cells** (design.md §7.3).
