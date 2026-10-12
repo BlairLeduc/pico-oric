@@ -28,7 +28,7 @@
  * outside the ROM is noted: the vertical-sync modification's titles, for
  * M16 (design.md §15). -v fits the modification (vsync.h); with it the
  * tape is still the trap's, which does not read CB1. -d fits the
- * Microdisc with DSK in drive A, a DOS, booted for 15 s and left by X
+ * Microdisc with DSK in drive 0, a DOS, booted for 15 s and left by X
  * (Sedoric's menu) before the tape, the disc served every field as
  * discio serves the card's and written in memory only (M14).
  *

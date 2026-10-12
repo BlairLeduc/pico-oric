@@ -97,8 +97,8 @@ static snap_status_t check_discs(void) {
         if (!p[0]) continue;
         const char *why = discio_probe(p, NULL, NULL);
         if (!why) continue;
-        snprintf(s_said, sizeof s_said, " Needs %c: %.28s", 'A' + d, base(p));
-        log_core1("  snapshot     : drive %c's %s: %s\n", 'A' + d, p, why);
+        snprintf(s_said, sizeof s_said, " Needs drive %c: %.22s", '0' + d, base(p));
+        log_core1("  snapshot     : drive %c's %s: %s\n", '0' + d, p, why);
         return SNAP_NO_DISC;
     }
     return SNAP_OK;
@@ -111,7 +111,7 @@ static void restore_media(oric_t *m) {
     if (!s_media.present) return;
     for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) {
         const char *why = discio_insert(m, d, s_media.disc[d]);
-        if (why) log_core1("  snapshot     : drive %c: %s\n", 'A' + d, why);
+        if (why) log_core1("  snapshot     : drive %c: %s\n", '0' + d, why);
     }
     const char *why = tapeio_restore(&s_media);
     if (why) {

@@ -1,4 +1,4 @@
-/* test_status.c — the perf line's text (status.h, design.md §7.5).
+/* test_status.c — the perf and status lines' text (status.h, design.md §7.5).
  * Needs no ROM.
  */
 
@@ -55,6 +55,38 @@ int main(void) {
     status_perf_format(&zero, line);
     CHECK(strcmp(trimmed(), "C0 0% 0.00x  LCD 0.0ms  Drop 0  UR 0 0  0Hz") == 0, "before the first "
           "second: [%s]", line);
+
+    /* ---- The status line: the deck left, the drive right ---------------- */
+    status_format(STATUS_DECK_IDLE, "", STATUS_NO_DRIVE, "", line);
+    CHECK(strlen(line) == ORIC_TEXT_COLS && trimmed()[0] == 0, "nothing to say: [%s]", line);
+
+    status_format(STATUS_DECK_PLAYING, "/oric/tapes/Xenon.tap", STATUS_NO_DRIVE, "", line);
+    CHECK(strcmp(trimmed(), "Tape: Xenon.tap, playing") == 0, "the deck alone: [%s]", line);
+
+    status_format(STATUS_DECK_IDLE, "", 0, "/oric/discs/sedoric3.dsk", line);
+    CHECK(strlen(line) == ORIC_TEXT_COLS, "one whole line: [%s]", line);
+    CHECK(strcmp(line + ORIC_TEXT_COLS - 21, "Drive 0: sedoric3.dsk") == 0 && line[0] == ' ',
+          "the drive alone, on the right: [%s]", line);
+
+    status_format(STATUS_DECK_IDLE, "/oric/tapes/Xenon.tap", 1, "/oric/discs/game.dsk", line);
+    CHECK(strncmp(line, "Tape: Xenon.tap ", 16) == 0 &&
+          strcmp(line + ORIC_TEXT_COLS - 17, "Drive 1: game.dsk") == 0,
+          "both, the deck left and the drive right: [%s]", line);
+
+    status_format(STATUS_DECK_IDLE, "", 3, "", line);
+    CHECK(strcmp(line + ORIC_TEXT_COLS - 13, "Drive 3: none") == 0, "an empty drive: [%s]", line);
+
+    status_format(STATUS_DECK_RECORDING, "/oric/tapes/Xenon.tap", STATUS_NO_DRIVE, "", line);
+    CHECK(strcmp(trimmed(), "Tape: recording") == 0, "recording: [%s]", line);
+
+    /* Long names: the drive's is capped at 16, the tape's gives way to
+     * it, and a space always parts them. */
+    const char *long_tape = "/t/Une Tres Longue Histoire De Cassette Pour Oric Atmos.tap";
+    const char *long_disc = "/d/A Disc Whose Name Goes On And On.dsk";
+    status_format(STATUS_DECK_PLAYING, long_tape, 2, long_disc, line);
+    CHECK(strlen(line) == ORIC_TEXT_COLS, "still one line: [%s]", line);
+    CHECK(strcmp(line, "Tape: Une Tres Lon, playing Drive 2: A Disc Whose Nam") == 0,
+          "the drive capped, the tape shortened: [%s]", line);
 
     /* ---- Paused --------------------------------------------------------- */
     status_paused_format(line);

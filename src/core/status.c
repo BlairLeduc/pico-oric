@@ -38,6 +38,43 @@ void status_perf_format(const perf_line_t *p, char out[ORIC_TEXT_COLS + 1]) {
     out[W] = 0;
 }
 
+/* A path without its folder. */
+static const char *base_name(const char *path) {
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
+void status_format(status_deck_t deck, const char *tape, unsigned drive, const char *disc,
+                   char out[ORIC_TEXT_COLS + 1]) {
+    enum { W = ORIC_TEXT_COLS, DISC_MAX = 16 };
+    memset(out, ' ', W);
+    out[W] = 0;
+
+    /* The drive first, its name capped, so the tape has what is left. */
+    char right[W + 1] = "";
+    int rn = 0;
+    if (drive < ORIC_DISC_DRIVES) {
+        const char *d = disc && disc[0] ? base_name(disc) : "none";
+        rn = snprintf(right, sizeof right, "Drive %c: %.*s", '0' + (int)drive, DISC_MAX, d);
+        if (rn < 0) rn = 0;
+        memcpy(out + W - rn, right, (size_t)rn);
+    }
+
+    char left[W + 1] = "";
+    int ln = 0;
+    if (deck == STATUS_DECK_RECORDING) {
+        ln = snprintf(left, sizeof left, "Tape: recording");
+    } else if (tape && tape[0]) {
+        const char *tail = deck == STATUS_DECK_PLAYING ? ", playing" : "";
+        int fixed = (int)strlen("Tape: ") + (int)strlen(tail) + (rn ? rn + 1 : 0);
+        int room = fixed < W ? W - fixed : 0;
+        ln = snprintf(left, sizeof left, "Tape: %.*s%s", room, base_name(tape), tail);
+    }
+    if (ln < 0) ln = 0;
+    if (ln > W - (rn ? rn + 1 : 0)) ln = W - (rn ? rn + 1 : 0);
+    memcpy(out, left, (size_t)ln);
+}
+
 void status_paused_format(char out[ORIC_TEXT_COLS + 1]) {
     enum { W = ORIC_TEXT_COLS };
     static const char text[] = "Paused: any key resumes";

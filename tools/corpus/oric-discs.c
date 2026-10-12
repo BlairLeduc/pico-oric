@@ -3,7 +3,7 @@
  *
  *   oric-discs [-r 10|11] [-f FIELDS] [-s DIR] DSK...
  *
- * Each image goes in drive A of a 48K machine with the Microdisc, which
+ * Each image goes in drive 0 of a 48K machine with the Microdisc, which
  * is powered on and run for FIELDS fields (1,500 by default, 30 s at 50
  * Hz) with no key pressed, the disc served as discio serves the card's.
  * The screen is then written as tools/trace/oricutron-trace -s prints

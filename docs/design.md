@@ -1295,7 +1295,7 @@ settings keeps it. A Microdisc on a 16K is not a state any machine saves,
 and is refused as not one. A machine waiting on a tape request or busy
 on a disc command, which `snapshot_load` refuses, is powered on the same
 way before the load, even as its own machine: the load replaces it
-anyway, and a Microdisc with drive A empty waits in its EPROM's boot read
+anyway, and a Microdisc with drive 0 empty waits in its EPROM's boot read
 for ever, which refused every load (the owner, 2026-10-10).
 
 **No community snapshot format is imported**: the Oric archive is tapes and

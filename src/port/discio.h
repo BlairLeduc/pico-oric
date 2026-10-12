@@ -45,7 +45,7 @@ typedef struct {
  * mounted (storage.h). */
 unsigned discio_list(discio_entry_t *out, unsigned max);
 
-/* Put an image in a drive, A to D as 0 to 3; NULL or "" empties it. The
+/* Put an image in a drive, 0 to 3; NULL or "" empties it. The
  * card must be mounted, and core 0 parked or not yet running. m is the
  * machine to tell, or NULL at boot, before it exists. A track the drive
  * has written and not yet put back goes first. Returns NULL, or why the

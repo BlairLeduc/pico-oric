@@ -8,7 +8,6 @@
 #include "core1.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
@@ -53,33 +52,21 @@ void core1_note(const char *text) {
 }
 
 /* The status line at the foot (§12), while it is on: the running ROM's
- * problem, if it has one; or the deck while it records or plays; or
- * with the Microdisc, drive A's disc, and the drive a command runs on;
- * or the tape in the deck; or a note, until it has been up for NOTE_US.
- * Drawn only when it changes. */
+ * problem, if it has one; otherwise the deck on the left and the drive
+ * whose head is loaded on the right (status.h); or a note, until it has
+ * been up for NOTE_US. Drawn only when it changes. */
 static void draw_status(void) {
     if (s_note[0]) {
         if ((int32_t)(time_us_32() - s_note_until) < 0) return;
         s_note[0] = 0;
     }
     char text[ORIC_TEXT_COLS + 1] = "";
-    const char *tape = tapeio_inserted();
     if (g_ui.status) {
         const char *rom = menu_rom_problem();
+        unsigned drive = g_c0.disc;
         if (rom[0]) snprintf(text, sizeof text, "%s", rom);
-        else if (g_c0.deck == DECK_RECORDING) {
-            snprintf(text, sizeof text, "Tape: recording");
-        } else if (g_c0.disc != DISC_OFF && g_c0.deck != DECK_PLAYING &&
-                   (discio_inserted(0)[0] || g_c0.disc != DISC_IDLE)) {
-            const char *d = discio_inserted(0), *b = strrchr(d, '/');
-            char busy[8] = "";
-            if (g_c0.disc != DISC_IDLE) snprintf(busy, sizeof busy, ", %c", 'A' + (int)g_c0.disc);
-            snprintf(text, sizeof text, "Disc: %.30s%s", d[0] ? (b ? b + 1 : d) : "none", busy);
-        } else if (tape[0]) {
-            const char *b = strrchr(tape, '/');
-            snprintf(text, sizeof text, "Tape: %.33s%s", b ? b + 1 : tape,
-                     g_c0.deck == DECK_PLAYING ? ", playing" : "");
-        }
+        else status_format((status_deck_t)g_c0.deck, tapeio_inserted(), drive,
+                           drive < ORIC_DISC_DRIVES ? discio_inserted(drive) : "", text);
     }
     display_status(text);
 }
