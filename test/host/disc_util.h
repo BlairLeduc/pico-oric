@@ -30,12 +30,21 @@ typedef struct {
 static inline void host_disc_blank(host_disc_t *d, mfm_geom_t g, unsigned sectors) {
     memset(d, 0, sizeof *d);
     d->g = g;
-    d->len = mfm_track_offset(g, g.sides - 1u, g.tracks);
+    d->len = mfm_image_len(g);
     d->img = (uint8_t *)calloc(1, d->len);
     mfm_header(d->img, g);
     for (unsigned s = 0; s < g.sides; s++)
         for (unsigned t = 0; t < g.tracks; t++)
             mfm_format_track(d->img + mfm_track_offset(g, s, t), (uint8_t)t, (uint8_t)s, sectors, 0xE5);
+}
+
+/* A new disc of g, unformatted, as the Discs page makes one (mfm_blank). */
+static inline void host_disc_new(host_disc_t *d, mfm_geom_t g) {
+    memset(d, 0, sizeof *d);
+    d->g = g;
+    d->len = mfm_image_len(g);
+    d->img = (uint8_t *)malloc(d->len);
+    mfm_blank(g, 0, d->img, d->len);
 }
 
 /* An image file; NULL, or why it was refused. */

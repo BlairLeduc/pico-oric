@@ -268,11 +268,17 @@ static void boot_layout(const settings_t *s) {
     else settingsio_fail("layout", "no such layout");
 }
 
+/* The drives' types, for every power-on to put in (discio_attach). */
+static void boot_drives(const settings_t *s) {
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) discio_set_type(d, s->drive[d]);
+}
+
 void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
                uint8_t image[ORIC_ROM_SIZE], uint8_t eprom[ORIC_EPROM_SIZE]) {
     if (!begin(j)) {
         settingsio_none(s);
         boot_machine(s, cfg);
+        boot_drives(s);
         cfg->microdisc = false;   /* no card, no EPROM */
         return;
     }
@@ -281,6 +287,7 @@ void card_boot(settings_t *s, card_job_t *j, oric_config_t *cfg,
     settingsio_load(s);
     j->settings_us = time_us_32() - t0;
     boot_machine(s, cfg);
+    boot_drives(s);
     boot_layout(s);
     boot_tape(s);
     card_roms_mounted(j, cfg->rom, image);

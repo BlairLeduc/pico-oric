@@ -104,6 +104,11 @@ void oric_disc_eject(oric_t *m, unsigned drive) {
     microdisc_irq(m);
 }
 
+void oric_disc_drive_type(oric_t *m, unsigned drive, mfm_geom_t type) {
+    wd_drive_type(&m->fdc, drive, type, m->cpu.cycles);
+    microdisc_irq(m);
+}
+
 bool oric_disc_busy(const oric_t *m) {
     return wd_busy(&m->fdc) || wd_request(&m->fdc) != NULL;
 }

@@ -6,12 +6,15 @@
  * Esc going back a page, or to the guest from the main page or a page a
  * key opened. The Oric has every page the Atom has, so the Discs page is
  * back, on F2, with the Microdisc's four drives (M14). The Machine page
- * stages the ROM, the RAM, the Microdisc and the VSync hack (§12, M16),
- * and the text is in the Oric's own character set, which has lower case.
+ * stages the ROM, the RAM, the Microdisc, the VSync hack and the drives'
+ * types (§12, M16, §10.5), and the text is in the Oric's own character
+ * set, which has lower case. A new tape or disc is named as it is made,
+ * on the status row.
  */
 
 #include "menu.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -80,9 +83,9 @@ enum { T_EJECT, T_PLAY, T_REWIND, T_NEW, T_FIRST };
  * it, then every slot's state. */
 enum { N_SLOT, N_SAVE, N_LOAD, N_DELETE, N_COUNT };
 
-/* The Machine page (§12): the ROM, the RAM, the Microdisc and the VSync
- * hack staged, and the power-on that applies them. */
-enum { M_ROM, M_RAM, M_DISC, M_VSYNC, M_APPLY, M_COUNT };
+/* The Machine page (§12): the ROM, the RAM, the Microdisc, the VSync
+ * hack and the drives' types staged, and the power-on that applies them. */
+enum { M_ROM, M_RAM, M_DISC, M_VSYNC, M_DRIVE0, M_APPLY = M_DRIVE0 + ORIC_DISC_DRIVES, M_COUNT };
 
 static settings_t    s_file;      /* what the file says, for the save */
 static oric_frame_t *s_scr;       /* core 1's page frame (menu_init)  */
@@ -97,8 +100,10 @@ static card_job_t s_job;
 static tapeio_entry_t s_list[ORIC_TAPE_LIST_MAX];
 static discio_entry_t s_discs[ORIC_DISC_LIST_MAX];
 
-/* The Discs page, as pico-atom's: row 0 empties the drive, the card's
- * images follow; < > choose the drive on any row. */
+/* The Discs page, as pico-atom's: row 0 empties the drive, row 1 makes a
+ * new disc for it, the card's images follow; < > choose the drive on
+ * any row. */
+enum { K_EMPTY, K_NEW, K_FIRST };
 #define DISC_ROWS TAPE_ROWS
 static unsigned s_drive;    /* kept between openings, as the slot is */
 
@@ -129,6 +134,15 @@ static struct {
     oric_ram_t st_ram;
     bool       st_md;
     bool       st_vs;
+    unsigned   st_drive[ORIC_DISC_DRIVES];   /* into settings_drive_types */
+
+    /* A new tape's or disc's name, typed on the status row. */
+    struct {
+        bool     on;
+        bool     disc;
+        char     text[ORIC_MEDIA_NAME_MAX + 1];
+        unsigned len;
+    } name;
 
     int      sb_ver;          /* the About page's, read as it opens */
     int      temp_c;
@@ -164,6 +178,22 @@ static const char *base(const char *path) {
 
 static const char *ram_name(oric_ram_t ram) {
     return ram == ORIC_RAM_16K ? "16K" : "48K";
+}
+
+/* A drive's type as the pages say it. */
+static const char *drive_name(mfm_geom_t t) {
+    static char text[24];
+    snprintf(text, sizeof text, "%u side%s, %u tracks", t.sides, t.sides > 1 ? "s" : "", t.tracks);
+    return text;
+}
+
+/* Where a drive's type is in settings_drive_types; the default's if it
+ * is none of them. */
+static unsigned drive_index(mfm_geom_t t) {
+    for (unsigned i = 0; i < SETTINGS_DRIVE_TYPES; i++)
+        if (settings_drive_types[i].sides == t.sides && settings_drive_types[i].tracks == t.tracks)
+            return i;
+    return SETTINGS_DRIVE_TYPES - 1u;
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -261,12 +291,14 @@ static void draw_discs(void) {
     for (int r = 0; r < DISC_ROWS; r++) {
         int i = s.disc_top + r;
         line[0] = 0;
-        if (i == 0) {
+        if (i == K_EMPTY) {
             const char *in = discio_inserted(s_drive);
             snprintf(line, sizeof line, " (Empty drive %c: %.18s)", '0' + s_drive,
                      in[0] ? base(in) : "empty now");
-        } else if (i <= (int)s.n_discs) {
-            const discio_entry_t *e = &s_discs[i - 1];
+        } else if (i == K_NEW) {
+            snprintf(line, sizeof line, " (New disc: %s)", drive_name(discio_type(s_drive)));
+        } else if (i < K_FIRST + (int)s.n_discs) {
+            const discio_entry_t *e = &s_discs[i - K_FIRST];
             snprintf(line, sizeof line, " %-26.26s %c  %c", base(e->path), drive_of(e->path),
                      e->protect ? 'P' : ' ');
         }
@@ -313,6 +345,8 @@ static bool machine_changed(int r) {
     case M_DISC: return s.st_md != s.m->cfg.microdisc;
     case M_VSYNC: return s.st_vs != s.m->cfg.vsync_hack;
     }
+    if (r >= M_DRIVE0 && r < M_APPLY)
+        return s.st_drive[r - M_DRIVE0] != drive_index(discio_type((unsigned)(r - M_DRIVE0)));
     return false;
 }
 
@@ -342,6 +376,10 @@ static void draw_machine(void) {
         case M_APPLY:
             snprintf(line, sizeof line, " (Apply and restart)");
             break;
+        default:
+            snprintf(line, sizeof line, "%cDrive %d         < %.18s >", mark, i - M_DRIVE0,
+                     drive_name(settings_drive_types[s.st_drive[i - M_DRIVE0]]));
+            break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.machine_sel);
     }
@@ -358,6 +396,8 @@ static void draw_machine(void) {
     textpage_line(s_scr, ROW_TOP + M_COUNT + 10, " - The VSync hack puts the sync on", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 11, "   the tape input, for the programs", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 12, "   that wait for it; fast tape only.", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 13, " - A disc formatted larger than its", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 14, "   drive loses what is past its end.", false);
 }
 
 /* One image's row on About (§12): its file, OK for the image's SHA-1,
@@ -506,8 +546,19 @@ static void draw(void) {
     case P_HELP:    draw_help(); break;
     default:        draw_main(); break;
     }
-    textpage_line(s_scr, ROW_STATUS, s.status, false);
-    textpage_title(s_scr, ROW_KEYS, keys[s.page]);
+    if (s.name.on) {
+        /* The name being typed, where the status goes, with a block for
+         * its cursor, an inverse space as the Oric's own; and its keys. */
+        char line[TEXT_COLS + 1];
+        int at = snprintf(line, sizeof line, " %s name: %s", s.name.disc ? "Disc" : "Tape",
+                          s.name.text);
+        textpage_line(s_scr, ROW_STATUS, line, false);
+        textpage_put(s_scr, ROW_STATUS, at, " ", true);
+        textpage_title(s_scr, ROW_KEYS, "  Enter makes it  Bksp  Esc cancels");
+    } else {
+        textpage_line(s_scr, ROW_STATUS, s.status, false);
+        textpage_title(s_scr, ROW_KEYS, keys[s.page]);
+    }
     display_present(s_scr, NULL);
 }
 
@@ -529,9 +580,9 @@ static void open_tapes(void) {
 static void open_discs(void) {
     s.n_discs = s.card ? discio_list(s_discs, ORIC_DISC_LIST_MAX) : 0;
     s.page = P_DISCS;
-    s.disc_sel = 0;
+    s.disc_sel = K_EMPTY;
     for (unsigned i = 0; i < s.n_discs; i++)
-        if (strcmp(s_discs[i].path, discio_inserted(s_drive)) == 0) s.disc_sel = (int)i + 1;
+        if (strcmp(s_discs[i].path, discio_inserted(s_drive)) == 0) s.disc_sel = K_FIRST + (int)i;
     s.disc_top = s.disc_sel >= DISC_ROWS ? s.disc_sel - DISC_ROWS + 1 : 0;
     log_core1("  discs        : page open, drive %c, %u images in " DISCIO_DIR "%s\n",
               '0' + s_drive, s.n_discs, s.card ? "" : " (no card)");
@@ -563,6 +614,7 @@ static void open_machine(void) {
     s.st_ram = s.m->cfg.ram;
     s.st_md = s.m->cfg.microdisc;
     s.st_vs = s.m->cfg.vsync_hack;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) s.st_drive[d] = drive_index(discio_type(d));
 }
 
 static void open_about(void) {
@@ -598,6 +650,7 @@ static void save_settings(void) {
     out.fast_tape = g_ui.fast_tape;
     out.microdisc = s.m->cfg.microdisc;
     out.vsync_hack = s.m->cfg.vsync_hack;
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) out.drive[d] = discio_type(d);
     /* The panel's level is the MCU's too, set by its own chords: the file
      * keeps what it has unless the Setup page set one, and 0 keeps the
      * file's (settings.h; EL §8.7). */
@@ -757,6 +810,13 @@ static void apply_machine(void) {
               was.vsync_hack ? " with the VSync hack" : "",
               roms_machine_name(cfg.rom, cfg.ram), cfg.microdisc ? " with the Microdisc" : "",
               cfg.vsync_hack ? " with the VSync hack" : "");
+    /* The drives are the port's (discio.h): the power-on puts them in. */
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) {
+        mfm_geom_t t = settings_drive_types[s.st_drive[d]];
+        if (machine_changed(M_DRIVE0 + (int)d))
+            log_core1("  machine      : drive %u, %s\n", d, drive_name(t));
+        discio_set_type(d, t);
+    }
     g_ui.restart_cfg = cfg;
     g_ui.restart = true;
     s.done = true;             /* straight into the new machine */
@@ -773,6 +833,68 @@ static void open_item(void) {
     case I_RESET:   g_ui.reset = true; s.done = true; break;
     case I_SAVE:    save_settings(); break;
     case I_ABOUT:   open_about(); break;
+    }
+}
+
+/* ---- naming a new tape or disc ------------------------------------------- */
+
+/* The editor on the status row, offering the next free TAPEnn or DISCnn,
+ * so that Enter alone makes what New made before names were asked. */
+static void name_start(bool disc) {
+    s.name.on = true;
+    s.name.disc = disc;
+    if (disc) discio_next_name(s.name.text);
+    else tapeio_next_name(s.name.text);
+    s.name.len = (unsigned)strlen(s.name.text);
+    s.status[0] = 0;
+}
+
+/* Letters, digits and -: a name any card and any computer takes, and
+ * the Oric's font shows. Not _, which its character set has as £. */
+static bool name_char(uint8_t c) {
+    return c < 0x80u && (isalnum(c) || c == '-');
+}
+
+/* The tape in the deck, or the disc in the chosen drive, made; the page
+ * stays, its list read again with the new one in it. */
+static void name_make(void) {
+    if (!s.name.len) return;
+    s.name.on = false;
+    const char *n = s.name.text;
+    if (!s.name.disc) {
+        const char *err = tapeio_new(n);
+        if (err) { say(" No new tape: %.24s", err); return; }
+        say(" In: %.20s, CSAVE onto it", base(tapeio_inserted()));
+        s.n_tapes = tapeio_list(s_list, ORIC_TAPE_LIST_MAX);
+        for (unsigned i = 0; i < s.n_tapes; i++)
+            if (strcmp(s_list[i].path, tapeio_inserted()) == 0) s.tape_sel = T_FIRST + (int)i;
+        if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+        return;
+    }
+    say(" Making %.20s.dsk...", n);
+    draw();
+    const char *err = discio_new(s.m, s_drive, n);
+    if (err) { say(" No new disc: %.24s", err); return; }
+    snprintf(s.status, sizeof s.status, " In drive %c: %.20s", '0' + s_drive,
+             base(discio_inserted(s_drive)));
+    s.n_discs = discio_list(s_discs, ORIC_DISC_LIST_MAX);
+    for (unsigned i = 0; i < s.n_discs; i++)
+        if (strcmp(s_discs[i].path, discio_inserted(s_drive)) == 0) s.disc_sel = K_FIRST + (int)i;
+    if (s.disc_sel >= s.disc_top + DISC_ROWS) s.disc_top = s.disc_sel - DISC_ROWS + 1;
+}
+
+static void key_name(uint8_t c) {
+    switch (c) {
+    case PICOCALC_KEY_ENTER: name_make(); return;
+    case PICOCALC_KEY_ESC:   s.name.on = false; return;
+    case PICOCALC_KEY_BACKSPACE:
+    case PICOCALC_KEY_DEL:
+        if (s.name.len) s.name.text[--s.name.len] = 0;
+        return;
+    }
+    if (name_char(c) && s.name.len < ORIC_MEDIA_NAME_MAX) {
+        s.name.text[s.name.len++] = (char)c;
+        s.name.text[s.name.len] = 0;
     }
 }
 
@@ -803,10 +925,7 @@ static void key_tapes(uint8_t c) {
             return;
         } else if (s.tape_sel == T_NEW) {
             if (!s.card) { say(" No card", ""); return; }
-            const char *err = tapeio_new();
-            if (err) { say(" No new tape: %.18s", err); return; }
-            say(" In: %.14s, CSAVE onto it", base(tapeio_inserted()));
-            s.n_tapes = tapeio_list(s_list, ORIC_TAPE_LIST_MAX);
+            name_start(false);
             return;
         } else {
             const tapeio_entry_t *e = &s_list[s.tape_sel - T_FIRST];
@@ -828,7 +947,7 @@ static void key_tapes(uint8_t c) {
 static void key_discs(uint8_t c) {
     switch (c) {
     case PICOCALC_KEY_UP:   if (s.disc_sel > 0) s.disc_sel--; break;
-    case PICOCALC_KEY_DOWN: if (s.disc_sel < (int)s.n_discs) s.disc_sel++; break;
+    case PICOCALC_KEY_DOWN: if (s.disc_sel < K_FIRST + (int)s.n_discs - 1) s.disc_sel++; break;
     case PICOCALC_KEY_LEFT:
     case PICOCALC_KEY_RIGHT:
         s_drive = (s_drive + (c == PICOCALC_KEY_RIGHT ? 1u : ORIC_DISC_DRIVES - 1u)) %
@@ -837,11 +956,14 @@ static void key_discs(uint8_t c) {
         break;
     case PICOCALC_KEY_ENTER:
         if (!s.card) { say(" No card", ""); return; }
-        if (s.disc_sel == 0) {
+        if (s.disc_sel == K_EMPTY) {
             (void)discio_insert(s.m, s_drive, NULL);
             snprintf(s.status, sizeof s.status, " Drive %c empty", '0' + s_drive);
+        } else if (s.disc_sel == K_NEW) {
+            name_start(true);
+            return;
         } else {
-            const discio_entry_t *e = &s_discs[s.disc_sel - 1];
+            const discio_entry_t *e = &s_discs[s.disc_sel - K_FIRST];
             /* An image is in one drive at a time, as pico-atom's is. */
             char was = drive_of(e->path);
             if (was != ' ' && was != (char)('0' + s_drive))
@@ -978,7 +1100,12 @@ static void key_machine(uint8_t c) {
         case M_RAM: s.st_ram = s.st_ram == ORIC_RAM_16K ? ORIC_RAM_48K : ORIC_RAM_16K; break;
         case M_DISC: s.st_md = !s.st_md; break;
         case M_VSYNC: s.st_vs = !s.st_vs; break;
-        default: return;
+        case M_APPLY: return;
+        default: {
+            unsigned *t = &s.st_drive[s.machine_sel - M_DRIVE0];
+            *t = (*t + (c == PICOCALC_KEY_RIGHT ? 1u : SETTINGS_DRIVE_TYPES - 1u)) % SETTINGS_DRIVE_TYPES;
+            break;
+        }
         }
         say(machine_staged() ? " Apply restarts: program lost" : "", "");
         break;
@@ -1026,6 +1153,11 @@ static void keys(void) {
                 say(" %s", shotio_take(s.card));
                 draw();
             }
+            continue;
+        }
+        if (s.name.on) {
+            key_name(c);
+            draw();
             continue;
         }
         switch (s.page) {

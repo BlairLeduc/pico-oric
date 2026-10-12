@@ -185,8 +185,9 @@ deck on the *Tapes* page (`F1`), which shows each tape's first file. With
 a tape in the deck, `CLOAD` reads it from where it stands, as a cassette
 would, and `CSAVE` adds to its end; at the end of the tape it is rewound
 once. *Rewind* takes it back to the start and *Eject* empties the deck.
-*New tape* makes `TAPE01.tap` (or the next free number) and puts it in
-the deck. When a `CLOAD` finds nothing, the emulator presses the reset
+*New tape* asks for a name, offering `TAPE01` (or the next free
+number), makes the tape and puts it in the deck. A name is letters,
+digits and `-`, up to 16; Esc cancels. When a `CLOAD` finds nothing, the emulator presses the reset
 button, keeping the program in memory, and the status line says why,
 where a real Oric would wait for a signal for ever.
 
@@ -209,9 +210,17 @@ needs a 48K machine and `microdis.rom` on the card, and boots the disc in
 drive 0. The *Discs* page (`F2`) puts an image in a drive: left and right
 choose the drive, 0 to 3, and the first row empties it. Images are
 Oricutron's `MFM_DISK` `.dsk` files, as TOSEC has them; a file marked
-read-only on the card is a write-protected disc. Sedoric 3 is the DOS
-the emulator is tested with: it boots, saves, loads, deletes and
-formats, and a disc it writes reads in Oricutron.
+read-only on the card is a write-protected disc. Sedoric 3 and the
+original Oric DOS (V1.13) are the DOSes the emulator is tested with:
+both boot, format, save and load, and a disc either writes reads in
+Oricutron.
+
+*New disc*, the second row, asks for a name as *New tape* does, offering
+`DISC01`, and makes a blank disc the size of the chosen drive (see the
+machine, below), then puts it in that drive. Format it before use:
+`INIT` in Sedoric (`INIT B,17,82,D` for drive 1 at two sides of 82
+tracks), `!FORMAT 1` in Oric DOS, which formats to what its `!SYS`
+says the drive is. The largest takes a few seconds to make.
 
 ### Snapshots
 
@@ -232,12 +241,20 @@ empty. A disc written to after the save goes back in as it now is.
 
 ### The machine
 
-The *Machine* page (`F5`) has four rows, each changed with left and
+The *Machine* page (`F5`) has eight rows, each changed with left and
 right: **ROM** (1.0 or 1.1), **RAM** (16K or 48K), **Microdisc** (off or
-on) and **VSync hack** (off or on). *Apply and restart* turns the Oric
+on), **VSync hack** (off or on) and **Drive 0** to **Drive 3** (one or
+two sides, 42 or 82 tracks). *Apply and restart* turns the Oric
 off and on again as the new machine. The program in memory is lost, so
 save it first. To start as another machine every time, choose *Save
 settings* afterwards.
+
+**The drives** behave as real ones do. Two sides of 82 tracks, the
+default, take every disc in the archive. A smaller drive reads only the
+tracks and side it has, and a disc formatted larger than its drive
+seems to format, but loses whatever is saved past the drive's end,
+without a message: as on a real Oric, tell the DOS no more than the
+drive has.
 
 **The VSync hack** is a modification some owners made: a wire from the
 ULA's vertical sync to the tape input, which a few programs wait on to
@@ -303,6 +320,7 @@ rom        = 1.1        # 1.0 or 1.1
 ram        = 48         # 16 or 48
 microdisc  = off        # on needs 48 and microdis.rom
 vsync_hack = off        # the vertical-sync modification
+drive0     = 2x82       # sides x tracks: 1x42, 2x42, 1x82 or 2x82; drive1-3 too
 volume     = 8          # 0-8
 layout     = standard   # or a layout's name, as the Setup page shows it
 boot_tape  =            # a tape in /oric/tapes/, in the deck at power-on

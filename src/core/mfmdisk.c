@@ -25,7 +25,7 @@ const char *mfm_parse(const uint8_t *hdr, size_t hdr_len, uint32_t size, mfm_geo
         return "BAD GEOMETRY";
     g->sides = (uint8_t)sides;
     g->tracks = (uint8_t)tracks;
-    if (size < mfm_track_offset(*g, sides - 1u, tracks)) return "IMAGE CUT SHORT";
+    if (size < mfm_image_len(*g)) return "IMAGE CUT SHORT";
     return NULL;
 }
 
@@ -39,6 +39,12 @@ void mfm_header(uint8_t *hdr, mfm_geom_t g) {
 
 uint32_t mfm_track_offset(mfm_geom_t g, unsigned side, unsigned track) {
     return ORIC_DISC_HEADER_LEN + ((uint32_t)side * g.tracks + track) * ORIC_DISC_TRACK_LEN;
+}
+
+void mfm_blank(mfm_geom_t g, uint32_t at, uint8_t *p, size_t n) {
+    uint8_t hdr[ORIC_DISC_HEADER_LEN];
+    mfm_header(hdr, g);
+    for (size_t i = 0; i < n; i++, at++) p[i] = at < sizeof hdr ? hdr[at] : MFM_UNFORMATTED;
 }
 
 uint16_t mfm_crc(uint16_t crc, uint8_t b) {

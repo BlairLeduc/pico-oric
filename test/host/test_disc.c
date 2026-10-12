@@ -11,19 +11,26 @@
  *             IRQ, the reset vector, and snapshots, on a machine with
  *             made-up ROM and EPROM images
  *
- * The third needs basic10.rom, basic11b.rom, microdis.rom and the
- * Sedoric 3.006 distribution disc, by SHA-1, in roms/ (§13.3), and
- * skips without them, which is not a pass:
+ * The rest need basic10.rom, basic11b.rom, microdis.rom, the Sedoric
+ * 3.006 distribution disc and Oric DOS V1.13's system disc, by SHA-1, in
+ * roms/ (§13.3), and skip without them, which is not a pass:
  *
  *   sedoric   the disc boots on the Oric-1 48K and the Atmos 48K; SAVE,
  *             DIR, LOAD, RUN and DEL; a write-protected disc refuses
  *             SAVE; a disc swapped between fields is seen; a snapshot is
- *             refused mid-command and taken between; INIT formats a blank
- *             image in drive 1, which then holds a file
+ *             refused mid-command and taken between; INIT formats a new
+ *             disc in drive 1, which then holds a file; a format larger
+ *             than the drive, or two-sided in a one-sided drive, writes
+ *             over the tracks the drive has, as a real one does
+ *   oricdos   the original DOS boots on both machines; !FORMAT formats a
+ *             new disc, which then holds a program, saved, listed, loaded
+ *             and run; a format larger than the drive writes over its
+ *             last track
  *
  *   test_disc --write DIR    also writes the disc with the saved program
- *                            as DIR/saved-<rom>.dsk and the INITed one as
- *                            DIR/init.dsk, for tools/trace-diff.py disc
+ *                            as DIR/saved-<rom>.dsk, the INITed one as
+ *                            DIR/init.dsk and Oric DOS's as
+ *                            DIR/oricdos.dsk, for tools/trace-diff.py disc
  */
 
 #include <dirent.h>
@@ -198,6 +205,33 @@ static bool read_sector_ok(const uint8_t *buf, size_t n, unsigned c, unsigned s,
     if (n < 256) return false;
     for (unsigned b = 0; b < 256; b++)
         if (buf[b] != expect_byte(c, s, r, b)) return false;
+    return true;
+}
+
+/* What a DOS hands Write Track to format track c, side h: 17 sectors of
+ * 256 bytes, F5 for each A1 and F7 for the CRCs (datasheet). */
+static size_t format_stream(uint8_t *fmt, unsigned c, unsigned h) {
+    size_t k = 0;
+#define B(v, cnt) do { for (unsigned q_ = 0; q_ < (cnt); q_++) fmt[k++] = (uint8_t)(v); } while (0)
+    B(0x4E, 40); B(0x00, 12); B(0xF6, 3); B(0xFC, 1); B(0x4E, 40);
+    for (unsigned r = 1; r <= 17; r++) {
+        B(0x00, 12); B(0xF5, 3); B(0xFE, 1); B(c, 1); B(h, 1); B(r, 1); B(1, 1); B(0xF7, 1);
+        B(0x4E, 22); B(0x00, 12); B(0xF5, 3); B(0xFB, 1); B(0x6C, 256); B(0xF7, 1);
+        B(0x4E, 40);
+    }
+#undef B
+    return k;
+}
+
+/* The ID the next Read Address finds: C and H into c and h. False if
+ * none came. */
+static bool read_id(unsigned *c, unsigned *h) {
+    uint8_t id[6];
+    command(0xC0);
+    size_t n = cpu(21, id, NULL, sizeof id, t + 1000000);
+    if (n != sizeof id || (wd_read(&s_f, 0, t) & WD_ST_RNF)) return false;
+    *c = id[0];
+    *h = id[1];
     return true;
 }
 
@@ -390,15 +424,7 @@ static int test_wd1793(void) {
     /* Write track: a Sedoric-like format of track 1, side 1, read back
      * by the index as 17 sectors with good CRCs. */
     static uint8_t fmt[8000];
-    size_t k = 0;
-#define B(v, cnt) do { for (unsigned q_ = 0; q_ < (cnt); q_++) fmt[k++] = (uint8_t)(v); } while (0)
-    B(0x4E, 40); B(0x00, 12); B(0xF6, 3); B(0xFC, 1); B(0x4E, 40);
-    for (unsigned r = 1; r <= 17; r++) {
-        B(0x00, 12); B(0xF5, 3); B(0xFE, 1); B(1, 1); B(1, 1); B(r, 1); B(1, 1); B(0xF7, 1);
-        B(0x4E, 22); B(0x00, 12); B(0xF5, 3); B(0xFB, 1); B(0x6C, 256); B(0xF7, 1);
-        B(0x4E, 40);
-    }
-#undef B
+    size_t k = format_stream(fmt, 1, 1);
     wd_select(&s_f, 0, 1, t);
     t0 = t;
     command(0xF0);
@@ -462,6 +488,77 @@ static int test_wd1793(void) {
     CHECK(!wd_request(&s_f), "track 50: no request");
     cpu(21, buf, NULL, 256, t + 2000000);
     CHECK(wd_read(&s_f, 0, t) & WD_ST_RNF, "track 50: RNF");
+
+    /* A 42-track drive's end stop (wd1793.h): a seek to 60 leaves the
+     * head at 41 and the track register at 60, and takes 60 steps' time.
+     * Read Address finds track 41's IDs; a read of track 60 finds none.
+     * The control is the default 82-track drive, whose head gets to 60,
+     * where the 42-track image has nothing. */
+    unsigned c, h;
+    for (int stop = 1; stop >= 0; stop--) {
+        wd_fresh();
+        if (stop) wd_drive_type(&s_f, 0, (mfm_geom_t){ 2, 42 }, t);
+        s_f.data = 60;
+        t0 = t;
+        command(0x10);
+        cpu(10, NULL, NULL, 0, t + 1000000);
+        CHECK(s_f.track == 60 && s_intrq_at == t0 + 60u * 6000u, "%s: seek 60 in 60 steps' time",
+              stop ? "end stop" : "control");
+        CHECK(s_f.drv[0].cyl == (stop ? 41 : 60), "%s: head at %u", stop ? "end stop" : "control",
+              s_f.drv[0].cyl);
+        bool found = read_id(&c, &h);
+        CHECK(stop ? found && c == 41 && h == 0 : !found, "%s: read address at the head",
+              stop ? "end stop" : "control");
+    }
+    s_f.sector = 1;
+    command(0x80);
+    cpu(21, buf, NULL, 256, t + 2000000);
+    CHECK(wd_read(&s_f, 0, t) & WD_ST_RNF, "end stop: track 60's sector 1 is not there");
+    /* Seek with verify: the head stays, and no ID says 61. */
+    wd_fresh();
+    wd_drive_type(&s_f, 0, (mfm_geom_t){ 2, 42 }, t);
+    s_f.data = 61;
+    command(0x14);
+    cpu(10, NULL, NULL, 0, t + 3000000);
+    CHECK(s_f.drv[0].cyl == 41 && (wd_read(&s_f, 0, t) & WD_ST_SEEK_ERR), "end stop: verify fails");
+    /* Write Track there formats the last track as track 61, over its own
+     * IDs; Restore steps out as far as the head went. */
+    k = format_stream(fmt, 61, 0);
+    t += 100;   /* not on the index, where a write track with no byte yet is lost */
+    command(0xF0);
+    cpu(21, NULL, fmt, k, t + 1000000);
+    serve();
+    trk = s_disc[0].img + mfm_track_offset(s_disc[0].g, 0, 41);
+    ns = mfm_index(trk, sec, ORIC_DISC_SECTORS_MAX);
+    CHECK(ns == 17 && sec[0].c == 61 && s_disc[0].puts == 1, "end stop: track 41 formatted as 61");
+    t0 = t;
+    command(0x00);
+    cpu(10, NULL, NULL, 0, t + 1000000);
+    CHECK(s_f.drv[0].cyl == 0 && s_f.track == 0 && s_intrq_at == t0 + 41u * 6000u,
+          "end stop: restore in 41 steps");
+    /* A type set with the head past its stop brings the head back. */
+    s_f.drv[1].cyl = 70;
+    wd_drive_type(&s_f, 1, (mfm_geom_t){ 1, 42 }, t);
+    CHECK(s_f.drv[1].cyl == 41, "a new type: head at %u", s_f.drv[1].cyl);
+
+    /* A one-sided drive has no side select: side 1 of the latch reads
+     * side 0's IDs, and a write there goes back to side 0. The control
+     * is the two-sided drive, which reads side 1's. */
+    for (int one = 1; one >= 0; one--) {
+        wd_fresh();
+        if (one) wd_drive_type(&s_f, 0, (mfm_geom_t){ 1, 82 }, t);
+        wd_select(&s_f, 0, 1, t);
+        bool found = read_id(&c, &h);
+        CHECK(found && c == 0 && h == (one ? 0u : 1u), "%s: side 1 reads H %u",
+              one ? "one-sided" : "control", h);
+        s_f.sector = 2;
+        command(0xA0);
+        cpu(21, NULL, data, 256, t + 1000000);
+        rq = wd_request(&s_f);
+        CHECK(rq && rq->put && rq->put_side == (one ? 0u : 1u), "%s: the write goes to side %u",
+              one ? "one-sided" : "control", rq ? rq->put_side : 9u);
+        serve();
+    }
     return 0;
 }
 
@@ -577,14 +674,18 @@ static int test_machine(void) {
 
 /* Sedoric 3.006, Ray McLaughlin's 1996 distribution disc, as TOSEC has it. */
 static const char SEDORIC_SHA1[] = "4cc7c19ecf04300e49fb0b84ce64a2899632b3ab";
+/* Oric DOS V1.13, TOSEC's ZZZ-UNK-ORICDOS.dsk (roms/README.md). */
+static const char ORICDOS_SHA1[] = "531c23153c23d845bf775abb10a5f9b029cb673d";
 
 static guest_t g;
-static host_disc_t s_sed, s_drive_a, s_drive_b;
+static host_disc_t s_sed, s_oricdos, s_drive_a, s_drive_b;
 static host_disc_t *s_drives[ORIC_DISC_DRIVES];
 
 static void serve_fields(guest_t *gg) { host_disc_serve(&gg->m, s_drives); }
 
-static bool find_sedoric(void) {
+/* The disc in roms/ whose SHA-1 is sha1, under any name ending .dsk,
+ * into *out. */
+static bool find_disc(const char *sha1_hex, host_disc_t *out) {
     const char *dir = getenv("PICO_ORIC_ROMS");
     char base[512];
     snprintf(base, sizeof base, "%s", dir ? dir : PICO_ORIC_SOURCE_DIR "/roms");
@@ -597,13 +698,13 @@ static bool find_sedoric(void) {
         if (n < 4 || strcmp(e->d_name + n - 4, ".dsk") != 0) continue;
         char path[1024];
         snprintf(path, sizeof path, "%s/%s", base, e->d_name);
-        if (host_disc_load(&s_sed, path) != NULL) continue;
+        if (host_disc_load(out, path) != NULL) continue;
         uint8_t dg[SHA1_DIGEST_LEN];
-        sha1(s_sed.img, s_sed.len, dg);
+        sha1(out->img, out->len, dg);
         char hex[41];
         for (int i = 0; i < 20; i++) snprintf(hex + 2 * i, 3, "%02x", dg[i]);
-        found = strcmp(hex, SEDORIC_SHA1) == 0;
-        if (!found) host_disc_free(&s_sed);
+        found = strcmp(hex, sha1_hex) == 0;
+        if (!found) host_disc_free(out);
     }
     closedir(d);
     return found;
@@ -785,48 +886,170 @@ static int test_sedoric(rom_id_t rom) {
     return 0;
 }
 
-/* INIT on a blank image: unformatted tracks in drive 1, formatted by
- * Sedoric's own write tracks, then a file saved there and listed. */
-static int test_init(void) {
+/* The first sector's ID on a disc's side s, track c; false if none. */
+static bool first_id(const host_disc_t *d, unsigned side, unsigned c, mfm_sector_t *out) {
+    mfm_sector_t sec[ORIC_DISC_SECTORS_MAX];
+    if (mfm_index(d->img + mfm_track_offset(d->g, side, c), sec, ORIC_DISC_SECTORS_MAX) == 0)
+        return false;
+    *out = sec[0];
+    return true;
+}
+
+/* INIT in drive 1, of type `drive`, on a new disc of `disc`, unformatted
+ * as the Discs page makes it (mfm_blank): formatted by Sedoric's own
+ * write tracks. With `save`, a file then saved there and listed. The
+ * disc is left in s_drive_b. */
+static int init_disc(const char *what, mfm_geom_t drive, mfm_geom_t disc, const char *cmd, bool save) {
     uint64_t at = boot(ROM_BASIC11);
-    CHECK(at, "INIT: no boot");
+    CHECK(at, "%s: no boot", what);
     if (!at) return 0;
-    mfm_geom_t gb = { 2, 42 };
     host_disc_free(&s_drive_b);
-    s_drive_b.g = gb;
-    s_drive_b.len = mfm_track_offset(gb, 1, 42);
-    s_drive_b.img = (uint8_t *)malloc(s_drive_b.len);
-    mfm_header(s_drive_b.img, gb);
-    memset(s_drive_b.img + ORIC_DISC_HEADER_LEN, 0x4E, s_drive_b.len - ORIC_DISC_HEADER_LEN);
+    host_disc_new(&s_drive_b, disc);
     s_drives[1] = &s_drive_b;
+    oric_disc_drive_type(&g.m, 1, drive);
     host_disc_insert(&g.m, 1, &s_drive_b);
 
     clear_screen();
-    type("INIT B,17,42,D\r");
-    CHECK(until("PRESS 'RETURN'", 200) >= 0, "INIT: the master prompt");
+    type(cmd);
+    CHECK(until("PRESS 'RETURN'", 200) >= 0, "%s: the master prompt", what);
     type("\r");
-    CHECK(until("Format (Y/N):", 200) >= 0, "INIT: format?");
+    CHECK(until("Format (Y/N):", 200) >= 0, "%s: format?", what);
     type("Y");
     int f = until("Formating complete", 20000);
-    CHECK(f >= 0, "INIT: formatting");
-    printf("  INIT: 84 tracks formatted in %d fields\n", f);
-    CHECK(until("Name:", 200) >= 0, "INIT: name");
+    CHECK(f >= 0, "%s: formatting", what);
+    printf("  %s: formatted in %d fields\n", what, f);
+    CHECK(until("Name:", 200) >= 0, "%s: name", what);
     type("M14\r");
-    CHECK(until("Init statement:", 200) >= 0, "INIT: statement");
+    CHECK(until("Init statement:", 200) >= 0, "%s: statement", what);
     type("\r");
-    CHECK(until("Master disc (Y/N):", 200) >= 0, "INIT: master?");
+    CHECK(until("Master disc (Y/N):", 200) >= 0, "%s: master?", what);
     type("N");
-    CHECK(until("Init another disc", 3000) >= 0, "INIT: another?");
+    CHECK(until("Init another disc", 3000) >= 0, "%s: another?", what);
     type("N");
-    CHECK(until("Ready", 3000) >= 0, "INIT: done");
+    CHECK(until("Ready", 3000) >= 0, "%s: done", what);
+    if (!save) return 0;
     clear_screen();
     type("10 PRINT\"ON B\"\r");
     type("SAVE\"B-M14\"\r");
     until("Ready", 400);
     clear_screen();
     type("DIR B\r");
-    CHECK(until("M14      .COM", 400) >= 0, "INIT: a file on the new disc");
+    CHECK(until("M14      .COM", 400) >= 0, "%s: a file on the new disc", what);
+    return 0;
+}
+
+/* INIT on new discs (design.md §10.5). The Discs page's disc for the
+ * default drive, two sides of 82 tracks, formatted to the full 82 and
+ * holding a file. Then the drive as the mechanism is (wd1793.h): a
+ * format larger than the drive completes, as on a real Oric, and has
+ * written its last tracks over the drive's last, whose IDs say track
+ * 81; a two-sided format in a one-sided drive has written side 1 over
+ * side 0, whose IDs say side 1. The control for both is the format that
+ * fits, whose IDs say what they are. */
+static int test_init(void) {
+    mfm_sector_t id;
+    init_disc("INIT 82, new disc", (mfm_geom_t){ 2, 82 }, (mfm_geom_t){ 2, 82 }, "INIT B,17,82,D\r",
+              true);
+    CHECK(first_id(&s_drive_b, 1, 81, &id) && id.c == 81 && id.h == 1, "INIT 82: track 81, side 1");
     write_disc(&s_drive_b, "init.dsk");
+
+    init_disc("INIT 42 (control)", (mfm_geom_t){ 2, 42 }, (mfm_geom_t){ 2, 42 }, "INIT B,17,42,D\r",
+              true);
+    CHECK(first_id(&s_drive_b, 0, 41, &id) && id.c == 41, "control: track 41 says %u", id.c);
+    CHECK(first_id(&s_drive_b, 0, 0, &id) && id.h == 0, "control: side 0 says side %u", id.h);
+
+    init_disc("INIT 82 in a 42-track drive", (mfm_geom_t){ 2, 42 }, (mfm_geom_t){ 2, 42 },
+              "INIT B,17,82,D\r", false);
+    CHECK(first_id(&s_drive_b, 0, 41, &id) && id.c == 81, "42-track drive: track 41 says %u", id.c);
+    CHECK(first_id(&s_drive_b, 1, 41, &id) && id.c == 81, "42-track drive: side 1's says %u", id.c);
+
+    init_disc("INIT D in a one-sided drive", (mfm_geom_t){ 1, 42 }, (mfm_geom_t){ 1, 42 },
+              "INIT B,17,42,D\r", false);
+    CHECK(first_id(&s_drive_b, 0, 0, &id) && id.h == 1, "one-sided drive: side 0 says side %u", id.h);
+    return 0;
+}
+
+/* Oric DOS's system disc in drive 0, booted to its menu and left by
+ * Space, and a new disc of `disc` in drive 1, of type `drive`. */
+static bool boot_oricdos(rom_id_t rom, mfm_geom_t drive, mfm_geom_t disc) {
+    oric_config_t cfg;
+    oric_config_default(&cfg);
+    cfg.rom = rom;
+    cfg.microdisc = true;
+    oric_init(&g.m, &cfg);
+    keymatrix_init(&g.k);
+    oric_load_rom(&g.m, guest_rom_image(rom), ORIC_ROM_SIZE);
+    oric_load_eprom(&g.m, guest_rom_image(ROM_MICRODISC), ORIC_EPROM_SIZE);
+    oric_power_on(&g.m);
+    g.after_field = serve_fields;
+    memset(s_drives, 0, sizeof s_drives);
+    copy_disc(&s_drive_a, &s_oricdos);
+    host_disc_free(&s_drive_b);
+    host_disc_new(&s_drive_b, disc);
+    s_drives[0] = &s_drive_a;
+    s_drives[1] = &s_drive_b;
+    oric_disc_drive_type(&g.m, 1, drive);
+    host_disc_insert(&g.m, 0, &s_drive_a);
+    host_disc_insert(&g.m, 1, &s_drive_b);
+    if (until("spacebar to quit", 1500) < 0) return false;
+    guest_type(&g, " ");
+    return until("Ready", 200) >= 0;
+}
+
+/* !FORMAT 1, the disc named NEWDISC, to what the system disc's !SYS
+ * says drive 1 is: 80 tracks, double-sided. */
+static int oricdos_format(const char *what) {
+    clear_screen();
+    type("!FORMAT 1\r");
+    CHECK(until("Disc name ?", 300) >= 0, "%s: the name prompt", what);
+    type("NEWDISC\r");
+    CHECK(until("press RETURN", 300) >= 0, "%s: the drive prompt", what);
+    type("\r");
+    int f = until("Format another", 20000);
+    CHECK(f >= 0 && row_has("Formatting complete"), "%s: formatting", what);
+    printf("  %s: formatted in %d fields\n", what, f);
+    type("N\r");
+    CHECK(until("Ready", 500) >= 0, "%s: done", what);
+    return 0;
+}
+
+/* The original DOS (design.md §10.5): on each ROM, a new disc for the
+ * default drive formatted by !FORMAT, a program saved on it, listed,
+ * loaded back and run. Then, as for Sedoric, a format larger than the
+ * drive: !SYS has drive 1 as two sides of 80 tracks, the drive is one
+ * side of 42, and the format completes, having written its last track
+ * over the drive's last, whose IDs say track 79. The control is the
+ * first, whose track 41 says 41. */
+static int test_oricdos(rom_id_t rom) {
+    const char *name = rom == ROM_BASIC10 ? "Oric DOS, Oric-1" : "Oric DOS, Atmos";
+    bool up = boot_oricdos(rom, (mfm_geom_t){ 2, 82 }, (mfm_geom_t){ 2, 82 });
+    CHECK(up, "%s: no boot", name);
+    if (!up) { guest_dump(&g.m, stderr); return 0; }
+    (void)oricdos_format(name);
+    clear_screen();
+    type("10 PRINT\"ON ONE\"\r");
+    type("!SAVE\"1-PROG\"\r");
+    until("Ready", 600);
+    clear_screen();
+    type("!DIR 1\r");
+    CHECK(until("2557 Free, Out of 2558", 400) >= 0 && row_has("PROG."), "%s: !DIR", name);
+    type("NEW\r");
+    clear_screen();
+    type("!LOAD\"1-PROG\"\r");
+    until("Ready", 600);
+    type("RUN\r");
+    CHECK(until("ON ONE", 200) >= 0, "%s: loaded and run", name);
+    mfm_sector_t id;
+    CHECK(first_id(&s_drive_b, 0, 41, &id) && id.c == 41, "%s: control, track 41 says %u", name, id.c);
+    if (rom == ROM_BASIC11) write_disc(&s_drive_b, "oricdos.dsk");
+
+    char what[64];
+    snprintf(what, sizeof what, "%s, one-sided 42-track drive", name);
+    up = boot_oricdos(rom, (mfm_geom_t){ 1, 42 }, (mfm_geom_t){ 1, 42 });
+    CHECK(up, "%s: no boot", what);
+    if (!up) return 0;
+    (void)oricdos_format(what);
+    CHECK(first_id(&s_drive_b, 0, 41, &id) && id.c == 79, "%s: track 41 says %u", what, id.c);
     return 0;
 }
 
@@ -839,7 +1062,7 @@ int main(int argc, char **argv) {
 
     const char *dir;
     bool roms = guest_find_roms(&dir) && guest_have_rom(ROM_MICRODISC);
-    if (!roms || !find_sedoric()) {
+    if (!roms || !find_disc(SEDORIC_SHA1, &s_sed)) {
         if (test_failures) TEST_DONE();
         printf("SKIP sedoric: needs basic10.rom, basic11b.rom, microdis.rom and Sedoric 3.006 "
                "(SHA-1 %s) as a .dsk in %s\n", SEDORIC_SHA1, dir);
@@ -848,5 +1071,13 @@ int main(int argc, char **argv) {
     if (test_sedoric(ROM_BASIC11)) return 1;
     if (test_sedoric(ROM_BASIC10)) return 1;
     if (test_init()) return 1;
+    if (!find_disc(ORICDOS_SHA1, &s_oricdos)) {
+        if (test_failures) TEST_DONE();
+        printf("SKIP oricdos: needs Oric DOS V1.13 (SHA-1 %s) as a .dsk in %s\n", ORICDOS_SHA1,
+               dir);
+        return TEST_SKIP_CODE;
+    }
+    if (test_oricdos(ROM_BASIC11)) return 1;
+    if (test_oricdos(ROM_BASIC10)) return 1;
     TEST_DONE();
 }

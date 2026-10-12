@@ -1184,6 +1184,38 @@ parks at the next field boundary and core 1 serves it from the card
 chip has written is posted back when the command ends, and before any other
 is read into its place. Tracks beyond an image's geometry are unformatted.
 
+**Each drive has a type, apart from the disc in it, and is modelled as the
+mechanism is** (`wd1793.h`; with the owner, 2026-10-12): one or two sides
+of 42 or 82 tracks, a Machine-page row each (§12) and `drive0`–`drive3` in
+the settings file (§10.7), two sides of 82 until set, which every one of
+TOSEC's 221 images fits (the largest have 82; M14's survey). 42 and 82
+because they hold what both DOSes format to: Sedoric's usual 42 and 82
+(TOSEC: 53 images of 2×82, 44 of 1×42, 33 of 2×42) and Oric DOS's 40 and
+80 (its `!SYS` offers only those, with one side or two). The head stops at
+the drive's last track and at track 0; the track register counts the steps
+past the stop all the same, so a command there finds the last track's IDs,
+and Write Track writes over that track. A one-sided drive has no side
+select: either side of the latch is the disc's first. **Nothing is
+refused**, as a real drive refuses nothing, and the DOS finds out when an
+ID does not match. Run on the host (`test_disc`), a format larger than the
+drive completes and claims room the drive lacks: Sedoric's `INIT
+B,17,82,D` in a two-sided 42-track drive, its last forty tracks of each
+side written over track 41; a two-sided `INIT` in a one-sided drive,
+side 1 written over side 0; Oric DOS's `!FORMAT 1` in a one-sided
+42-track drive, to the two sides of 80 its system disc's `!SYS` gives
+drive 1. Each leaves the last track's IDs naming the format's last track,
+and each control, the format that fits, names its own. What follows, seen
+in a scratch run on the host and not kept as a test: after `INIT
+B,17,82,D` in a 42-track drive, Sedoric's `DIR` reports 2,770 sectors
+free; of 26 saves of 16 KiB, the eleventh on end at `Ready` with no
+message, the chip having ended each write with Record Not Found, and
+`LOAD` then finds no such file; after the two-sided `INIT` in a
+one-sided drive, `DIR` prints its directory as garbage, then `READ FAULT
+10` and `?DISK I/O ERROR`. A real Oric with a drive smaller than its DOS
+is told does the same, which the Machine page's last note warns of. A
+state carries each head's position, not the drive's type, which is the
+port's (§10.6); a head past its drive's last track is put there.
+
 **What the chip does not model.** CRC errors: 24 of TOSEC's 221 images carry
 CRCs their tools never computed, and Oricutron, which never checks, loads
 them. Density: every image is MFM. READY, which the Microdisc ties active
@@ -1202,9 +1234,20 @@ keep the discs in them.
 
 **The Discs page** (`F2`) lists `/oric/discs/` with the drive each image is
 in and a `P` for write-protected, as pico-atom's does, with `< >` choosing
-among the four drives. **Formatting is supported**: Sedoric's `INIT` formats
-a blank image (a header and unformatted tracks) through the chip's Write
-Track, so a new disc is a file made on a computer and formatted by the DOS.
+among the four drives. **New disc** (2026-10-12) makes an image of the
+chosen drive's type, unformatted (`mfm_blank`: the header, then every
+track `#4E`), named on the status row (§12), and puts it in that drive;
+the DOS formats it through the chip's Write Track, Sedoric with `INIT`
+and Oric DOS with `!FORMAT`. It is written through `name.dsk.new` and a
+rename, a piece at a time with the keyboard polled between pieces (HW
+§6.1): the largest, two sides of 82 tracks, is 1,049,856 bytes, 3 to
+4.5 s at the card's measured write speed (HW §7.1). On the host both
+DOSes format a new disc made by the same function, which then holds a
+program, saved, listed and loaded (`test_disc`): Sedoric 3.006 in the
+Atmos, and Oric DOS V1.13 (TOSEC's `ZZZ-UNK-ORICDOS.dsk`, 2 sides of 80
+tracks) in both ROMs. Oricutron, booting each DOS from drive 0, lists
+and loads the program from each disc in drive 1 (`trace-diff.py disc
+--drive1`).
 
 **A tape that loads over page 4 hangs with Sedoric resident**, as it does in
 Oricutron (2026-10-10, after M16). Sedoric points the ROM's IRQ vector in
@@ -1305,8 +1348,9 @@ discs (§17).
 
 pico-ace's `settings.c` and rewriter with the Oric's keys: `rom` (`1.0`,
 `1.1`), `ram` (`16`, `48`), `microdisc` (`off`, `on`), `vsync_hack` (`off`,
-`on`; M16), `volume`, `perf`, `status`, `backlight`, `layout`, `fast_tape`,
-`boot_tape`, `boot_disc`.
+`on`; M16), `drive0`–`drive3` (`1x42`, `2x42`, `1x82`, `2x82`, sides by
+tracks; §10.5), `volume`, `perf`, `status`, `backlight`, `layout`,
+`fast_tape`, `boot_tape`, `boot_disc`.
 EL §8.7's rules unchanged; build-time `PICO_ORIC_BOOT_*` win.
 
 ---
@@ -1375,13 +1419,21 @@ between the three emulators finds everything where it was.
 
 - **Boot straight to `Ready`.** No splash.
 - **Alt+M** opens the menu and pauses the guest. Its items, in pico-atom's
-  order: Tapes (eject, play/stop, rewind, new tape, the files), Discs (from
-  M14; until then the page says it is not in this firmware yet), Snapshots
-  (slot, save, load, delete), Setup (status line, perf line, backlight,
-  volume, keys, fast tape), Machine (**ROM** 1.0/1.1, **RAM** 16K/48K,
-  **Microdisc** off/on from M14, **VSync hack** off/on from M16, all staged and applied by *Apply and
-  restart*, with a warning that the program is lost), Reset, Save settings,
-  About.
+  order: Tapes (eject, play/stop, rewind, new tape, the files), Discs
+  (empty the drive, new disc, the images), Snapshots (slot, save, load,
+  delete), Setup (status line, perf line, backlight, volume, keys, fast
+  tape), Machine (**ROM** 1.0/1.1, **RAM** 16K/48K, **Microdisc** off/on
+  from M14, **VSync hack** off/on from M16, **Drive 0–3** one or two sides
+  of 42 or 82 tracks (§10.5), all staged and applied by *Apply and
+  restart*, with a warning that the program is lost), Reset, Save
+  settings, About.
+- **A new tape or disc is named as it is made**, on the status row, an
+  inverse block for its cursor: letters, digits and `-`, up to 16, the
+  extension added. Not `_`, which the Oric's character set has as `£`.
+  The first free `TAPEnn` or `DISCnn` is offered, so Enter alone makes
+  what New made before names were asked; Bksp deletes, Esc cancels, and
+  a name already on the card is refused. The tape goes in the deck, the disc in the
+  chosen drive, and the page stays with the new file selected.
 - **F1** Tapes, **F2** Discs, **F3** Snapshots, **F4** Setup, **F5**
   Machine, **F6** screenshot, **F10** About, **Alt+H** the keys page,
   **Alt+P** pause. A page opened by a function key returns to the guest when
@@ -1893,6 +1945,7 @@ date, in this table when it changes.
 | Tape motor on PB6; output PB7; input CB1 | as §2.3 | schematic; ROM | **settled** 2026-10-08 from BN0130: TAPE IN through an LM358 comparator and TR1 to VIA pin 18 (CB1); VIA pin 17 (PB7) through R12/R13 to TAPE OUT; VIA pin 16 (PB6) through TR3 to relay RL1 (SK2 6–7). The input's polarity is the circuit's, to confirm by execution in M13. **Execution cannot tell it** (2026-10-09, M13): both ROMs time CB1 from rising edge to rising edge (PCR `#10`), and the two halves of each pair add to the same either way, so `test_cassette` loads at both polarities. The player idles high, CB1's pull-up, and follows PB7's sense. The relay counts as closed while PB6 is driven high as an output; a pin set as an input is taken as open, unmodelled |
 | Microdisc control/status bits | §10.5 | Microdisc schematic; EPROM and Sedoric, read | medium-high, 2026-10-10 (M14). Read off the EPROM (`#E337` builds the latch: drive bits 5–6 from a table of `#04 #24 #44 #64`, side bit 4; `#E393` sets bit 0 for a command; `#E3C0` takes INTRQ from `#0314` bit 7; `#E2EF` DRQ from `#0318` bit 7) and agreed by MAME's `microdisc.cpp` and Oricutron's `disk.c` bit for bit. One disagreement: MAME reads `#0314`'s bit 7 as INTRQ and bit 0, Oricutron as INTRQ alone; the EPROM sets bit 0 before every command, and Sedoric boots, saves, loads and formats either way, so execution cannot tell. Oricutron's is built. Not read off the schematic |
 | `MFM_DISK` layout | §10.5 | Oricutron's loader; archive images | **settled** 2026-10-10 (M14) from Oricutron's `diskimage_load` and TOSEC's 221 images: a 256-byte header, `MFM_DISK`, sides, tracks and geometry as little-endian words, then side 0's tracks and side 1's, 6,400 bytes each; 206 images are exactly that long, 10 are cut short, and 5 are not `MFM_DISK` (one `ORICDISK`); the 15 are refused by name. Every data mark is 34 bytes after its ID's CRC; Sedoric's tracks hold 17 sectors of 256 bytes 358 bytes apart, the first ID's sync at byte 108 |
+| Drive mechanics | the head stops at the drive's last track, the track register counting on; a one-sided drive ignores the latch's side | how a floppy drive is built; the WD1793 datasheet (the track register is the chip's count, not the head's) | medium, 2026-10-12. Not checked against a Microdisc drive. A real drive's stop may be a track or two past its rating; the type names the tracks the head reaches, so such a drive is a type with more. Both DOSes, run on the host, format past the stop without an error, as the model has them (§10.5) |
 | WD1793 clock and timing | 1 MHz: steps 6/12/20/30 ms, settle 30 ms, a byte 32 µs | MAME (`FD1793(config, fdc, 8_MHz_XTAL / 8)`); the datasheet | medium, 2026-10-10 (M14). The datasheet's 2 MHz times doubled. The track's 6,400 bytes at 32 µs make a revolution 204.8 ms, 2.4 % slower than a 300 rpm drive; no program has been seen to tell |
 | Overlay RAM at power-on | Oricutron's pattern | the DRAM; Oricutron | low, 2026-10-10 (M14). Real DRAM powers on in no fixed pattern; Sedoric's loader treats a zero sum over `#C980–#FFFF` as the DOS resident, which zero-filled RAM passes and real RAM almost never does (§6.3). Oricutron's default pattern is used |
 

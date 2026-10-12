@@ -41,6 +41,18 @@ void mfm_header(uint8_t *hdr, mfm_geom_t g);
 /* Where a track starts in the file. */
 uint32_t mfm_track_offset(mfm_geom_t g, unsigned side, unsigned track);
 
+/* The whole file's length. */
+static inline uint32_t mfm_image_len(mfm_geom_t g) {
+    return ORIC_DISC_HEADER_LEN + (uint32_t)g.sides * g.tracks * ORIC_DISC_TRACK_LEN;
+}
+
+/* Bytes [at, at + n) of a new disc of g, as the Discs page makes one: the
+ * header, then every track unformatted, all MFM_UNFORMATTED, which a
+ * DOS's format writes over (design.md §10.5). A piece at a time, so the
+ * port can write it out a buffer at a time. */
+#define MFM_UNFORMATTED 0x4Eu
+void mfm_blank(mfm_geom_t g, uint32_t at, uint8_t *p, size_t n);
+
 /* The WD1793's CRC: CCITT, x^16 + x^12 + x^5 + 1, from #FFFF over the
  * marks' three A1s, the mark and the field. */
 uint16_t mfm_crc(uint16_t crc, uint8_t b);

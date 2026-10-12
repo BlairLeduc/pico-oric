@@ -109,6 +109,8 @@
 /* ---- The card (design.md §10) ----------------------------------------- */
 
 #define ORIC_PATH_MAX         128u  /* a path on the card, with its NUL    */
+#define ORIC_MEDIA_NAME_MAX    16u  /* a new tape's or disc's name, typed in
+                                       the menu, without its extension     */
 #define ORIC_ROM_DIR     "/oric/roms" /* §10.1                              */
 #define ORIC_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
@@ -154,6 +156,11 @@
 #define ORIC_DISC_TRACKS_MAX  128u
 #define ORIC_DISC_SECTORS_MAX  32u
 #define ORIC_DISC_LIST_MAX     64u  /* images the Discs page lists      */
+
+/* A drive's type until the port sets one (wd1793.h): two sides of 82
+ * tracks, which every image in the archive fits (§10.5). */
+#define ORIC_DISC_DRIVE_SIDES   2u
+#define ORIC_DISC_DRIVE_TRACKS 82u
 
 /* ---- Timing (design.md §2.1, §11) ------------------------------------ */
 

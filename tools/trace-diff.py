@@ -393,8 +393,12 @@ def disc(args):
     if args.tap:
         # A tape in the deck too, played by the signal (tape's).
         cmd += ["-t", str(Path(args.tap).resolve())]
-    print("ROM %s, 48K, %s: %g s, %r, %g s, %r" % (args.rom, args.dsk, args.boot, args.keys,
-                                                   args.wait, args.then))
+    if args.drive1:
+        # A disc that does not boot, in drive 1 for the DOS in drive 0.
+        cmd += ["-D", str(Path(args.drive1).resolve())]
+    print("ROM %s, 48K, %s%s: %g s, %r, %g s, %r" % (
+        args.rom, args.dsk, ", drive 1 " + args.drive1 if args.drive1 else "", args.boot,
+        args.keys, args.wait, args.then))
     return subprocess.call(cmd, stdout=subprocess.DEVNULL)
 
 
@@ -428,6 +432,7 @@ def main():
     k.add_argument("--then", default="DIR\\n")
     k.add_argument("--wait", type=float, default=5.0)
     k.add_argument("--tap")
+    k.add_argument("--drive1")
     args = p.parse_args()
     if args.cmd == "run":
         if args.keys is not None:

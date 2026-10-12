@@ -25,6 +25,10 @@ int main(void) {
         CHECK(d.rom == cfg.rom && d.ram == cfg.ram && d.rom == ROM_BASIC11 &&
               d.ram == ORIC_RAM_48K, "the Atmos 48K (§18 item 3)");
         CHECK(!d.microdisc && !d.vsync_hack, "no Microdisc, no VSync hack");
+        bool all_82 = true;
+        for (unsigned i = 0; i < ORIC_DISC_DRIVES; i++)
+            all_82 = all_82 && d.drive[i].sides == 2u && d.drive[i].tracks == 82u;
+        CHECK(all_82, "every drive two sides of 82 tracks (§10.5)");
         CHECK(d.volume == 8u && !d.perf, "full volume, no perf line");
         CHECK(d.fast_tape, "fast tape (§10.3)");
         CHECK(!d.layout[0] && !d.boot_tape[0] && !d.boot_disc[0],
@@ -45,6 +49,10 @@ int main(void) {
             "RAM       = 16\r\n"
             "microdisc = ON\r\n"
             "vsync_hack = on\r\n"
+            "drive0    = 1x42\r\n"
+            "drive1    = 2X42\r\n"
+            "drive2    = 1x82\r\n"
+            "drive3    = 2x82\r\n"
             "volume    = 0\r\n"
             "Perf      = On\r\n"
             "status    = off\r\n"
@@ -59,6 +67,10 @@ int main(void) {
         CHECK(s.volume == 0u && s.perf && !s.status && s.backlight == 15u,
               "volume, perf, status, backlight");
         CHECK(!s.fast_tape, "fast_tape");
+        CHECK(s.drive[0].sides == 1u && s.drive[0].tracks == 42u && s.drive[1].sides == 2u &&
+                  s.drive[1].tracks == 42u && s.drive[2].sides == 1u && s.drive[2].tracks == 82u &&
+                  s.drive[3].sides == 2u && s.drive[3].tracks == 82u,
+              "drive0-drive3");
         CHECK(strcmp(s.boot_disc, "sedoric.dsk") == 0, "boot_disc: %s", s.boot_disc);
         CHECK(strcmp(s.layout, "CURSOR GAMES") == 0, "layout uppercased, spaces kept: %s",
               s.layout);
@@ -100,6 +112,11 @@ int main(void) {
             { "rom = basic11b.rom\n",  SET_BAD_VALUE },
             { "microdisc = yes\n",     SET_BAD_VALUE },
             { "vsync_hack = 1\n",      SET_BAD_VALUE },
+            { "drive0 = 2x80\n",       SET_BAD_VALUE },   /* 42 and 82 only (§10.5) */
+            { "drive1 = 3x82\n",       SET_BAD_VALUE },
+            { "drive2 = 82\n",         SET_BAD_VALUE },
+            { "drive4 = 2x82\n",       SET_UNKNOWN },
+            { "drive0 =\n",            SET_SYNTAX },
             { "volume = 9\n",          SET_BAD_VALUE },
             { "volume = -1\n",         SET_BAD_VALUE },
             { "volume = 99999999999\n", SET_BAD_VALUE },
@@ -221,6 +238,21 @@ int main(void) {
                   memcmp(out, none, strlen(none)) == 0 && strstr(out, "layout = CURSOR\n"),
               "a layout the file lacked is added after the user's lines:\n%.*s", (int)out_len,
               out);
+    }
+
+    /* A drive's type in place; one at the default, not in the file, is
+     * not added, and one changed from it is. */
+    {
+        const char *file = "drive1 = 2x82 # the second drive\n";
+        settings_default(&s);
+        CHECK(settings_parse(&s, file, strlen(file), &line) == SET_OK, "drive setup");
+        s.drive[1] = (mfm_geom_t){ 1, 42 };
+        CHECK(REWRITE(file, &s) == SET_OK && IS("drive1 = 1x42 # the second drive\n"),
+              "a drive's type in place:\n%.*s", (int)out_len, out);
+        settings_default(&s);
+        s.drive[3] = (mfm_geom_t){ 1, 82 };
+        CHECK(REWRITE("", &s) == SET_OK && IS("drive3 = 1x82\n"),
+              "only the drive changed is added:\n%.*s", (int)out_len, out);
     }
 
     /* status and backlight, as pico-atom has them (§12): a backlight of

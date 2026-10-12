@@ -18,6 +18,7 @@
 #include <stddef.h>
 
 #include "config.h"
+#include "mfmdisk.h"
 #include "oric.h"
 #include "romset.h"
 
@@ -30,6 +31,9 @@ typedef struct {
     oric_ram_t ram;         /* 16K or 48K (§6.2)                        */
     bool       microdisc;   /* the Microdisc fitted (§10.5, M14)        */
     bool       vsync_hack;  /* the vertical-sync modification (M16)     */
+    /* Each Microdisc drive's sides and tracks (§10.5), one of
+     * settings_drive_types. */
+    mfm_geom_t drive[ORIC_DISC_DRIVES];
     unsigned   volume;      /* 0-8, as the menu shows it                */
     bool       perf;        /* the perf line above the guest (§7.5, §14) */
     bool       status;      /* the status line below it (§12)           */
@@ -101,5 +105,12 @@ void settings_card_name(const char *dir, const char *path, char out[ORIC_PATH_MA
 /* The ROM and RAM as the file writes them: "1.0", "1.1"; "16", "48". */
 const char *settings_rom_str(rom_id_t rom);
 const char *settings_ram_str(oric_ram_t ram);
+
+/* The drives a drive<n> setting may name, as the Machine page offers
+ * them: one or two sides of 42 or 82 tracks (§10.5). The file writes
+ * them "1x42", "2x42", "1x82", "2x82". */
+#define SETTINGS_DRIVE_TYPES 4u
+extern const mfm_geom_t settings_drive_types[SETTINGS_DRIVE_TYPES];
+const char *settings_drive_str(mfm_geom_t type);
 
 #endif /* PICO_ORIC_SETTINGS_H */

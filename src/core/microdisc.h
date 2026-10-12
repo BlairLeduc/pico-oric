@@ -74,6 +74,10 @@ void oric_disc_served(oric_t *m, bool ok);
 void oric_disc_insert(oric_t *m, unsigned drive, mfm_geom_t g, bool protect);
 void oric_disc_eject(oric_t *m, unsigned drive);
 
+/* A drive's type, its sides and tracks (wd_drive_type); the port puts a
+ * written track back first. */
+void oric_disc_drive_type(oric_t *m, unsigned drive, mfm_geom_t type);
+
 /* A command in progress or a track waiting to go: a snapshot now would
  * lose it (design.md §10.6). */
 bool oric_disc_busy(const oric_t *m);

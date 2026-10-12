@@ -127,12 +127,14 @@ int main(void) {
     const settings_t *st = &g_boot.settings;
     const char *err = settingsio_error();
     log_printf("  settings     : card %s, file %s%s%s, %lu us; rom %s, ram %s, microdisc %s, "
-               "vsync_hack %s, volume %u, perf %s, status %s, backlight %u, layout %s, fast_tape %s, "
-               "boot_tape %s, boot_disc %s; booting the %s%s\n",
+               "vsync_hack %s, drives %s %s %s %s, volume %u, perf %s, status %s, backlight %u, "
+               "layout %s, fast_tape %s, boot_tape %s, boot_disc %s; booting the %s%s\n",
                card_state_str(g_boot.job.state), settingsio_state_str(settingsio_state()),
                err[0] ? ": " : "", err, (unsigned long)g_boot.job.settings_us,
                settings_rom_str(st->rom), settings_ram_str(st->ram), st->microdisc ? "on" : "off",
-               st->vsync_hack ? "on" : "off", st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
+               st->vsync_hack ? "on" : "off", settings_drive_str(st->drive[0]),
+               settings_drive_str(st->drive[1]), settings_drive_str(st->drive[2]),
+               settings_drive_str(st->drive[3]), st->volume, st->perf ? "on" : "off", st->status ? "on" : "off", st->backlight,
                g_ui.layout ? g_ui.layout->name : "standard", st->fast_tape ? "on" : "off",
                st->boot_tape[0] ? st->boot_tape : "none", st->boot_disc[0] ? st->boot_disc : "none",
                roms_machine_name(g_boot.want, g_boot.ram),

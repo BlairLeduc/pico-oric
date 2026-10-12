@@ -19,6 +19,11 @@ Ray McLaughlin's of 1996 as TOSEC has it, under any name ending `.dsk`, by
 SHA-1 `4cc7c19ecf04300e49fb0b84ce64a2899632b3ab`; without it the Sedoric
 cases skip. `tools/fetch-corpus.sh` fetches it with the rest of the archive:
 
+It looks for Oric DOS V1.13's system disc too, TOSEC's
+`ZZZ-UNK-ORICDOS.dsk`, by SHA-1 `531c23153c23d845bf775abb10a5f9b029cb673d`;
+without it the Oric DOS cases skip:
+
 ```sh
 cp out/corpus/dsk/Sedoric3*.dsk roms/sedoric3.dsk
+cp out/corpus/dsk/ZZZ-UNK-ORICDOS.dsk roms/oricdos.dsk
 ```

@@ -10,6 +10,8 @@
 
 #include "ff.h"
 
+#include "handoff.h"
+#include "kbd.h"
 #include "keymapio.h"
 #include "log.h"
 #include "mfmdisk.h"
@@ -25,6 +27,20 @@ static struct {
 } s_drive[ORIC_DISC_DRIVES];
 
 static uint32_t s_got, s_put;
+
+/* The drives' types: the default until the settings set them. */
+static mfm_geom_t s_type[ORIC_DISC_DRIVES] = {
+    { ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS }, { ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS },
+    { ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS }, { ORIC_DISC_DRIVE_SIDES, ORIC_DISC_DRIVE_TRACKS },
+};
+_Static_assert(ORIC_DISC_DRIVES == 4u, "a type for each drive");
+
+/* A new disc is written this much at a time, polling the keyboard
+ * between pieces at the live loop's rate, which also feeds the MCU's
+ * 2.5 s bus watchdog (hardware-notes.md §6.1). */
+#define NEW_PIECE 1600u
+#define POLL_US   33333u
+static uint8_t s_piece[NEW_PIECE];
 
 static bool serve_mounted(oric_t *m, bool mounted, uint32_t t0, uint32_t *us);
 
@@ -113,8 +129,81 @@ bool discio_protected(unsigned drive) {
 }
 
 void discio_attach(oric_t *m) {
-    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
+    for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++) {
+        oric_disc_drive_type(m, d, s_type[d]);
         if (s_drive[d].path[0]) oric_disc_insert(m, d, s_drive[d].geom, s_drive[d].protect);
+    }
+}
+
+void discio_set_type(unsigned drive, mfm_geom_t type) {
+    if (drive < ORIC_DISC_DRIVES) s_type[drive] = type;
+}
+
+mfm_geom_t discio_type(unsigned drive) {
+    return s_type[drive < ORIC_DISC_DRIVES ? drive : 0];
+}
+
+void discio_next_name(char out[ORIC_MEDIA_NAME_MAX + 1]) {
+    char path[ORIC_PATH_MAX];
+    static FILINFO fi;
+    out[0] = 0;
+    for (unsigned n = 1; n <= 99u; n++) {
+        snprintf(path, sizeof path, "%s/DISC%02u.dsk", DISCIO_DIR, n);
+        FRESULT fr = f_stat(path, &fi);
+        if (fr == FR_OK) continue;
+        if (fr == FR_NO_FILE) snprintf(out, ORIC_MEDIA_NAME_MAX + 1, "DISC%02u", n);
+        return;
+    }
+}
+
+/* The whole of a new disc of g into the open s_file, a piece at a time. */
+static FRESULT write_blank(mfm_geom_t g) {
+    uint32_t len = mfm_image_len(g), last_poll = time_us_32();
+    FRESULT fr = FR_OK;
+    for (uint32_t at = 0; fr == FR_OK && at < len; at += NEW_PIECE) {
+        UINT n = len - at < NEW_PIECE ? (UINT)(len - at) : NEW_PIECE, put = 0;
+        mfm_blank(g, at, s_piece, n);
+        fr = f_write(&s_file, s_piece, n, &put);
+        if (fr == FR_OK && put != n) fr = FR_DENIED;
+        if (time_us_32() - last_poll >= POLL_US) {
+            last_poll = time_us_32();
+            g_c1.key_events += kbd_poll();
+            g_c1.polls++;
+        }
+    }
+    return fr;
+}
+
+const char *discio_new(oric_t *m, unsigned drive, const char *name) {
+    if (drive >= ORIC_DISC_DRIVES) return "NO SUCH DRIVE";
+    char path[ORIC_PATH_MAX], tmp[ORIC_PATH_MAX + 4];
+    static FILINFO fi;
+    (void)f_mkdir("/oric");
+    (void)f_mkdir(DISCIO_DIR);
+    snprintf(path, sizeof path, "%s/%.*s.dsk", DISCIO_DIR, (int)ORIC_MEDIA_NAME_MAX, name);
+    snprintf(tmp, sizeof tmp, "%s.new", path);
+    FRESULT fr = f_stat(path, &fi);
+    if (fr == FR_OK) return "already there";
+    if (fr != FR_NO_FILE) return "card error";
+
+    mfm_geom_t g = s_type[drive];
+    uint32_t t0 = time_us_32();
+    /* A .new left by a disc cut short is written over. */
+    if (f_open(&s_file, tmp, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return "cannot create";
+    fr = write_blank(g);
+    FRESULT fc = f_close(&s_file);
+    if (fr == FR_OK) fr = fc;
+    if (fr == FR_OK) fr = f_rename(tmp, path);
+    uint32_t us = time_us_32() - t0;
+    if (fr != FR_OK) {
+        (void)f_unlink(tmp);
+        log_core1("  disc         : %s: FatFs %d after %lu us\n", path, (int)fr, (unsigned long)us);
+        return "card error";
+    }
+    log_core1("  disc         : %s made, %u side%s of %u tracks, %lu bytes in %lu us\n", path,
+              g.sides, g.sides > 1 ? "s" : "", g.tracks, (unsigned long)mfm_image_len(g),
+              (unsigned long)us);
+    return discio_insert(m, drive, path);
 }
 
 uint32_t discio_tracks(bool written) {
