@@ -2,7 +2,7 @@
 
 An Oric-1 and Oric Atmos emulator for the ClockworkPi PicoCalc, on a
 Raspberry Pi Pico 2 or compatible board (RP2350). Boards based on the
-RP2040 are not supported, as the emulator needs more SRAM than they have.
+RP2040 are not supported; too little SRAM to implement the emulator.
 
 ![BASIC](assets/basic.png)
 
@@ -11,9 +11,7 @@ computers built around a 6502A at 1 MHz, a 6522 VIA, an AY-3-8912 sound
 chip and a custom ULA that draws a 240×224 colour picture using serial
 attributes. The emulator runs the original BASIC ROMs on an emulated
 6502, in real time, with sound, `.tap` tapes, the Microdisc with
-Sedoric, snapshots and game layouts. Its menus and keys follow its
-siblings, [pico-atom](https://github.com/BlairLeduc/pico-atom) and
-[pico-jupiter-ace](https://github.com/BlairLeduc/pico-jupiter-ace).
+Sedoric, snapshots and game layouts. 
 
 > [!NOTE]
 > It does not emulate the Jasmin disc interface, the printer, joystick
@@ -33,20 +31,19 @@ The Machine page offers the ROM and the RAM as separate choices:
 
 - [Design](docs/design.md): the Oric as emulated, the architecture,
   budgets, milestones, and every guest fact and how each was settled.
-- [Milestones](docs/milestones.md): what each milestone verified, on
-  which board and when.
+- [Milestones](docs/milestones.md): what each milestone verified.
 - [PicoCalc hardware notes](docs/hardware-notes.md): the host platform.
-- [Emulator lessons](docs/emulator-lessons.md): what the earlier emulators
-  on the same hardware taught.
+- [Emulator lessons](docs/emulator-lessons.md): what this and earlier
+  emulators on the same hardware taught.
 - [Third-party material](THIRD-PARTY.md): what in here is not ours, and
   under what terms.
 
 ## ROM images
 
 The Oric's ROMs are copyrighted and are **not included**, neither in this
-repository nor in the firmware. Put them on the SD card in
-`/oric/roms/`. The emulator identifies each by its SHA-1, whatever the
-file is called, and these are the hashes it knows (also MAME's):
+repository nor in the firmware. You will need to add the ROMs to the SD card in
+`/oric/roms/`. The emulator identifies each by its SHA-1; it does not look for
+particular filenames:
 
 ```
 333116e6884d85aaa4dfc7578a91cceeea66d016  basic10.rom    BASIC 1.0, Oric-1
@@ -54,12 +51,12 @@ file is called, and these are the hashes it knows (also MAME's):
 0d2ef6e67322f48f4b7e08d8bbe68827e2074561  microdis.rom   Microdisc EPROM (optional)
 ```
 
-Check yours with `shasum *.rom`. Other dumps (the UK 1.0, localised 1.1s,
+Check you ROMs with `shasum *.rom`. Other dumps (the UK 1.0, localised 1.1s,
 the 1.2x rewrites) may boot, and the *About* page marks them
 *unrecognised*, but they are not the ROMs the emulator is tested
-against, and fast tape stands aside for them. If the ROM the machine
-needs is missing, the emulator shows a page naming it rather than a
-blank screen, and offers the other machine if its ROM is there.
+against. If the ROM the machine configuration needs is missing, the emulator
+shows a page rather than a blank screen, and offers the other machine if its
+ROM is there.
 
 For development, the host tests look for the same files in `roms/` at the
 top of this repository, which git ignores ([`roms/README.md`](roms/README.md)).
@@ -76,14 +73,11 @@ tools/build.sh -DPICO_ORIC_UART=OFF build/pico-release
 
 This makes `build/pico-release/pico-oric.uf2`. Hold BOOTSEL on the Pico
 while connecting it to a computer, and copy the `.uf2` onto the drive
-that appears. One image runs on the Pico 2, the Pico 2 W and the Pimoroni
-Pico Plus 2 W.
+that appears. One image runs on the Pico 2, and compatible boards.
 
 ## The SD card
 
-Everything the emulator reads or writes is under `/oric/`, beside
-pico-atom's `/atom/` and pico-ace's `/ace/`, so the three can share a
-card:
+Everything the emulator reads or writes is under `/oric/`:
 
 ```
 /oric/
