@@ -64,9 +64,10 @@ read it back. **By the owner** on a Pico 2 W, the same day: the discs
 work after a power cycle; the menus look right; a tape named by hand is
 made, and one named as a tape already there is refused. Found: `_`
 shows as `£` in the Oric's font, so it was taken out of the names and
-the cursor, which is now an inverse block. **Not checked:** the block
-cursor on the panel; a format larger than the drive on the board, which
-the host covers.
+the cursor, which is now an inverse block. Then, by the owner on the
+Pico 2 W the same day: the block cursor looks right, `_` is not taken,
+and Esc abandons the new tape or disc. **Not checked:** a format larger
+than the drive on the board, which the host covers.
 
 **After M16, the status line as pico-atom lays it out** (`status_format`
 in `src/core/status.*`, `wd_head_loaded` in `wd1793.h`, `draw_status`
