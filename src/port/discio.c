@@ -97,7 +97,7 @@ const char *discio_insert(oric_t *m, unsigned drive, const char *path) {
     s_drive[drive].geom = g;
     s_drive[drive].protect = protect;
     if (m) oric_disc_insert(m, drive, g, s_drive[drive].protect);
-    log_core1("  disc         : drive %c: %s, %u side%s of %u tracks%s\n", 'A' + drive, path,
+    log_core1("  disc         : drive %c: %s, %u side%s of %u tracks%s\n", '0' + drive, path,
               g.sides, g.sides > 1 ? "s" : "", g.tracks,
               s_drive[drive].protect ? ", write-protected" : "");
     keymapio_file_loaded(path);   /* a layout may name it (design.md §9.4) */
@@ -162,8 +162,8 @@ static bool serve_mounted(oric_t *m, bool mounted, uint32_t t0, uint32_t *us) {
     }
     *us = time_us_32() - t0;
     char put[24] = "", get[24] = "";
-    if (q.put) snprintf(put, sizeof put, "put %c%u:%u ", 'A' + q.put_drive, q.put_side, q.put_cyl);
-    if (q.get) snprintf(get, sizeof get, "get %c%u:%u ", 'A' + q.drive, q.side, q.cyl);
+    if (q.put) snprintf(put, sizeof put, "put %c.%u:%u ", '0' + q.put_drive, q.put_side, q.put_cyl);
+    if (q.get) snprintf(get, sizeof get, "get %c.%u:%u ", '0' + q.drive, q.side, q.cyl);
     log_core1("  disc         : %s%s%s, %lu us\n", put, get, ok ? "ok" : "FAILED",
               (unsigned long)*us);
     oric_disc_served(m, ok);

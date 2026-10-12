@@ -245,16 +245,16 @@ static void draw_snaps(void) {
                   " as the machine it was saved on.", false);
 }
 
-/* Which drive an image is in: A to D, or a space. */
+/* Which drive an image is in: 0 to 3, or a space. */
 static char drive_of(const char *path) {
     for (unsigned d = 0; d < ORIC_DISC_DRIVES; d++)
-        if (strcmp(path, discio_inserted(d)) == 0) return (char)('A' + d);
+        if (strcmp(path, discio_inserted(d)) == 0) return (char)('0' + d);
     return ' ';
 }
 
 static void draw_discs(void) {
     char line[TEXT_COLS + 1];
-    snprintf(line, sizeof line, " Drive < %c >  %s", 'A' + s_drive,
+    snprintf(line, sizeof line, " Drive < %c >  %s", '0' + s_drive,
              !s.card ? "No card" : s.n_discs ? "Image        In  R/O"
                                               : "No discs in /oric/discs/");
     textpage_line(s_scr, ROW_TOP, line, false);
@@ -263,7 +263,7 @@ static void draw_discs(void) {
         line[0] = 0;
         if (i == 0) {
             const char *in = discio_inserted(s_drive);
-            snprintf(line, sizeof line, " (Empty drive %c: %.18s)", 'A' + s_drive,
+            snprintf(line, sizeof line, " (Empty drive %c: %.18s)", '0' + s_drive,
                      in[0] ? base(in) : "empty now");
         } else if (i <= (int)s.n_discs) {
             const discio_entry_t *e = &s_discs[i - 1];
@@ -354,7 +354,7 @@ static void draw_machine(void) {
     textpage_line(s_scr, ROW_TOP + M_COUNT + 6, "   the Atmos's, each from the card.", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - The Microdisc needs 48K and", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   microdis.rom; it boots the disc", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 9, "   in drive A (F2).", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 9, "   in drive 0 (F2).", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 10, " - The VSync hack puts the sync on", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 11, "   the tape input, for the programs", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 12, "   that wait for it; fast tape only.", false);
@@ -534,7 +534,7 @@ static void open_discs(void) {
         if (strcmp(s_discs[i].path, discio_inserted(s_drive)) == 0) s.disc_sel = (int)i + 1;
     s.disc_top = s.disc_sel >= DISC_ROWS ? s.disc_sel - DISC_ROWS + 1 : 0;
     log_core1("  discs        : page open, drive %c, %u images in " DISCIO_DIR "%s\n",
-              'A' + s_drive, s.n_discs, s.card ? "" : " (no card)");
+              '0' + s_drive, s.n_discs, s.card ? "" : " (no card)");
     for (unsigned i = 0; i < s.n_discs; i++)
         log_core1("  discs        : %2u %s, %lu bytes%s%s%c\n", i + 1u, s_discs[i].path,
                   (unsigned long)s_discs[i].size, s_discs[i].protect ? ", read-only" : "",
@@ -839,16 +839,16 @@ static void key_discs(uint8_t c) {
         if (!s.card) { say(" No card", ""); return; }
         if (s.disc_sel == 0) {
             (void)discio_insert(s.m, s_drive, NULL);
-            snprintf(s.status, sizeof s.status, " Drive %c empty", 'A' + s_drive);
+            snprintf(s.status, sizeof s.status, " Drive %c empty", '0' + s_drive);
         } else {
             const discio_entry_t *e = &s_discs[s.disc_sel - 1];
             /* An image is in one drive at a time, as pico-atom's is. */
             char was = drive_of(e->path);
-            if (was != ' ' && was != (char)('A' + s_drive))
-                (void)discio_insert(s.m, (unsigned)(was - 'A'), NULL);
+            if (was != ' ' && was != (char)('0' + s_drive))
+                (void)discio_insert(s.m, (unsigned)(was - '0'), NULL);
             const char *err = discio_insert(s.m, s_drive, e->path);
             if (err) { say(" Not inserted: %.24s", err); return; }
-            snprintf(s.status, sizeof s.status, " In drive %c: %.24s", 'A' + s_drive,
+            snprintf(s.status, sizeof s.status, " In drive %c: %.24s", '0' + s_drive,
                      base(e->path));
         }
         s.page = P_MAIN;

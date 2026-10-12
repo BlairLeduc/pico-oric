@@ -80,7 +80,7 @@ bool card_eprom(const card_job_t *job, uint8_t eprom[ORIC_EPROM_SIZE]);
  * the defaults without a card or a file; then the machine they and the
  * build name into *cfg (boot_machine, handoff.h); then card_roms for its
  * ROM, in one mount; with the Microdisc, its EPROM into eprom, or the
- * Microdisc off, named, if the card has none; and boot_disc in drive A
+ * Microdisc off, named, if the card has none; and boot_disc in drive 0
  * (discio.h). */
 void card_boot(settings_t *s, card_job_t *job, oric_config_t *cfg,
                uint8_t image[ORIC_ROM_SIZE], uint8_t eprom[ORIC_EPROM_SIZE]);

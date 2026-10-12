@@ -1274,7 +1274,7 @@ snapshots are expected there.
   mid-command, so refuse a save while a disc command runs or a tape
   request waits. Do not refuse a load for it: the load replaces the
   machine, so power on first, even as the machine already running. The
-  Oric's Microdisc, booting with drive A empty, waits in its EPROM's read
+  Oric's Microdisc, booting with drive 0 empty, waits in its EPROM's read
   for ever, and until the load powered on first, every load was refused.
 - **Load in two passes.** The first reads and checks everything without
   touching the machine; only then does the second change anything. A torn,

@@ -19,7 +19,7 @@
  *             DIR, LOAD, RUN and DEL; a write-protected disc refuses
  *             SAVE; a disc swapped between fields is seen; a snapshot is
  *             refused mid-command and taken between; INIT formats a blank
- *             image in drive B, which then holds a file
+ *             image in drive 1, which then holds a file
  *
  *   test_disc --write DIR    also writes the disc with the saved program
  *                            as DIR/saved-<rom>.dsk and the INITed one as
@@ -655,7 +655,7 @@ static int until(const char *s, int max) {
     return row_has(s) ? max : -1;
 }
 
-/* Power on the 48K machine with the Microdisc and the disc in drive A,
+/* Power on the 48K machine with the Microdisc and the disc in drive 0,
  * to Sedoric's menu; then any key to BASIC. Returns guest cycles to the
  * menu, 0 if it never came. */
 static uint64_t boot(rom_id_t rom) {
@@ -785,7 +785,7 @@ static int test_sedoric(rom_id_t rom) {
     return 0;
 }
 
-/* INIT on a blank image: unformatted tracks in drive B, formatted by
+/* INIT on a blank image: unformatted tracks in drive 1, formatted by
  * Sedoric's own write tracks, then a file saved there and listed. */
 static int test_init(void) {
     uint64_t at = boot(ROM_BASIC11);

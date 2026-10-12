@@ -160,8 +160,9 @@ restart* on the Machine page turns it off and on again.
 bottom line says so. Any key carries on, and that key is not typed.
 
 **The lines above and below the screen.** The line along the bottom, the
-status line, shows the tape in the deck, and whether it is playing or
-recording; with the Microdisc, the disc in drive A and the drive in use.
+status line, shows the tape in the deck on the left, and whether it is
+playing or recording; with the Microdisc, the drive in use and its disc
+on the right, for a few seconds after each access.
 The line along the top, the perf line, shows the emulator's own figures:
 how much of the PicoCalc's first core the Oric takes, how many times real
 time it could run, the slowest screen update in the last second,
@@ -205,8 +206,8 @@ the Oric as fast as it can while a tape plays, without sound.
 
 The Microdisc, Oric's disc interface, is a row on the *Machine* page. It
 needs a 48K machine and `microdis.rom` on the card, and boots the disc in
-drive A. The *Discs* page (`F2`) puts an image in a drive: left and right
-choose the drive, A to D, and the first row empties it. Images are
+drive 0. The *Discs* page (`F2`) puts an image in a drive: left and right
+choose the drive, 0 to 3, and the first row empties it. Images are
 Oricutron's `MFM_DISK` `.dsk` files, as TOSEC has them; a file marked
 read-only on the card is a write-protected disc. Sedoric 3 is the DOS
 the emulator is tested with: it boots, saves, loads, deletes and
@@ -305,7 +306,7 @@ vsync_hack = off        # the vertical-sync modification
 volume     = 8          # 0-8
 layout     = standard   # or a layout's name, as the Setup page shows it
 boot_tape  =            # a tape in /oric/tapes/, in the deck at power-on
-boot_disc  =            # a disc in /oric/discs/, in drive A at power-on
+boot_disc  =            # a disc in /oric/discs/, in drive 0 at power-on
 perf       = off        # the emulator's own figures along the top; or on
 status     = on         # the tape and disc along the bottom; or off
 backlight  = 8          # 1-15, as the menu shows it; leave out to keep the last
@@ -324,7 +325,7 @@ menu's bottom row and the *About* page name the first problem.
 *Save settings* on the menu's first page writes what is in force: the
 machine as it is running, the volume, the backlight if you changed it,
 the status and perf lines, fast tape, the layout you chose, the tape you
-put in the deck and the disc in drive A. It edits the file rather than
+put in the deck and the disc in drive 0. It edits the file rather than
 replacing it. A line it changes keeps its place and its comment, and a
 setting the file does not mention is added at the end, only if it
 differs from its default. Anything else is left as it is. A layout

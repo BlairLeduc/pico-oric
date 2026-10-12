@@ -8,8 +8,8 @@
  *
  * Copied from pico-ace and adapted: the Oric's line carries the field
  * rate as well as the Ace's audio counters, which returned with M8, and
- * the pause line with M9. The status line's own text, the tape and the
- * disc, arrives with M10 and M14.
+ * the pause line with M9. The status line's own text, the deck on the
+ * left and the drive in use on the right, is pico-atom's layout.
  */
 #ifndef PICO_ORIC_STATUS_H
 #define PICO_ORIC_STATUS_H
@@ -35,6 +35,26 @@ typedef struct {
  * its widest rather than pushing the rest off, and the gaps close to one
  * space when the counts have grown, so the last figure never goes. */
 void status_perf_format(const perf_line_t *p, char out[ORIC_TEXT_COLS + 1]);
+
+/* What the deck is doing, for the status line. */
+typedef enum {
+    STATUS_DECK_IDLE = 0,
+    STATUS_DECK_PLAYING,
+    STATUS_DECK_RECORDING,
+} status_deck_t;
+
+/* No drive's head is loaded, or there is no Microdisc. */
+#define STATUS_NO_DRIVE 0xFFu
+
+/* The status line's text, ORIC_TEXT_COLS characters space-padded and a
+ * NUL: the deck on the left, `Tape: NAME.tap, playing`, and on the
+ * right the drive whose head is loaded, `Drive 0: NAME.dsk`, as
+ * pico-atom has them. `tape` is the deck's path and `disc` the drive's,
+ * "" for none, each shown without its folder; the drive's name is
+ * capped and the tape's shortened to fit what is left. `drive` is 0-3,
+ * or STATUS_NO_DRIVE for nothing on the right. */
+void status_format(status_deck_t deck, const char *tape, unsigned drive, const char *disc,
+                   char out[ORIC_TEXT_COLS + 1]);
 
 /* The status line while the guest is paused, whether or not the line
  * is on (design.md §12). */

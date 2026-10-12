@@ -163,4 +163,10 @@ void wd_eject(wd1793_t *f, unsigned drive, uint64_t now);
 /* Busy on a command: a snapshot now would lose it. */
 static inline bool wd_busy(const wd1793_t *f) { return (f->status & WD_ST_BUSY) != 0; }
 
+/* The head is loaded: a command runs, or one ended within the unload
+ * delay. The status line shows the drive while it is (status.h). */
+static inline bool wd_head_loaded(const wd1793_t *f, uint64_t now) {
+    return wd_busy(f) || now < f->head_until;
+}
+
 #endif /* PICO_ORIC_WD1793_H */

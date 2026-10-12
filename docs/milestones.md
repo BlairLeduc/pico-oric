@@ -4,6 +4,30 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**After M16, the status line as pico-atom lays it out** (`status_format`
+in `src/core/status.*`, `wd_head_loaded` in `wd1793.h`, `draw_status`
+in `core1.c`), on `main` on 2026-10-11 at the owner's request: the deck
+on the left and the drive whose head is loaded on the right, both at
+once, where the line used to show one or the other. A drive shows while
+a command runs and for the WD1793's unload delay after it (15
+revolutions, about 3 s), so it does not flicker between commands; an
+idle Microdisc no longer names drive A's disc. The drive's name is
+capped at 16 characters and the tape's shortened to fit. **Checked on
+the host:** `test_status` (no ROM, so in CI): nothing, the deck alone,
+the drive alone, both, an empty drive, recording, and both names too
+long, each to the exact line; all 33 tests pass. Both firmware builds
+pass, with and without the UART. **On the board**, by the owner on a
+Pico 2 W, 2026-10-11: as designed. **Not checked:** a recording beside
+a busy drive on the board.
+
+**After M16, the drives numbered 0 to 3**, as Tangerine shipped the
+Microdisc, on `main` on 2026-10-11 at the owner's request,
+where the emulator had lettered them A to D: the status line, the Discs
+page and its messages, a snapshot's missing disc ("Needs drive 0: …"),
+the log, the README and the comments. `test_status` holds the status
+line to the digits; all 33 host tests pass, and both firmware builds.
+**Not checked:** the numbered drives on the board.
+
 **After M16, a load powers on as the state's machine** (`snapshot_machine`
 in `src/core/snapshot.*`; `snapio_check` and `snapio_load` in
 `src/port/snapio.*`; `stage_roms` and `snap_switch` in `menu.c`), on

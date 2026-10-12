@@ -238,7 +238,7 @@ static void boot_tape(const settings_t *s) {
               err ? err : "");
 }
 
-/* boot_disc: a bare name is a file in /oric/discs/, into drive A
+/* boot_disc: a bare name is a file in /oric/discs/, into drive 0
  * (design.md §10.7); PICO_ORIC_BOOT_DISC wins over the file's (EL §8.7).
  * The machine is not built yet: discio keeps the drive, and core 0's
  * power-on puts it in (discio_attach). */
@@ -253,7 +253,7 @@ static void boot_disc(const settings_t *s) {
     else snprintf(path, sizeof path, "%s/%s", SETTINGS_DISC_DIR, name);
     const char *err = discio_insert(NULL, 0, path);
     if (err) settingsio_fail("boot_disc", err);
-    log_core1("  card         : boot_disc %s%s%s\n", path, err ? ": " : " in drive A",
+    log_core1("  card         : boot_disc %s%s%s\n", path, err ? ": " : " in drive 0",
               err ? err : "");
 }
 

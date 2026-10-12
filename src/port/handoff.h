@@ -21,6 +21,7 @@
 #include "romset.h"
 #include "settings.h"
 #include "snappool.h"
+#include "status.h"
 
 extern snappool_t g_pool;
 
@@ -102,20 +103,13 @@ typedef struct {
     uint32_t underruns;      /* underrun samples since boot (§8.4)       */
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t hz;             /* the last field's rate, 50 or 60          */
-    /* The deck, every field (design.md §10.4): DECK_IDLE, DECK_PLAYING
-     * or DECK_RECORDING, for the status line. */
+    /* The deck, every field (design.md §10.4): a status_deck_t, for
+     * the status line. */
     uint32_t deck;
+    /* The drive whose head is loaded, every field, or STATUS_NO_DRIVE
+     * when none is or there is no Microdisc (status.h). */
     uint32_t disc;
 } core0_perf_t;
-
-#define DECK_IDLE      0u
-#define DECK_PLAYING   1u
-#define DECK_RECORDING 2u
-
-/* The disc, every field: the drive a command runs on, DISC_IDLE, or
- * DISC_OFF without the Microdisc. */
-#define DISC_IDLE      0xFFu
-#define DISC_OFF       0xFEu
 
 extern volatile core0_perf_t g_c0;
 
