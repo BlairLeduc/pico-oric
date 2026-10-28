@@ -1017,6 +1017,21 @@ the survey undercounts; the BASIC scan covers part of that.
 
 The same shape as `/atom/` and `/ace/`, so the three can share a card.
 
+A file is stamped with the **PicoCalc shell's time** (`get_fattime()` in
+`diskio.c`, `fattime.c`), as pico-atom's and pico-ace's are. The shell
+keeps UTC in the RP2350's always-on timer, which survives its reboot into
+the emulator, and its local offset in POWMAN's scratch registers;
+`picocalc_shell_time()` reads both. The stamp is local time at the offset
+the shell had when it started the emulator. With no clock set (a power-on
+that started the emulator without the shell, or a copy installed from
+BOOTSEL), it is 2026-01-01 00:00, the date `FF_FS_NORTC` gave before. The
+calendar is pico-ace's, in the core, and `test_fattime` checks it against
+the system's `gmtime` across FAT's 1980–2107. Verified on a Plus 2 on
+2026-10-28: with the emulator started from the shell, Save settings wrote
+the settings file, and back in the shell its date and time were correct.
+Not checked: the unset clock's fixed date, and a stamp after the shell's
+offset has changed.
+
 ### 10.2 ROMs
 
 **Read from the card, identified by SHA-1** (§18 item 1), as pico-atom
@@ -1426,7 +1441,19 @@ between the three emulators finds everything where it was.
   from M14, **VSync hack** off/on from M16, **Drive 0–3** one or two sides
   of 42 or 82 tracks (§10.5), all staged and applied by *Apply and
   restart*, with a warning that the program is lost), Reset, Save
-  settings, About.
+  settings, Exit to shell, About.
+- **Exit to shell** returns to the PicoCalc shell, as pico-atom's and
+  pico-ace's do. Under UF2 Loader with the shell installed as
+  `/BOOT2350.UF2`, it reboots into the shell through the loader's stage3
+  (`picocalc_shell_exit()`, from `third_party/picocalc-shell/`), and the
+  running program is lost, as by a power-on. It unmounts the card first. It
+  refuses, and says why on the status row, when a recording is not on the
+  card yet (as *Apply and restart* does), when the firmware was not started
+  by the loader, or when there is no card to load the shell from.
+  Verified on a Plus 2 on 2026-10-28: started from the shell, settings
+  saved, then *Exit to shell* reached the shell; with no card, it refused.
+  Not checked: the refusal for an unsaved recording, or for firmware not
+  started by the loader.
 - **A new tape or disc is named as it is made**, on the status row, an
   inverse block for its cursor: letters, digits and `-`, up to 16, the
   extension added. Not `_`, which the Oric's character set has as `£`.

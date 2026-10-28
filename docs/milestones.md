@@ -4,6 +4,24 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §15.2 holds each milestone's scope
 and done-when criteria; this file keeps the full record.
 
+**After M16, the PicoCalc shell** (`third_party/picocalc-shell/`,
+`src/core/fattime.*`, `get_fattime()` in `src/port/diskio.c`, *Exit to
+shell* in `menu.c`), on 2026-10-28 at the owner's request (design.md
+§10.1, §12). Taken from pico-jupiter-ace, which has it from pico-atom:
+the shell's header verbatim at the commit `THIRD-PARTY.md` names, the
+calendar and its test renamed, `FF_FS_NORTC` 0, and the menu item between
+*Save settings* and *About*. **Checked on the host:** `test_fattime`
+passes, every day of 1980–2107 agreeing with `gmtime`; a planted bug (the
+civil-date offset one day out) failed it five ways, and was removed. Both
+firmware builds, with and without the UART, link `get_fattime` and
+`hardware_powman` clean under `-Werror`. **On the board**, a Plus 2, on
+2026-10-28, by the owner: started from the shell, *Save settings*, then
+*Exit to shell* reached the shell, and the settings file's date and time
+were correct there; with no card, *Exit to shell* refused. **Not
+checked:** the refusals for an unsaved recording and for firmware not
+started by the loader, the unset clock's fixed date, and a stamp after
+the shell's offset has changed.
+
 **After M16, drive types, new discs and named media** (`wd_drive_type`
 and the end stop in `src/core/wd1793.*`; `mfm_blank` in `mfmdisk.*`;
 `drive0`–`drive3` in `settings.*`; `discio_new` and the types in
