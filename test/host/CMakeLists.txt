@@ -5,6 +5,7 @@ set(PICO_ORIC_HOST_TESTS
     test_audio
     test_ay8912
     test_bus
+    test_fattime
     test_field
     test_keymap
     test_m6502_behaviour

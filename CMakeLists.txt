@@ -16,6 +16,7 @@ set(PICO_ORIC_CORE_SOURCES
     src/core/pcm.c
     src/core/bus.c
     src/core/cassette.c
+    src/core/fattime.c
     src/core/font.c
     src/core/font_fallback.c
     src/core/keylayout.c
@@ -262,6 +263,8 @@ else()
         src/port/textpage.c
     )
     pico_oric_firmware(pico-oric)
+    # picocalc_shell.h, the shell's return call and its time (design.md §12).
+    target_include_directories(pico-oric SYSTEM PRIVATE third_party/picocalc-shell)
 
     # The machine a build boots (design.md §4.1), over the Atmos 48K
     # default: PICO_ORIC_BOOT_ROM 10 or 11, PICO_ORIC_BOOT_RAM 16 or 48.
@@ -320,6 +323,7 @@ else()
         hardware_dma
         hardware_i2c
         hardware_irq
+        hardware_powman
         hardware_pwm
         hardware_spi
         hardware_sync
